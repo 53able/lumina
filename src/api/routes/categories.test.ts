@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app";
+import { CategoryListResponseSchema } from "../../shared/schemas/category";
 
 describe("カテゴリ情報取得API", () => {
   const app = createApp();
@@ -19,11 +20,11 @@ describe("カテゴリ情報取得API", () => {
 
       // Assert
       expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body).toHaveProperty("categories");
-      expect(body).toHaveProperty("defaultCategoryIds");
-      expect(Array.isArray(body.categories)).toBe(true);
-      expect(Array.isArray(body.defaultCategoryIds)).toBe(true);
+      const data = CategoryListResponseSchema.parse(await response.json());
+      expect(data.categories).toBeDefined();
+      expect(data.defaultCategoryIds).toBeDefined();
+      expect(Array.isArray(data.categories)).toBe(true);
+      expect(Array.isArray(data.defaultCategoryIds)).toBe(true);
     });
 
     it("正常系: カテゴリにはid, name, group, isDefaultプロパティが含まれる", async () => {
@@ -39,8 +40,8 @@ describe("カテゴリ情報取得API", () => {
       const response = await app.request(request);
 
       // Assert
-      const body = await response.json();
-      const firstCategory = body.categories[0];
+      const data = CategoryListResponseSchema.parse(await response.json());
+      const firstCategory = data.categories[0];
       expect(firstCategory).toHaveProperty("id");
       expect(firstCategory).toHaveProperty("name");
       expect(firstCategory).toHaveProperty("group");
@@ -61,8 +62,8 @@ describe("カテゴリ情報取得API", () => {
       const response = await app.request(request);
 
       // Assert
-      const body = await response.json();
-      expect(body.defaultCategoryIds).toEqual(expect.arrayContaining(expectedDefaults));
+      const data = CategoryListResponseSchema.parse(await response.json());
+      expect(data.defaultCategoryIds).toEqual(expect.arrayContaining(expectedDefaults));
     });
 
     it("正常系: Computer Scienceグループのカテゴリが含まれる", async () => {
@@ -78,8 +79,8 @@ describe("カテゴリ情報取得API", () => {
       const response = await app.request(request);
 
       // Assert
-      const body = await response.json();
-      const csCategories = body.categories.filter(
+      const data = CategoryListResponseSchema.parse(await response.json());
+      const csCategories = data.categories.filter(
         (c: { group: string }) => c.group === "Computer Science"
       );
       expect(csCategories.length).toBeGreaterThan(0);

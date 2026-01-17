@@ -33,7 +33,7 @@ const ARXIV_API_URL = "http://export.arxiv.org/api/query";
 const extractText = (xml: string, tag: string): string => {
   const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
   const match = xml.match(regex);
-  return match ? match[1].trim() : "";
+  return match?.[1]?.trim() ?? "";
 };
 
 /**
@@ -41,7 +41,7 @@ const extractText = (xml: string, tag: string): string => {
  */
 const extractAllText = (xml: string, tag: string): string[] => {
   const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
-  return Array.from(xml.matchAll(regex), (m) => m[1].trim());
+  return Array.from(xml.matchAll(regex), (m) => (m[1] ?? "").trim());
 };
 
 /**
@@ -59,12 +59,12 @@ const extractLink = (xml: string, rel: string, type?: string): string => {
   const typePattern = type ? `\\s+type="${type}"` : "";
   const regex = new RegExp(`<link[^>]*rel="${rel}"${typePattern}[^>]*href="([^"]*)"`, "i");
   const match = xml.match(regex);
-  if (match) return match[1];
+  if (match?.[1]) return match[1];
 
   // hrefが先に来る場合
   const regex2 = new RegExp(`<link[^>]*href="([^"]*)"[^>]*rel="${rel}"`, "i");
   const match2 = xml.match(regex2);
-  return match2 ? match2[1] : "";
+  return match2?.[1] ?? "";
 };
 
 /**
@@ -75,9 +75,8 @@ const extractLink = (xml: string, rel: string, type?: string): string => {
 const extractArxivId = (url: string): string => {
   // URLからabs/以降を取得
   const absMatch = url.match(/abs\/(.+)$/);
-  if (!absMatch) return url;
-
-  const idWithVersion = absMatch[1];
+  const idWithVersion = absMatch?.[1];
+  if (!idWithVersion) return url;
 
   // バージョン番号を除去 (v1, v2, etc.)
   return idWithVersion.replace(/v\d+$/, "");
@@ -142,11 +141,11 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
 
   // totalResultsを抽出
   const totalMatch = xml.match(/<opensearch:totalResults[^>]*>(\d+)<\/opensearch:totalResults>/i);
-  const totalResults = totalMatch ? Number.parseInt(totalMatch[1], 10) : 0;
+  const totalResults = totalMatch?.[1] ? Number.parseInt(totalMatch[1], 10) : 0;
 
   // エントリを抽出してパース
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/gi;
-  const papers = Array.from(xml.matchAll(entryRegex), (m) => parseArxivEntry(m[1]));
+  const papers = Array.from(xml.matchAll(entryRegex), (m) => parseArxivEntry(m[1] ?? ""));
 
   return {
     papers,
