@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+
+# Environment (ローカル開発用)
+.env
+.env.local
+.env.*.local
+.vercel
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+
+# Temporary
+tmp/
+*.log
+
+# Vite
+.vite/
+
+# TypeScript
+*.tsbuildinfo
+
+.cursor/**/*
