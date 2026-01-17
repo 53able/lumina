@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm build && tsc -p tsconfig.node.json --outDir .",
+  "buildCommand": "pnpm build",
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
