@@ -1,5 +1,5 @@
 import { handle } from "hono/vercel";
-import { createApp } from "../src/api/app";
+import { createApp } from "./api/app.js";
 
 const app = createApp();
 
@@ -11,4 +11,4 @@ export const DELETE = handle(app);
 export const PATCH = handle(app);
 
 // 型エクスポート（RPCクライアント用）
-export type { AppType } from "../src/api/app";
+export type { AppType } from "./api/app";
