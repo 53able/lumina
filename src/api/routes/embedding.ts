@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { EmbeddingRequestSchema, EmbeddingResponseSchema } from "../../shared/schemas";
-import { createEmbedding, getOpenAIConfig } from "../services/openai";
+import { EmbeddingRequestSchema, EmbeddingResponseSchema } from "../../shared/schemas.js";
+import { createEmbedding, getOpenAIConfig } from "../services/openai.js";
 
 /**
  * Embedding生成のルート定義

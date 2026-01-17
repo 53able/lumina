@@ -1,4 +1,4 @@
-import type { Paper } from "../../shared/schemas";
+import type { Paper } from "../../shared/schemas.js";
 
 /**
  * arXiv API クエリオプション
