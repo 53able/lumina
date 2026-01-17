@@ -3,8 +3,8 @@ import {
   type ExpandedQuery,
   SearchRequestSchema,
   SearchResponseSchema,
-} from "../../shared/schemas";
-import { createEmbedding, expandQuery, getOpenAIConfig } from "../services/openai";
+} from "../../shared/schemas.js";
+import { createEmbedding, expandQuery, getOpenAIConfig } from "../services/openai.js";
 
 /**
  * 検索APIのルート定義
