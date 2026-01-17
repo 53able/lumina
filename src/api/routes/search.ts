@@ -3,7 +3,7 @@ import {
   type ExpandedQuery,
   SearchRequestSchema,
   SearchResponseSchema,
-} from "../../shared/schemas.js";
+} from "../../shared/schemas/index.js";
 import { createEmbedding, expandQuery, getOpenAIConfig } from "../services/openai.js";
 
 /**

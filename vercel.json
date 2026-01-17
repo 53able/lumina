@@ -1,7 +1,9 @@
 {
+  "buildCommand": "pnpm build && tsc -p tsconfig.api.json",
+  "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "src/**/*.ts"
+      "includeFiles": "src/**/*.js"
     }
   },
   "rewrites": [

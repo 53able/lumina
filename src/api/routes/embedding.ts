@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { EmbeddingRequestSchema, EmbeddingResponseSchema } from "../../shared/schemas.js";
+import { EmbeddingRequestSchema, EmbeddingResponseSchema } from "../../shared/schemas/index.js";
 import { createEmbedding, getOpenAIConfig } from "../services/openai.js";
 
 /**

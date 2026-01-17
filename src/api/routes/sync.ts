@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Paper } from "../../shared/schemas.js";
-import { SyncRequestSchema, SyncResponseSchema } from "../../shared/schemas.js";
+import type { Paper } from "../../shared/schemas/index.js";
+import { SyncRequestSchema, SyncResponseSchema } from "../../shared/schemas/index.js";
 import { fetchArxivPapers } from "../services/arxivFetcher.js";
 import { createEmbedding, getOpenAIConfig, type OpenAIConfig } from "../services/openai.js";
 

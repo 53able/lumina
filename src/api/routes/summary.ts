@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { PaperSummarySchema } from "../../shared/schemas.js";
+import { PaperSummarySchema } from "../../shared/schemas/index.js";
 import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai.js";
 
 /**
