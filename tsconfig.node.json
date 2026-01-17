@@ -7,10 +7,10 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
-    "noEmit": false,
-    "declaration": false,
+    "noEmit": true,
 
     /* Linting */
     "strict": true,
@@ -24,6 +24,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["api/**/*.ts", "src/api/**/*.ts", "src/shared/**/*.ts"],
-  "exclude": ["**/*.test.ts", "src/test/**"]
+  "include": ["vite.config.ts"]
 }

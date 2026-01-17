@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
-import { createApp } from "./app.js";
+import { createApp } from "./app";
 
 // .env.local を読み込む
 const loadEnvFile = (filename: string) => {

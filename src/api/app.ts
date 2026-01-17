@@ -1,13 +1,13 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { logger } from "hono/logger";
-import { createAuthMiddleware } from "./middleware/auth.js";
-import { categoriesApp } from "./routes/categories.js";
-import { embeddingApp } from "./routes/embedding.js";
-import { healthRoute } from "./routes/health.js";
-import { searchApp } from "./routes/search.js";
-import { summaryApp } from "./routes/summary.js";
-import { syncApp } from "./routes/sync.js";
+import { createAuthMiddleware } from "./middleware/auth";
+import { categoriesApp } from "./routes/categories";
+import { embeddingApp } from "./routes/embedding";
+import { healthRoute } from "./routes/health";
+import { searchApp } from "./routes/search";
+import { summaryApp } from "./routes/summary";
+import { syncApp } from "./routes/sync";
 
 /**
  * Hono アプリケーションの作成

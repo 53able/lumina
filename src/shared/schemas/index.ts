@@ -9,7 +9,7 @@ export {
   type CategoryListResponse,
   CategoryListResponseSchema,
   CategorySchema,
-} from "./category.js";
+} from "./category";
 
 // Embedding
 export {
@@ -18,7 +18,7 @@ export {
   EmbeddingRequestSchema,
   type EmbeddingResponse,
   EmbeddingResponseSchema,
-} from "./embedding.js";
+} from "./embedding";
 
 // Interaction
 export {
@@ -28,14 +28,14 @@ export {
   InteractionTypeSchema,
   type UserInteraction,
   UserInteractionSchema,
-} from "./interaction.js";
+} from "./interaction";
 // Paper
 export {
   type Paper,
   PaperSchema,
   type PaperSummary,
   PaperSummarySchema,
-} from "./paper.js";
+} from "./paper";
 // Search
 export {
   type ExpandedQuery,
@@ -46,7 +46,7 @@ export {
   SearchRequestSchema,
   type SearchResponse,
   SearchResponseSchema,
-} from "./search.js";
+} from "./search";
 
 // Sync
 export {
@@ -56,4 +56,4 @@ export {
   SyncRequestSchema,
   type SyncResponse,
   SyncResponseSchema,
-} from "./sync.js";
+} from "./sync";
