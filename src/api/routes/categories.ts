@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { type Category, CategoryListResponseSchema } from "../../shared/schemas.js";
+import { type Category, CategoryListResponseSchema } from "../../shared/schemas";
 
 /**
  * デフォルトで選択されるカテゴリID

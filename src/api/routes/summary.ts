@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { PaperSummarySchema } from "../../shared/schemas.js";
-import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai.js";
+import { PaperSummarySchema } from "../../shared/schemas";
+import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai";
 
 /**
  * 生成対象の種類

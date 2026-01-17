@@ -7,10 +7,10 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
-    "noEmit": true,
+    "noEmit": false,
+    "declaration": false,
 
     /* Linting */
     "strict": true,
@@ -24,5 +24,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["api/index.ts", "src/api/**/*"]
+  "include": ["api/**/*.ts", "src/api/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["**/*.test.ts", "src/test/**"]
 }

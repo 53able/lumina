@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "api:dev": "tsx watch --clear-screen=false src/api/server.ts",
-    "build": "vite build",
+    "build": "vite build && tsc -p tsconfig.node.json --outDir .",
     "preview": "vite preview",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
