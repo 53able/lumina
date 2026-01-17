@@ -8,8 +8,8 @@
       "destination": "/api"
     },
     {
-      "source": "/(.*)",
-      "destination": "/"
+      "source": "/health",
+      "destination": "/api"
     }
   ]
 }
