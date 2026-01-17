@@ -2,7 +2,12 @@
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
   "framework": null,
-  "runtime": "node20.x",
+  "functions": {
+    "api/index.ts": {
+      "runtime": "@vercel/node@3",
+      "includeFiles": "src/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/:path*",
