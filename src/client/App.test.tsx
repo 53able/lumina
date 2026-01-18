@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { InteractionProvider } from "./contexts/InteractionContext";
 
 /**
  * テスト用のQueryClientラッパー
@@ -25,13 +26,15 @@ const createTestQueryClient = () =>
   });
 
 /**
- * QueryClientProviderとMemoryRouterでラップしたレンダリングヘルパー
+ * QueryClientProviderとMemoryRouterとInteractionProviderでラップしたレンダリングヘルパー
  */
 const renderWithProviders = (ui: ReactNode) => {
   const testQueryClient = createTestQueryClient();
   return render(
     <MemoryRouter>
-      <QueryClientProvider client={testQueryClient}>{ui}</QueryClientProvider>
+      <QueryClientProvider client={testQueryClient}>
+        <InteractionProvider>{ui}</InteractionProvider>
+      </QueryClientProvider>
     </MemoryRouter>
   );
 };
@@ -42,16 +45,16 @@ vi.stubGlobal("fetch", vi.fn());
 // interactionStoreのモック
 const mockToggleLike = vi.fn();
 const mockToggleBookmark = vi.fn();
-const mockGetLikedPaperIds = vi.fn(() => new Set<string>());
-const mockGetBookmarkedPaperIds = vi.fn(() => new Set<string>());
+let mockLikedPaperIds = new Set<string>();
+let mockBookmarkedPaperIds = new Set<string>();
 
 vi.mock("@/client/stores/interactionStore", () => ({
   useInteractionStore: vi.fn((selector) => {
     const state = {
       toggleLike: mockToggleLike,
       toggleBookmark: mockToggleBookmark,
-      getLikedPaperIds: mockGetLikedPaperIds,
-      getBookmarkedPaperIds: mockGetBookmarkedPaperIds,
+      getLikedPaperIds: () => mockLikedPaperIds,
+      getBookmarkedPaperIds: () => mockBookmarkedPaperIds,
     };
     return selector ? selector(state) : state;
   }),
@@ -72,14 +75,14 @@ const mockSearchHistories = [
     createdAt: new Date("2026-01-17T10:00:00Z"),
   },
 ];
-const mockGetRecentHistories = vi.fn(() => mockSearchHistories);
+let mockRecentHistories = mockSearchHistories;
 const mockDeleteHistory = vi.fn();
 
 vi.mock("@/client/stores/searchHistoryStore", () => ({
   useSearchHistoryStore: vi.fn((selector) => {
     const state = {
       histories: mockSearchHistories,
-      getRecentHistories: mockGetRecentHistories,
+      getRecentHistories: () => mockRecentHistories,
       deleteHistory: mockDeleteHistory,
     };
     return selector ? selector(state) : state;
@@ -112,10 +115,25 @@ vi.mock("@/client/stores/paperStore", () => ({
   }),
 }));
 
+// usePaperFilterをモック
+vi.mock("@/client/hooks/usePaperFilter", () => ({
+  usePaperFilter: () => ({
+    filterMode: "all" as const,
+    selectedCategories: new Set<string>(),
+    toggleFilterMode: vi.fn(),
+    toggleCategory: vi.fn(),
+    clearAllFilters: vi.fn(),
+    filterPapers: (papers: unknown[]) => papers, // パススルー
+  }),
+}));
+
 describe("App", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    mockLikedPaperIds = new Set<string>();
+    mockBookmarkedPaperIds = new Set<string>();
+    mockRecentHistories = mockSearchHistories;
   });
 
   describe("レンダリング", () => {
@@ -154,8 +172,8 @@ describe("App", () => {
 
   describe("いいね/ブックマーク機能", () => {
     beforeEach(() => {
-      mockGetLikedPaperIds.mockReturnValue(new Set<string>());
-      mockGetBookmarkedPaperIds.mockReturnValue(new Set<string>());
+      mockLikedPaperIds = new Set<string>();
+      mockBookmarkedPaperIds = new Set<string>();
     });
 
     it("正常系: いいねボタンをクリックするとinteractionStoreのtoggleLikeが呼ばれる", async () => {
@@ -194,7 +212,7 @@ describe("App", () => {
 
     it("正常系: いいね済みの論文はいいねボタンがアクティブ状態で表示される", async () => {
       // いいね済み状態をモック
-      mockGetLikedPaperIds.mockReturnValue(new Set(["2401.00001"]));
+      mockLikedPaperIds = new Set(["2401.00001"]);
 
       renderWithProviders(<App />);
 
@@ -210,7 +228,7 @@ describe("App", () => {
 
     it("正常系: ブックマーク済みの論文はブックマークボタンがアクティブ状態で表示される", async () => {
       // ブックマーク済み状態をモック
-      mockGetBookmarkedPaperIds.mockReturnValue(new Set(["2401.00001"]));
+      mockBookmarkedPaperIds = new Set(["2401.00001"]);
 
       renderWithProviders(<App />);
 
@@ -227,7 +245,7 @@ describe("App", () => {
 
   describe("検索履歴機能", () => {
     beforeEach(() => {
-      mockGetRecentHistories.mockReturnValue(mockSearchHistories);
+      mockRecentHistories = mockSearchHistories;
     });
 
     it("正常系: 検索履歴セクションが表示される", () => {
@@ -254,7 +272,7 @@ describe("App", () => {
     });
 
     it("正常系: 検索履歴がない場合は空状態メッセージを表示する", () => {
-      mockGetRecentHistories.mockReturnValue([]);
+      mockRecentHistories = [];
 
       renderWithProviders(<App />);
 

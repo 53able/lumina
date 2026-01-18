@@ -21,7 +21,6 @@ import { useSemanticSearch } from "@/client/hooks/useSemanticSearch";
 import { useSyncPapers } from "@/client/hooks/useSyncPapers";
 import { summaryApi } from "@/client/lib/api";
 import { PaperPage } from "@/client/pages/PaperPage";
-import { useInteractionStore } from "@/client/stores/interactionStore";
 import { usePaperStore } from "@/client/stores/paperStore";
 import { useSearchHistoryStore } from "@/client/stores/searchHistoryStore";
 import { useSettingsStore } from "@/client/stores/settingsStore";
@@ -88,12 +87,6 @@ const HomePage: FC = () => {
       .map((s) => [s.paperId, s.whyRead as string])
   );
 
-  // いいね/ブックマーク状態（interactionStore経由で永続化）
-  const { toggleLike, toggleBookmark, getLikedPaperIds, getBookmarkedPaperIds } =
-    useInteractionStore();
-  const likedPaperIds = getLikedPaperIds();
-  const bookmarkedPaperIds = getBookmarkedPaperIds();
-
   // 検索履歴（searchHistoryStore経由で永続化）
   const { addHistory, getRecentHistories, deleteHistory } = useSearchHistoryStore();
   const recentHistories = getRecentHistories(10);
@@ -129,22 +122,6 @@ const HomePage: FC = () => {
       return searchResults.map((r) => r.paper);
     },
     [search]
-  );
-
-  // いいねハンドラー（interactionStore経由で永続化）
-  const handleLike = useCallback(
-    (paperId: string) => {
-      toggleLike(paperId);
-    },
-    [toggleLike]
-  );
-
-  // ブックマークハンドラー（interactionStore経由で永続化）
-  const handleBookmark = useCallback(
-    (paperId: string) => {
-      toggleBookmark(paperId);
-    },
-    [toggleBookmark]
   );
 
   // 論文クリックハンドラー（インライン展開のトグル）
@@ -382,10 +359,6 @@ const HomePage: FC = () => {
           {selectedPaper && (
             <PaperDetail
               paper={selectedPaper}
-              onLike={handleLike}
-              onBookmark={handleBookmark}
-              isLiked={likedPaperIds.has(selectedPaper.id)}
-              isBookmarked={bookmarkedPaperIds.has(selectedPaper.id)}
               summary={currentSummary}
               onGenerateSummary={handleGenerateSummary}
               isSummaryLoading={isSummaryLoading}
@@ -442,11 +415,7 @@ const HomePage: FC = () => {
               initialPapers={displayPapers}
               onSearch={handleSearch}
               onClear={handleClearSearch}
-              onLike={handleLike}
-              onBookmark={handleBookmark}
               onPaperClick={handlePaperClick}
-              likedPaperIds={likedPaperIds}
-              bookmarkedPaperIds={bookmarkedPaperIds}
               externalQuery={expandedQuery?.original ?? null}
               whyReadMap={whyReadMap}
               onRequestSync={hasMorePapers ? syncMore : undefined}
@@ -458,10 +427,6 @@ const HomePage: FC = () => {
                   ? (paper) => (
                       <PaperDetail
                         paper={paper}
-                        onLike={handleLike}
-                        onBookmark={handleBookmark}
-                        isLiked={likedPaperIds.has(paper.id)}
-                        isBookmarked={bookmarkedPaperIds.has(paper.id)}
                         summary={getSummaryByPaperIdAndLanguage(paper.id, summaryLanguage)}
                         onGenerateSummary={handleGenerateSummary}
                         isSummaryLoading={isSummaryLoading}

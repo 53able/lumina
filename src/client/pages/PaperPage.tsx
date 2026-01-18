@@ -6,7 +6,6 @@ import { BackToListLink } from "@/client/components/BackToListLink";
 import { PaperDetail } from "@/client/components/PaperDetail";
 import { Button } from "@/client/components/ui/button";
 import { usePaperSummary } from "@/client/hooks/usePaperSummary";
-import { useInteractionStore } from "@/client/stores/interactionStore";
 import { usePaperStore } from "@/client/stores/paperStore";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 
@@ -36,12 +35,6 @@ export const PaperPage: FC = () => {
         });
       },
     });
-
-  // いいね/ブックマーク（Zustandストアから直接取得）
-  const { toggleLike, toggleBookmark, getLikedPaperIds, getBookmarkedPaperIds } =
-    useInteractionStore();
-  const likedPaperIds = getLikedPaperIds();
-  const bookmarkedPaperIds = getBookmarkedPaperIds();
 
   // 論文が見つからない場合
   if (!paper) {
@@ -84,10 +77,6 @@ export const PaperPage: FC = () => {
         <div className="rounded-xl border border-border/40 bg-card/50 backdrop-blur-sm shadow-sm">
           <PaperDetail
             paper={paper}
-            onLike={toggleLike}
-            onBookmark={toggleBookmark}
-            isLiked={likedPaperIds.has(paper.id)}
-            isBookmarked={bookmarkedPaperIds.has(paper.id)}
             summary={summary}
             onGenerateSummary={(_paperId, language, target) => generateSummary(language, target)}
             isSummaryLoading={isLoading}

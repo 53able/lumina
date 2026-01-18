@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "sonner";
 import { App } from "./App";
+import { InteractionProvider } from "./contexts/InteractionContext";
 import { luminaDb } from "./db/db";
 import { initializeInteractionStore } from "./stores/interactionStore";
 import { initializePaperStore } from "./stores/paperStore";
@@ -44,16 +45,18 @@ Promise.all([
     <StrictMode>
       <BrowserRouter>
         <QueryClientProvider client={queryClient}>
-          <App />
-          <Toaster
-            position="bottom-right"
-            richColors
-            closeButton
-            toastOptions={{
-              className: "font-sans",
-              duration: 4000,
-            }}
-          />
+          <InteractionProvider>
+            <App />
+            <Toaster
+              position="bottom-right"
+              richColors
+              closeButton
+              toastOptions={{
+                className: "font-sans",
+                duration: 4000,
+              }}
+            />
+          </InteractionProvider>
         </QueryClientProvider>
       </BrowserRouter>
     </StrictMode>
