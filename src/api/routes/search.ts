@@ -43,12 +43,13 @@ export const searchApp = new Hono().post(
         took: Date.now() - startTime,
       });
     } catch (error) {
-      // APIキーがない場合はスタブを返す
+      // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）
       if (error instanceof Error && error.message.includes("API key")) {
         const expandedQuery = generateStubExpandedQuery(body.query);
         return c.json({
           results: [],
           expandedQuery,
+          queryEmbedding: [],
           took: Date.now() - startTime,
         });
       }

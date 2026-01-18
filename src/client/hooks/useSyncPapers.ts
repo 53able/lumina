@@ -3,7 +3,54 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { syncApi } from "@/client/lib/api";
 import { usePaperStore } from "@/client/stores/paperStore";
 import { useSettingsStore } from "@/client/stores/settingsStore";
-import type { SyncResponse } from "@/shared/schemas";
+import type { Paper, SyncResponse } from "@/shared/schemas";
+
+/**
+ * APIレスポンスの論文データを正規化（日付文字列をDateオブジェクトに変換）
+ *
+ * Hono RPC の型推論では Date として扱われるが、
+ * 実際の JSON レスポンスでは ISO 文字列として返ってくるため変換が必要
+ */
+const normalizePaper = (paper: {
+  id: string;
+  title: string;
+  abstract: string;
+  authors: string[];
+  categories: string[];
+  publishedAt: string | Date;
+  updatedAt: string | Date;
+  pdfUrl: string;
+  arxivUrl: string;
+  embedding?: number[];
+}): Paper => ({
+  ...paper,
+  publishedAt: paper.publishedAt instanceof Date ? paper.publishedAt : new Date(paper.publishedAt),
+  updatedAt: paper.updatedAt instanceof Date ? paper.updatedAt : new Date(paper.updatedAt),
+});
+
+/**
+ * APIレスポンスを正規化（論文データの日付変換）
+ */
+const normalizeSyncResponse = (response: {
+  papers: Array<{
+    id: string;
+    title: string;
+    abstract: string;
+    authors: string[];
+    categories: string[];
+    publishedAt: string | Date;
+    updatedAt: string | Date;
+    pdfUrl: string;
+    arxivUrl: string;
+    embedding?: number[];
+  }>;
+  fetchedCount: number;
+  totalResults: number;
+  took: number;
+}): SyncResponse => ({
+  ...response,
+  papers: response.papers.map(normalizePaper),
+});
 
 /** キャッシュの有効期間（5分） */
 const SYNC_STALE_TIME = 5 * 60 * 1000;
@@ -90,7 +137,8 @@ export const useSyncPapers = (
         },
         { apiKey: params.apiKey }
       );
-      return response;
+      // 日付文字列を Date オブジェクトに正規化
+      return normalizeSyncResponse(response);
     },
     enabled: false, // 自動実行しない（手動でrefetch）
     staleTime: SYNC_STALE_TIME, // 5分間キャッシュ
@@ -169,7 +217,7 @@ export const useSyncPapers = (
     console.log(`[useSyncPapers] Fetching more papers from start=${effectiveStart}`);
 
     try {
-      const response = await syncApi(
+      const rawResponse = await syncApi(
         {
           categories: params.categories,
           period: params.period,
@@ -177,6 +225,8 @@ export const useSyncPapers = (
         },
         { apiKey: params.apiKey }
       );
+      // 日付文字列を Date オブジェクトに正規化
+      const response = normalizeSyncResponse(rawResponse);
 
       if (response.papers.length > 0) {
         addPapers(response.papers);

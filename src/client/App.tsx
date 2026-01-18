@@ -163,17 +163,41 @@ export const App: FC = () => {
           { apiKey: apiKey ?? undefined }
         );
 
+        // APIレスポンスの日付を正規化（JSON では string として返る）
+        // Hono RPC の型推論では Date だが、実際の JSON では string
+        const normalizedData: PaperSummary = {
+          paperId: newData.paperId,
+          summary: newData.summary,
+          keyPoints: newData.keyPoints,
+          language: newData.language,
+          // JSON では常に ISO 文字列として返るので、Date に変換
+          createdAt: new Date(newData.createdAt as unknown as string),
+          // オプショナルフィールド（型安全にアクセス）
+          explanation:
+            "explanation" in newData && typeof newData.explanation === "string"
+              ? newData.explanation
+              : undefined,
+          targetAudience:
+            "targetAudience" in newData && typeof newData.targetAudience === "string"
+              ? newData.targetAudience
+              : undefined,
+          whyRead:
+            "whyRead" in newData && typeof newData.whyRead === "string"
+              ? newData.whyRead
+              : undefined,
+        };
+
         // 説明文のみ生成の場合、既存の要約を維持してマージ
         const existingSummary = getSummaryByPaperIdAndLanguage(paperId, language);
         const mergedSummary: PaperSummary =
           target === "explanation" && existingSummary
             ? {
                 ...existingSummary,
-                explanation: newData.explanation,
-                targetAudience: newData.targetAudience,
-                whyRead: newData.whyRead,
+                explanation: normalizedData.explanation,
+                targetAudience: normalizedData.targetAudience,
+                whyRead: normalizedData.whyRead,
               }
-            : newData;
+            : normalizedData;
 
         await addSummary(mergedSummary);
       } catch (error) {

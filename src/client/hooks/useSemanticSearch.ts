@@ -114,14 +114,17 @@ export const useSemanticSearch = ({
         // 2. 拡張クエリを保存
         setExpandedQuery(data.expandedQuery);
 
-        // 3. queryEmbeddingがない場合は結果を空にする
-        if (!data.queryEmbedding || data.queryEmbedding.length === 0) {
+        // 3. queryEmbeddingを取得（オプショナル対応）
+        const queryEmbedding =
+          "queryEmbedding" in data && Array.isArray(data.queryEmbedding) ? data.queryEmbedding : [];
+
+        // queryEmbeddingがない場合は結果を空にする
+        if (queryEmbedding.length === 0) {
           setResults([]);
           return [];
         }
 
         // 4. ローカルの論文とコサイン類似度を計算
-        const queryEmbedding = data.queryEmbedding;
         const searchResults: SearchResult[] = [];
 
         for (const paper of papers) {
