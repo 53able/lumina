@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { createAuthMiddleware } from "./middleware/auth.js";
+import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders.js";
 import { categoriesApp } from "./routes/categories.js";
 import { embeddingApp } from "./routes/embedding.js";
 import { healthApp } from "./routes/health.js";
@@ -16,10 +17,12 @@ import { syncApp } from "./routes/sync.js";
  */
 export const createApp = () => {
   const authMiddleware = createAuthMiddleware();
+  const securityHeadersMiddleware = createSecurityHeadersMiddleware();
 
   // チェーン形式で構築することで、すべてのルート情報が型に含まれる
   return new Hono()
     .use("*", logger())
+    .use("*", securityHeadersMiddleware)
     .route("/", healthApp)
     .use("/api/v1/*", authMiddleware)
     .route("/", categoriesApp)
