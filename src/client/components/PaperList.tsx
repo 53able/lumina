@@ -118,7 +118,7 @@ export const PaperList: FC<PaperListProps> = ({
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
   // 仮想スクロール用フック
-  const { virtualRows, totalSize, columnCount, itemWidth, measureElement } = useGridVirtualizer({
+  const { virtualRows, totalSize, columnCount, measureElement } = useGridVirtualizer({
     scrollContainerRef,
     gridContainerRef,
     items: papers,
@@ -223,10 +223,11 @@ export const PaperList: FC<PaperListProps> = ({
                   </div>
                 ) : (
                   // 通常行: 複数カードをグリッド表示
+                  // RAMパターン応用: 列数は計算済み、幅は1frでブラウザに委譲
                   <div
                     className="grid"
                     style={{
-                      gridTemplateColumns: `repeat(${columnCount}, ${itemWidth}px)`,
+                      gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
                       gap: `${GRID_GAP}px`,
                     }}
                   >
