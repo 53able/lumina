@@ -1,5 +1,5 @@
 import { CheckCircle2, Loader2, Search } from "lucide-react";
-import { type FC, type ReactNode, useCallback, useEffect, useRef } from "react";
+import { type FC, type ReactNode, useCallback, useRef } from "react";
 import { PaperCard } from "@/client/components/PaperCard";
 import { Card } from "@/client/components/ui/card";
 import { useGridVirtualizer } from "@/client/hooks/useGridVirtualizer";
@@ -112,12 +112,10 @@ export const PaperList: FC<PaperListProps> = ({
   expandedPaperId = null,
   renderExpandedDetail,
 }) => {
-  // スクロールコンテナへの参照（window スクロールを使用）
+  // スクロールコンテナへの参照
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // グリッドコンテナへの参照（幅計算用）
   const gridContainerRef = useRef<HTMLDivElement>(null);
-  // ローダー要素への参照（無限スクロール検知用）
-  const loaderRef = useRef<HTMLDivElement>(null);
 
   // 仮想スクロール用フック
   const { virtualRows, totalSize, columnCount, itemWidth, measureElement } = useGridVirtualizer({
@@ -141,27 +139,8 @@ export const PaperList: FC<PaperListProps> = ({
   const onRequestSyncRef = useRef(onRequestSync);
   onRequestSyncRef.current = onRequestSync;
 
-  // IntersectionObserver でスクロール末尾を検知して追加読み込み
-  useEffect(() => {
-    const loaderElement = loaderRef.current;
-    if (!loaderElement) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          // 仮想スクロールではすべてのpapersを使用するので、
-          // 追加データが必要な場合のみ onRequestSync を呼ぶ
-          if (onRequestSyncRef.current && !isSyncingRef.current) {
-            onRequestSyncRef.current();
-          }
-        }
-      },
-      { rootMargin: "200px" }
-    );
-
-    observer.observe(loaderElement);
-    return () => observer.disconnect();
-  }, []);
+  // 注: IntersectionObserver は削除。仮想スクロールコンテナ外のローダーでは
+  // 初期レンダリング時に即発火してしまうため、スクロールイベントのみで制御する。
 
   // Paper IDを取得するコールバック（メモ化）
   const getPaperId = useCallback((paper: Paper) => paper.id, []);
@@ -187,6 +166,17 @@ export const PaperList: FC<PaperListProps> = ({
         ref={scrollContainerRef}
         className="relative overflow-auto"
         style={{ maxHeight: "calc(100vh - 200px)" }}
+        onScroll={(e) => {
+          const target = e.currentTarget;
+          const scrollTop = target.scrollTop;
+          const scrollHeight = target.scrollHeight;
+          const clientHeight = target.clientHeight;
+          const isNearBottom = scrollHeight - scrollTop - clientHeight < 300;
+          // 仮想スクロールコンテナ内で末尾に近づいたら追加読み込み
+          if (isNearBottom && onRequestSyncRef.current && !isSyncingRef.current) {
+            onRequestSyncRef.current();
+          }
+        }}
       >
         {/* グリッドコンテナ（幅計算用） */}
         <div
@@ -262,13 +252,16 @@ export const PaperList: FC<PaperListProps> = ({
       </div>
 
       {/* 無限スクロール用のローダー / 全件表示完了メッセージ */}
-      <div ref={loaderRef} className="flex justify-center py-6" data-testid="paper-list-loader">
+      <div className="flex justify-center py-6" data-testid="paper-list-loader">
         {isSyncing ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span>古い論文を取得中...</span>
           </div>
         ) : (
+          // onRequestSync がない = 追加読み込み不可（検索/フィルタ中）の場合のみ表示
+          // 追加読み込みが可能な状態では、まだデータがあるかもしれないので表示しない
+          !onRequestSync &&
           papers.length > 50 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground/60">
               <CheckCircle2 className="h-4 w-4" />

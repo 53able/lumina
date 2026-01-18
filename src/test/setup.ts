@@ -7,17 +7,28 @@ import { afterEach, vi } from "vitest";
 /**
  * グローバルfetchのモック
  * テスト中のAPIコール（auto-syncなど）がハングしないようにする
+ * vi.clearAllMocks() でリセットされないよう、mockImplementation を使用
  */
-global.fetch = vi.fn().mockResolvedValue({
-  ok: true,
-  json: () => Promise.resolve({ papers: [] }),
-});
+const mockFetch = vi.fn(() =>
+  Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ papers: [] }),
+  })
+);
+global.fetch = mockFetch as unknown as typeof fetch;
 
 /**
  * 各テスト後にモックをリセット
  */
 afterEach(() => {
   vi.clearAllMocks();
+  // fetch モックを再設定（clearAllMocks でリセットされるため）
+  mockFetch.mockImplementation(() =>
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ papers: [] }),
+    })
+  );
 });
 
 /**

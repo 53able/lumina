@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "@/shared/schemas";
 
 /**
@@ -12,84 +12,8 @@ import type { Paper } from "@/shared/schemas";
  * - 論文カードのリスト表示
  * - 空の場合のメッセージ表示
  * - ローディング状態の表示
- * - 無限スクロール（IntersectionObserver）
+ * - 無限スクロール（スクロールイベント）
  */
-
-/**
- * IntersectionObserverのモック
- * - observe() で監視を開始
- * - disconnect() で監視を終了
- * - triggerIntersect() で intersection イベントを発火
- *
- * @param autoFireOnObserve - true の場合、observe() 呼び出し時に即座に isIntersecting: true で発火
- *                           （実際のブラウザでは要素が visible な場合にこの挙動になる）
- */
-interface MockIntersectionObserverInstance {
-  observe: Mock;
-  disconnect: Mock;
-  unobserve: Mock;
-  takeRecords: Mock;
-  root: Element | null;
-  rootMargin: string;
-  thresholds: readonly number[];
-  callback: IntersectionObserverCallback;
-}
-
-const createMockIntersectionObserver = (
-  options: { autoFireOnObserve?: boolean } = {}
-): {
-  MockObserver: typeof IntersectionObserver;
-  instances: MockIntersectionObserverInstance[];
-  triggerIntersect: (isIntersecting: boolean) => void;
-} => {
-  const { autoFireOnObserve = false } = options;
-  const instances: MockIntersectionObserverInstance[] = [];
-
-  // クラスとして定義することでコンストラクタとして使用可能
-  class MockObserver implements IntersectionObserver {
-    disconnect = vi.fn();
-    unobserve = vi.fn();
-    takeRecords = vi.fn(() => []);
-    root: Element | null = null;
-    rootMargin = "0px";
-    thresholds: readonly number[] = [0];
-    callback: IntersectionObserverCallback;
-
-    // observe() が呼ばれたときに autoFireOnObserve が true なら即座に発火
-    observe = vi.fn(() => {
-      if (autoFireOnObserve) {
-        // 次の tick で発火（React の useEffect 後）
-        queueMicrotask(() => {
-          this.callback(
-            [{ isIntersecting: true } as IntersectionObserverEntry],
-            this as unknown as IntersectionObserver
-          );
-        });
-      }
-    });
-
-    constructor(callback: IntersectionObserverCallback) {
-      this.callback = callback;
-      instances.push(this);
-    }
-  }
-
-  const triggerIntersect = (isIntersecting: boolean) => {
-    const latestInstance = instances[instances.length - 1];
-    if (latestInstance) {
-      latestInstance.callback(
-        [{ isIntersecting } as IntersectionObserverEntry],
-        latestInstance as unknown as IntersectionObserver
-      );
-    }
-  };
-
-  return {
-    MockObserver: MockObserver as unknown as typeof IntersectionObserver,
-    instances,
-    triggerIntersect,
-  };
-};
 
 // テスト用のサンプル論文データ
 const createSamplePaper = (id: string, title: string): Paper => ({
@@ -188,23 +112,22 @@ describe("PaperList", () => {
     });
   });
 
-  describe("無限スクロール（IntersectionObserver）", () => {
-    let originalIntersectionObserver: typeof IntersectionObserver;
+  describe("無限スクロール（スクロールイベント）", () => {
+    /**
+     * スクロールイベントをシミュレートするヘルパー
+     * 仮想スクロールコンテナ内でスクロール末尾に近づいた状態をシミュレート
+     */
+    const simulateScrollNearBottom = (container: HTMLElement) => {
+      // scrollHeight, clientHeight, scrollTop をモック
+      Object.defineProperty(container, "scrollHeight", { value: 2000, configurable: true });
+      Object.defineProperty(container, "clientHeight", { value: 800, configurable: true });
+      Object.defineProperty(container, "scrollTop", { value: 1100, configurable: true }); // 2000 - 800 - 1100 = 100 < 300
 
-    beforeEach(() => {
-      // IntersectionObserver をモックに置き換え
-      originalIntersectionObserver = global.IntersectionObserver;
-    });
-
-    afterEach(() => {
-      // 元に戻す
-      global.IntersectionObserver = originalIntersectionObserver;
-    });
+      // スクロールイベントを発火
+      container.dispatchEvent(new Event("scroll", { bubbles: true }));
+    };
 
     it("正常系: スクロール末尾に到達するとonRequestSyncが呼ばれる", async () => {
-      const { MockObserver, triggerIntersect } = createMockIntersectionObserver();
-      global.IntersectionObserver = MockObserver;
-
       const { PaperList } = await import("./PaperList");
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
@@ -213,18 +136,19 @@ describe("PaperList", () => {
 
       render(<PaperList papers={papers} onRequestSync={onRequestSync} />);
 
-      // ローダー要素が visible になったことをシミュレート
+      // 仮想スクロールコンテナを取得（overflow-auto を持つ要素）
+      const scrollContainer = document.querySelector(".overflow-auto");
+      expect(scrollContainer).not.toBeNull();
+
+      // スクロール末尾に近づいた状態をシミュレート
       act(() => {
-        triggerIntersect(true);
+        simulateScrollNearBottom(scrollContainer as HTMLElement);
       });
 
       expect(onRequestSync).toHaveBeenCalledTimes(1);
     });
 
     it("正常系: isSyncingがtrueの場合はonRequestSyncが呼ばれない", async () => {
-      const { MockObserver, triggerIntersect } = createMockIntersectionObserver();
-      global.IntersectionObserver = MockObserver;
-
       const { PaperList } = await import("./PaperList");
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
@@ -233,22 +157,20 @@ describe("PaperList", () => {
 
       render(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={true} />);
 
-      // ローダー要素が visible になったことをシミュレート
+      // 仮想スクロールコンテナを取得
+      const scrollContainer = document.querySelector(".overflow-auto");
+      expect(scrollContainer).not.toBeNull();
+
+      // スクロール末尾に近づいた状態をシミュレート
       act(() => {
-        triggerIntersect(true);
+        simulateScrollNearBottom(scrollContainer as HTMLElement);
       });
 
+      // isSyncing が true なので呼ばれない
       expect(onRequestSync).not.toHaveBeenCalled();
     });
 
-    it("バグ修正: isSyncingがtrue→falseに変化しても、スクロールなしでonRequestSyncが連続発火しない", async () => {
-      // autoFireOnObserve: true で、observe() 時に即座に発火するモックを使用
-      // これは「ローダー要素が常に viewport 内にある」状況をシミュレート
-      const { MockObserver, instances } = createMockIntersectionObserver({
-        autoFireOnObserve: true,
-      });
-      global.IntersectionObserver = MockObserver;
-
+    it("バグ修正: ページリロード直後はスクロールなしでonRequestSyncが発火しない", async () => {
       const { PaperList } = await import("./PaperList");
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
@@ -256,55 +178,16 @@ describe("PaperList", () => {
       const onRequestSync = vi.fn();
 
       // 初回レンダリング（isSyncing: false）
-      // autoFireOnObserve により、observe() 時点で isIntersecting: true が発火
-      const { rerender } = render(
-        <PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />
-      );
-
-      // microtask を処理（observe() 後のコールバック発火を待つ）
-      await act(async () => {
-        await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
-      });
-
-      // 最初の observe() で onRequestSync が呼ばれる
-      const initialCallCount = onRequestSync.mock.calls.length;
-      expect(initialCallCount).toBe(1);
-
-      // observer の数を記録
-      const observerCountAfterInitial = instances.length;
-
-      // isSyncing: true に変化（同期開始）
-      rerender(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={true} />);
+      render(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />);
 
       // microtask を処理
       await act(async () => {
         await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
       });
 
-      // isSyncing: false に戻る（同期完了）
-      rerender(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />);
-
-      // microtask を処理（新しい observer の observe() 後のコールバック発火を待つ）
-      await act(async () => {
-        await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
-      });
-
-      // observer が再作成されたかチェック
-      const observerCountAfterSyncingFalse = instances.length;
-      const observerWasRecreated = observerCountAfterSyncingFalse > observerCountAfterInitial;
-
-      // 🔴 バグの検出：
-      // 現在の実装では isSyncing が依存配列にあるため、observer が再作成される
-      // そして autoFireOnObserve により、再作成時に即座に onRequestSync が呼ばれてしまう
-      //
-      // 期待動作: observer が再作成されないか、再作成されても連続発火しない
-      if (observerWasRecreated) {
-        // observer が再作成された場合でも、onRequestSync は1回だけであるべき
-        expect(onRequestSync).toHaveBeenCalledTimes(1);
-      } else {
-        // observer が再作成されなかった場合、それが正しい修正
-        expect(onRequestSync).toHaveBeenCalledTimes(1);
-      }
+      // スクロールイベントなしでは onRequestSync は呼ばれない
+      // （以前の IntersectionObserver ベースの実装では、初回レンダリング時に発火していた）
+      expect(onRequestSync).not.toHaveBeenCalled();
     });
   });
 });
