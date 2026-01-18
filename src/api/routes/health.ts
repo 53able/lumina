@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { now, toISOString } from "../../shared/utils/dateTime.js";
 
 /**
  * ヘルスチェックのレスポンススキーマ
@@ -15,6 +16,6 @@ export const HealthResponseSchema = z.object({
 export const healthApp = new Hono().get("/health", (c) => {
   return c.json({
     status: "ok" as const,
-    timestamp: new Date().toISOString(),
+    timestamp: toISOString(now()),
   });
 });

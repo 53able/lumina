@@ -1,7 +1,7 @@
-import { parseISO } from "date-fns";
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
 import type { SyncPeriod } from "@/shared/schemas";
+import { parseISO, timestamp } from "@/shared/utils/dateTime";
 
 /** デフォルトの対象カテゴリ */
 const DEFAULT_CATEGORIES = ["cs.AI", "cs.LG", "cs.CL", "stat.ML"];
@@ -133,8 +133,8 @@ export const useSettingsStore = create<SettingsStore>()(
           const stored = get().lastSyncedAt;
           if (!stored) return true; // 一度も同期していない場合は自動同期
           const lastSynced = parseISO(stored).getTime();
-          const now = Date.now();
-          return now - lastSynced > AUTO_SYNC_THRESHOLD_MS;
+          const currentTime = timestamp();
+          return currentTime - lastSynced > AUTO_SYNC_THRESHOLD_MS;
         },
 
         resetAllSettings: () => {

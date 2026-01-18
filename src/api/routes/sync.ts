@@ -2,6 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import type { Paper } from "../../shared/schemas/index.js";
 import { SyncRequestSchema } from "../../shared/schemas/index.js";
+import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
 import { fetchArxivPapers } from "../services/arxivFetcher.js";
 import { createEmbedding, getOpenAIConfig, type OpenAIConfig } from "../services/openai.js";
 
@@ -26,7 +27,7 @@ export const syncApp = new Hono().post(
   "/api/v1/sync",
   zValidator("json", SyncRequestSchema),
   async (c) => {
-    const startTime = Date.now();
+    const startTime = timestamp();
     const body = c.req.valid("json");
 
     try {
@@ -57,7 +58,7 @@ export const syncApp = new Hono().post(
         papers: papersWithEmbedding,
         fetchedCount: papersWithEmbedding.length,
         totalResults: arxivResult.totalResults,
-        took: Date.now() - startTime,
+        took: measureTime(startTime),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";

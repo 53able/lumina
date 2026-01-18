@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
+import { now } from "../../shared/utils/dateTime.js";
 import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai.js";
 
 /**
@@ -65,7 +66,7 @@ export const summaryApp = new Hono().post(
         summary: generateStubSummary(paperId, language),
         keyPoints: generateStubKeyPoints(language),
         language,
-        createdAt: new Date(),
+        createdAt: now(),
       });
     }
 
@@ -97,7 +98,7 @@ export const summaryApp = new Hono().post(
           whyRead: explanationResult.whyRead,
         }),
         language,
-        createdAt: new Date(),
+        createdAt: now(),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";

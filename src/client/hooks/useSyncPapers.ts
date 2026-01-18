@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { parseISO } from "date-fns";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { syncApi } from "@/client/lib/api";
 import { usePaperStore } from "@/client/stores/paperStore";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { Paper, SyncResponse } from "@/shared/schemas";
+import { normalizeDate, now, timestamp } from "@/shared/utils/dateTime";
 
 /**
  * APIレスポンスの論文データを正規化（日付文字列をDateオブジェクトに変換）
@@ -25,8 +25,8 @@ const normalizePaper = (paper: {
   embedding?: number[];
 }): Paper => ({
   ...paper,
-  publishedAt: paper.publishedAt instanceof Date ? paper.publishedAt : parseISO(paper.publishedAt),
-  updatedAt: paper.updatedAt instanceof Date ? paper.updatedAt : parseISO(paper.updatedAt),
+  publishedAt: normalizeDate(paper.publishedAt),
+  updatedAt: normalizeDate(paper.updatedAt),
 });
 
 /**
@@ -152,7 +152,7 @@ export const useSyncPapers = (
       addPapers(data.papers);
       setNextStart(data.fetchedCount);
       setTotalResults(data.totalResults);
-      setLastSyncedAt(new Date()); // 最終同期日時を更新
+      setLastSyncedAt(now()); // 最終同期日時を更新
       onSuccessRef.current?.(data);
     }
   }, [data, addPapers, setLastSyncedAt]);
@@ -170,7 +170,7 @@ export const useSyncPapers = (
     const cachedData = queryClient.getQueryData<SyncResponse>(queryKey);
     const queryState = queryClient.getQueryState(queryKey);
     const isStale =
-      !queryState?.dataUpdatedAt || Date.now() - queryState.dataUpdatedAt > SYNC_STALE_TIME;
+      !queryState?.dataUpdatedAt || timestamp() - queryState.dataUpdatedAt > SYNC_STALE_TIME;
 
     if (cachedData && !isStale) {
       // キャッシュが有効 → 再利用（APIを叩かない）
@@ -234,7 +234,7 @@ export const useSyncPapers = (
         // effectiveStartを基準に次の開始位置を設定
         setNextStart(effectiveStart + response.fetchedCount);
         setTotalResults(response.totalResults);
-        setLastSyncedAt(new Date()); // 最終同期日時を更新
+        setLastSyncedAt(now()); // 最終同期日時を更新
         onSuccessRef.current?.(response);
       }
     } catch (err) {

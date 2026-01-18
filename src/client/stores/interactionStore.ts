@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { LuminaDB } from "@/client/db/db";
 import type { InteractionType, UserInteraction } from "@/shared/schemas";
+import { now } from "@/shared/utils/dateTime";
 
 /**
  * interactionStore の状態型
@@ -78,7 +79,7 @@ export const useInteractionStore = create<InteractionStore>()(
             id: crypto.randomUUID(),
             paperId,
             type: "like",
-            createdAt: new Date(),
+            createdAt: now(),
           };
           await db.userInteractions.add(newInteraction);
           set((state) => ({
@@ -105,7 +106,7 @@ export const useInteractionStore = create<InteractionStore>()(
             id: crypto.randomUUID(),
             paperId,
             type: "bookmark",
-            createdAt: new Date(),
+            createdAt: now(),
           };
           await db.userInteractions.add(newInteraction);
           set((state) => ({

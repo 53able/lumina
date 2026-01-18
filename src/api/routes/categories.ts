@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { type Category, CategoryListResponseSchema } from "../../shared/schemas/index.js";
+import type { Category } from "../../shared/schemas/index.js";
 
 /**
  * デフォルトで選択されるカテゴリID

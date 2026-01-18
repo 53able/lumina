@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLuminaDb, type LuminaDB } from "@/client/db/db";
 import type { PaperSummary } from "@/shared/schemas";
+import { now } from "@/shared/utils/dateTime";
 
 /**
  * summaryStore テスト
@@ -20,7 +21,7 @@ const createSampleSummary = (overrides: Partial<PaperSummary> = {}): PaperSummar
   summary: "この論文は強化学習の新しいアプローチを提案しています。",
   keyPoints: ["新しいアルゴリズム", "高い性能", "実用的な応用"],
   language: "ja",
-  createdAt: new Date(),
+  createdAt: now(),
   ...overrides,
 });
 

@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { type ExpandedQuery, SearchRequestSchema } from "../../shared/schemas/index.js";
+import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
 import { createEmbedding, expandQuery, getOpenAIConfig } from "../services/openai.js";
 
 /**
@@ -24,7 +25,7 @@ export const searchApp = new Hono().post(
   "/api/v1/search",
   zValidator("json", SearchRequestSchema),
   async (c) => {
-    const startTime = Date.now();
+    const startTime = timestamp();
     const body = c.req.valid("json");
 
     try {
@@ -40,7 +41,7 @@ export const searchApp = new Hono().post(
         results: [], // クライアント側でローカル検索を実行
         expandedQuery,
         queryEmbedding: embeddingResult.embedding,
-        took: Date.now() - startTime,
+        took: measureTime(startTime),
       });
     } catch (error) {
       // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）
@@ -50,7 +51,7 @@ export const searchApp = new Hono().post(
           results: [],
           expandedQuery,
           queryEmbedding: [],
-          took: Date.now() - startTime,
+          took: measureTime(startTime),
         });
       }
 

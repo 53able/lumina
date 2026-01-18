@@ -1,6 +1,6 @@
-import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Paper, PaperSummary, SearchHistory, UserInteraction } from "@/shared/schemas";
+import { now, parseISO } from "@/shared/utils/dateTime";
 import { createLuminaDb, type LuminaDB } from "./db";
 
 /**
@@ -131,7 +131,7 @@ describe("LuminaDB", () => {
         summary: "This paper presents a novel approach...",
         keyPoints: ["Point 1", "Point 2", "Point 3"],
         language: "ja",
-        createdAt: new Date(),
+        createdAt: now(),
       };
 
       // Act
@@ -151,14 +151,14 @@ describe("LuminaDB", () => {
         summary: "日本語の要約",
         keyPoints: ["ポイント1"],
         language: "ja",
-        createdAt: new Date(),
+        createdAt: now(),
       };
       const summaryEn: PaperSummary = {
         paperId: "2401.00001",
         summary: "English summary",
         keyPoints: ["Point 1"],
         language: "en",
-        createdAt: new Date(),
+        createdAt: now(),
       };
 
       // Act - 複合キーで保存
@@ -187,7 +187,7 @@ describe("LuminaDB", () => {
         },
         queryEmbedding: Array(1536).fill(0.1),
         resultCount: 42,
-        createdAt: new Date(),
+        createdAt: now(),
       };
 
       // Act
@@ -245,7 +245,7 @@ describe("LuminaDB", () => {
         id: "550e8400-e29b-41d4-a716-446655440001",
         paperId: "2401.00001",
         type: "like",
-        createdAt: new Date(),
+        createdAt: now(),
       };
 
       // Act
@@ -263,19 +263,19 @@ describe("LuminaDB", () => {
           id: "id-1",
           paperId: "2401.00001",
           type: "like",
-          createdAt: new Date(),
+          createdAt: now(),
         },
         {
           id: "id-2",
           paperId: "2401.00001",
           type: "bookmark",
-          createdAt: new Date(),
+          createdAt: now(),
         },
         {
           id: "id-3",
           paperId: "2401.00002",
           type: "like",
-          createdAt: new Date(),
+          createdAt: now(),
         },
       ];
 
@@ -296,19 +296,19 @@ describe("LuminaDB", () => {
           id: "id-1",
           paperId: "2401.00001",
           type: "like",
-          createdAt: new Date(),
+          createdAt: now(),
         },
         {
           id: "id-2",
           paperId: "2401.00002",
           type: "bookmark",
-          createdAt: new Date(),
+          createdAt: now(),
         },
         {
           id: "id-3",
           paperId: "2401.00003",
           type: "like",
-          createdAt: new Date(),
+          createdAt: now(),
         },
       ];
 

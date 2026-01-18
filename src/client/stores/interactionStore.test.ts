@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLuminaDb, type LuminaDB } from "@/client/db/db";
 import type { UserInteraction } from "@/shared/schemas";
+import { now } from "@/shared/utils/dateTime";
 
 /**
  * interactionStore テスト
@@ -19,7 +20,7 @@ const createSampleInteraction = (overrides: Partial<UserInteraction> = {}): User
   id: crypto.randomUUID(),
   paperId: "2401.00001",
   type: "like",
-  createdAt: new Date(),
+  createdAt: now(),
   ...overrides,
 });
 

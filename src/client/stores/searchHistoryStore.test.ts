@@ -1,7 +1,7 @@
-import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLuminaDb, type LuminaDB } from "@/client/db/db";
 import type { SearchHistory } from "@/shared/schemas";
+import { now, parseISO } from "@/shared/utils/dateTime";
 
 /**
  * searchHistoryStore テスト
@@ -27,7 +27,7 @@ const createSampleHistory = (overrides: Partial<SearchHistory> = {}): SearchHist
   },
   queryEmbedding: Array(1536).fill(0.1),
   resultCount: 42,
-  createdAt: new Date(),
+  createdAt: now(),
   ...overrides,
 });
 

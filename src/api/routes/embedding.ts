@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { EmbeddingRequestSchema } from "../../shared/schemas/index.js";
+import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
 import { createEmbedding, getOpenAIConfig } from "../services/openai.js";
 
 /**
@@ -10,7 +11,7 @@ export const embeddingApp = new Hono().post(
   "/api/v1/embedding",
   zValidator("json", EmbeddingRequestSchema),
   async (c) => {
-    const startTime = Date.now();
+    const startTime = timestamp();
     const body = c.req.valid("json");
 
     try {
@@ -20,7 +21,7 @@ export const embeddingApp = new Hono().post(
       return c.json({
         embedding: result.embedding,
         model: "text-embedding-3-small",
-        took: Date.now() - startTime,
+        took: measureTime(startTime),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
