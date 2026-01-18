@@ -14,8 +14,8 @@ const GRID_GAP = 20;
 /** 通常行の推定高さ（px） */
 const ESTIMATED_ROW_HEIGHT = 200;
 
-/** 展開行の推定高さ（px） */
-const ESTIMATED_EXPANDED_HEIGHT = 500;
+/** 展開行の高さ（px）- 固定値で仮想スクロールの計算と一致させる */
+const EXPANDED_ROW_HEIGHT = 480;
 
 /**
  * PaperList コンポーネントのProps
@@ -128,7 +128,7 @@ export const PaperList: FC<PaperListProps> = ({
     rowGap: GRID_GAP,
     columnGap: GRID_GAP,
     estimatedRowHeight: ESTIMATED_ROW_HEIGHT,
-    estimatedExpandedRowHeight: ESTIMATED_EXPANDED_HEIGHT,
+    estimatedExpandedRowHeight: EXPANDED_ROW_HEIGHT,
     overscan: 3,
   });
 
@@ -199,10 +199,13 @@ export const PaperList: FC<PaperListProps> = ({
                 }}
               >
                 {isExpanded && rowItems[0] ? (
-                  // 展開行: 全幅でカードと詳細を横並び
-                  <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_2fr] animate-in fade-in duration-300 p-1">
+                  // 展開行: 全幅でカードと詳細を横並び（高さはコンテンツに合わせる）
+                  <div
+                    className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_2fr] animate-in fade-in duration-300 p-1"
+                    style={{ minHeight: `${EXPANDED_ROW_HEIGHT}px` }}
+                  >
                     {/* 左側: コンパクトなカード */}
-                    <div className="lg:sticky lg:top-20 lg:self-start">
+                    <div className="lg:sticky lg:top-0 lg:self-start">
                       <PaperCard
                         paper={rowItems[0]}
                         onClick={onPaperClick}
@@ -214,9 +217,9 @@ export const PaperList: FC<PaperListProps> = ({
                         isExpanded={true}
                       />
                     </div>
-                    {/* 右側: 詳細パネル */}
+                    {/* 右側: 詳細パネル（コンテンツに合わせた高さ） */}
                     {renderExpandedDetail && (
-                      <div className="overflow-hidden rounded-xl border border-primary/20 bg-card/80 backdrop-blur-sm shadow-lg max-h-[70vh] overflow-y-auto">
+                      <div className="rounded-xl border border-primary/20 bg-card/80 backdrop-blur-sm shadow-lg">
                         {renderExpandedDetail(rowItems[0])}
                       </div>
                     )}
