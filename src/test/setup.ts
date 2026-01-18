@@ -2,6 +2,23 @@
  * Vitest グローバルセットアップ
  */
 import "@testing-library/jest-dom/vitest";
+import { afterEach, vi } from "vitest";
+
+/**
+ * グローバルfetchのモック
+ * テスト中のAPIコール（auto-syncなど）がハングしないようにする
+ */
+global.fetch = vi.fn().mockResolvedValue({
+  ok: true,
+  json: () => Promise.resolve({ papers: [] }),
+});
+
+/**
+ * 各テスト後にモックをリセット
+ */
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 /**
  * IntersectionObserver のモック（jsdom には存在しないため）

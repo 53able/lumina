@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PaperExplorer } from "./PaperExplorer";
 
 // モック用の論文データ
@@ -34,11 +34,6 @@ const mockPapers = [
 ];
 
 describe("PaperExplorer", () => {
-  afterEach(() => {
-    cleanup();
-    vi.resetAllMocks();
-  });
-
   describe("初期表示", () => {
     it("検索ボックスが表示される", () => {
       render(<PaperExplorer />);
@@ -83,8 +78,11 @@ describe("PaperExplorer", () => {
       // ローディング状態を確認
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
 
-      // クリーンアップ: Promiseを解決
+      // クリーンアップ: Promiseを解決して完了を待つ
       resolveSearch!(mockPapers);
+      await waitFor(() => {
+        expect(screen.queryByTestId("paper-list-loading")).not.toBeInTheDocument();
+      });
     });
 
     it("検索するとonSearchコールバックが呼ばれる", async () => {
