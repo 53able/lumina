@@ -1,11 +1,21 @@
 import { CheckCircle2, Loader2, Search } from "lucide-react";
-import { type FC, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FC, type ReactNode, useCallback, useEffect, useRef } from "react";
 import { PaperCard } from "@/client/components/PaperCard";
 import { Card } from "@/client/components/ui/card";
+import { useGridVirtualizer } from "@/client/hooks/useGridVirtualizer";
 import type { Paper } from "@/shared/schemas";
 
-/** 1ページあたりの表示件数 */
-const PAGE_SIZE = 50;
+/** カードの最小幅（px） */
+const MIN_CARD_WIDTH = 300;
+
+/** グリッドのギャップ（px） */
+const GRID_GAP = 16;
+
+/** 通常行の推定高さ（px） */
+const ESTIMATED_ROW_HEIGHT = 200;
+
+/** 展開行の推定高さ（px） */
+const ESTIMATED_EXPANDED_HEIGHT = 500;
 
 /**
  * PaperList コンポーネントのProps
@@ -74,12 +84,18 @@ const EmptyMessage: FC = () => (
 );
 
 /**
- * PaperList - 論文リストコンポーネント
+ * PaperList - 論文リストコンポーネント（仮想スクロール対応）
  *
- * Design Docsに基づく機能:
- * - 論文カードのリスト表示（無限スクロール対応）
- * - 空の場合のメッセージ表示
- * - ローディング状態の表示
+ * @description
+ * 大量の論文データを効率的に表示するため、@tanstack/react-virtual による
+ * 行ベースの仮想スクロールを実装。画面外のDOM要素は描画されないため、
+ * 数千件のデータでもスムーズにスクロール可能。
+ *
+ * 機能:
+ * - 論文カードのグリッド表示（仮想スクロール）
+ * - レスポンシブな列数（ウィンドウサイズに応じて自動調整）
+ * - インライン展開（カードと詳細を横並び表示）
+ * - 無限スクロールによる追加読み込み
  */
 export const PaperList: FC<PaperListProps> = ({
   papers,
@@ -96,37 +112,36 @@ export const PaperList: FC<PaperListProps> = ({
   expandedPaperId = null,
   renderExpandedDetail,
 }) => {
-  // 表示件数の状態管理（無限スクロール用）
-  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
+  // スクロールコンテナへの参照（window スクロールを使用）
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // グリッドコンテナへの参照（幅計算用）
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  // ローダー要素への参照（無限スクロール検知用）
   const loaderRef = useRef<HTMLDivElement>(null);
 
-  // すべての外部依存を ref で保持し、IntersectionObserver の再作成を防ぐ
-  // これにより displayCount/papers.length/isSyncing が変化しても observer は維持され、
-  // 連続発火（observer 再作成 → 要素がまだ画面内 → 即座に再発火）を防止する
+  // 仮想スクロール用フック
+  const { virtualRows, totalSize, columnCount, itemWidth, measureElement } = useGridVirtualizer({
+    scrollContainerRef,
+    gridContainerRef,
+    items: papers,
+    getItemId: (paper) => paper.id,
+    expandedItemId: expandedPaperId,
+    minItemWidth: MIN_CARD_WIDTH,
+    rowGap: GRID_GAP,
+    columnGap: GRID_GAP,
+    estimatedRowHeight: ESTIMATED_ROW_HEIGHT,
+    estimatedExpandedRowHeight: ESTIMATED_EXPANDED_HEIGHT,
+    overscan: 3,
+  });
+
+  // 無限スクロール用の ref（状態変化で observer を再作成しないため）
   const isSyncingRef = useRef(isSyncing);
   isSyncingRef.current = isSyncing;
-
-  const displayCountRef = useRef(displayCount);
-  displayCountRef.current = displayCount;
-
-  const papersLengthRef = useRef(papers.length);
-  papersLengthRef.current = papers.length;
 
   const onRequestSyncRef = useRef(onRequestSync);
   onRequestSyncRef.current = onRequestSync;
 
-  // papers が変わったら displayCount をリセット
-  // papers配列の先頭ID + 長さで変更を検知
-  const papersKey = `${papers[0]?.id ?? "empty"}-${papers.length}`;
-  useEffect(() => {
-    // papersKeyの変更をトリガーにリセット
-    void papersKey; // biome: intentional dependency
-    setDisplayCount(PAGE_SIZE);
-  }, [papersKey]);
-
   // IntersectionObserver でスクロール末尾を検知して追加読み込み
-  // すべての状態は ref 経由で参照し、依存配列は空（マウント時のみ observer 作成）
-  // これにより observer の再作成を完全に防ぎ、連続発火バグを回避
   useEffect(() => {
     const loaderElement = loaderRef.current;
     if (!loaderElement) return;
@@ -134,21 +149,22 @@ export const PaperList: FC<PaperListProps> = ({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
-          if (displayCountRef.current < papersLengthRef.current) {
-            // ローカル論文がまだある → 表示件数を増やす
-            setDisplayCount((prev) => Math.min(prev + PAGE_SIZE, papersLengthRef.current));
-          } else if (onRequestSyncRef.current && !isSyncingRef.current) {
-            // ローカル論文が尽きた → APIから追加取得
+          // 仮想スクロールではすべてのpapersを使用するので、
+          // 追加データが必要な場合のみ onRequestSync を呼ぶ
+          if (onRequestSyncRef.current && !isSyncingRef.current) {
             onRequestSyncRef.current();
           }
         }
       },
-      { rootMargin: "100px" } // 少し手前で発火させてスムーズに
+      { rootMargin: "200px" }
     );
 
     observer.observe(loaderElement);
     return () => observer.disconnect();
   }, []);
+
+  // Paper IDを取得するコールバック（メモ化）
+  const getPaperId = useCallback((paper: Paper) => paper.id, []);
 
   if (isLoading) {
     return <LoadingSkeleton />;
@@ -158,91 +174,102 @@ export const PaperList: FC<PaperListProps> = ({
     return <EmptyMessage />;
   }
 
-  // 表示用にスライス
-  const displayedPapers = papers.slice(0, displayCount);
-  const hasMore = displayCount < papers.length;
-
   return (
     <div className="space-y-4">
       {showCount && (
         <p className="text-sm text-muted-foreground/70">
           <span className="font-medium text-foreground">{papers.length}</span>件の論文
-          {papers.length > PAGE_SIZE && (
-            <span className="ml-2 text-muted-foreground/50">
-              （{displayedPapers.length}件表示中）
-            </span>
-          )}
         </p>
       )}
 
-      {/* RAMパターン: repeat(auto-fit, minmax(min(100%, 300px), 1fr)) */}
-      {/* マソナリー風: グリッド構造を維持しつつ、展開時は横並びで詳細表示 */}
+      {/* 仮想スクロールコンテナ */}
       <div
-        className="grid gap-4"
-        style={{
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
-        }}
+        ref={scrollContainerRef}
+        className="relative overflow-auto"
+        style={{ maxHeight: "calc(100vh - 200px)" }}
       >
-        {displayedPapers.map((paper) => {
-          const isExpanded = expandedPaperId === paper.id;
-          return (
-            <div
-              key={paper.id}
-              style={{
-                // 展開時は全幅を占める
-                gridColumn: isExpanded ? "1 / -1" : undefined,
-              }}
-            >
-              {isExpanded ? (
-                // 展開時: カードと詳細を横並び
-                <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_2fr] animate-in fade-in duration-300">
-                  {/* 左側: コンパクトなカード */}
-                  <div className="lg:sticky lg:top-20 lg:self-start">
-                    <PaperCard
-                      paper={paper}
-                      onClick={onPaperClick}
-                      onLike={onLike}
-                      onBookmark={onBookmark}
-                      isLiked={likedPaperIds.has(paper.id)}
-                      isBookmarked={bookmarkedPaperIds.has(paper.id)}
-                      whyRead={whyReadMap.get(paper.id)}
-                      isExpanded={isExpanded}
-                    />
-                  </div>
-                  {/* 右側: 詳細パネル（スクロール可能） */}
-                  {renderExpandedDetail && (
-                    <div className="overflow-hidden rounded-xl border border-primary/20 bg-card/80 backdrop-blur-sm shadow-lg max-h-[70vh] overflow-y-auto">
-                      {renderExpandedDetail(paper)}
+        {/* グリッドコンテナ（幅計算用） */}
+        <div
+          ref={gridContainerRef}
+          className="relative w-full"
+          style={{ height: `${totalSize}px` }}
+        >
+          {/* 仮想化された行をレンダリング */}
+          {virtualRows.map((virtualRow) => {
+            const { index, start, items: rowItems, isExpanded } = virtualRow;
+
+            return (
+              <div
+                key={`row-${index}`}
+                data-index={index}
+                ref={measureElement}
+                className="absolute left-0 right-0"
+                style={{
+                  top: `${start}px`,
+                }}
+              >
+                {isExpanded && rowItems[0] ? (
+                  // 展開行: 全幅でカードと詳細を横並び
+                  <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_2fr] animate-in fade-in duration-300 p-1">
+                    {/* 左側: コンパクトなカード */}
+                    <div className="lg:sticky lg:top-20 lg:self-start">
+                      <PaperCard
+                        paper={rowItems[0]}
+                        onClick={onPaperClick}
+                        onLike={onLike}
+                        onBookmark={onBookmark}
+                        isLiked={likedPaperIds.has(getPaperId(rowItems[0]))}
+                        isBookmarked={bookmarkedPaperIds.has(getPaperId(rowItems[0]))}
+                        whyRead={whyReadMap.get(getPaperId(rowItems[0]))}
+                        isExpanded={true}
+                      />
                     </div>
-                  )}
-                </div>
-              ) : (
-                // 通常時: カードのみ
-                <PaperCard
-                  paper={paper}
-                  onClick={onPaperClick}
-                  onLike={onLike}
-                  onBookmark={onBookmark}
-                  isLiked={likedPaperIds.has(paper.id)}
-                  isBookmarked={bookmarkedPaperIds.has(paper.id)}
-                  whyRead={whyReadMap.get(paper.id)}
-                  isExpanded={isExpanded}
-                />
-              )}
-            </div>
-          );
-        })}
+                    {/* 右側: 詳細パネル */}
+                    {renderExpandedDetail && (
+                      <div className="overflow-hidden rounded-xl border border-primary/20 bg-card/80 backdrop-blur-sm shadow-lg max-h-[70vh] overflow-y-auto">
+                        {renderExpandedDetail(rowItems[0])}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  // 通常行: 複数カードをグリッド表示
+                  <div
+                    className="grid"
+                    style={{
+                      gridTemplateColumns: `repeat(${columnCount}, ${itemWidth}px)`,
+                      gap: `${GRID_GAP}px`,
+                    }}
+                  >
+                    {rowItems.map((paper) => (
+                      <PaperCard
+                        key={getPaperId(paper)}
+                        paper={paper}
+                        onClick={onPaperClick}
+                        onLike={onLike}
+                        onBookmark={onBookmark}
+                        isLiked={likedPaperIds.has(getPaperId(paper))}
+                        isBookmarked={bookmarkedPaperIds.has(getPaperId(paper))}
+                        whyRead={whyReadMap.get(getPaperId(paper))}
+                        isExpanded={false}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* 無限スクロール用のローダー / 全件表示完了メッセージ */}
       <div ref={loaderRef} className="flex justify-center py-6" data-testid="paper-list-loader">
-        {hasMore || isSyncing ? (
+        {isSyncing ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span>{isSyncing ? "古い論文を取得中..." : "読み込み中..."}</span>
+            <span>古い論文を取得中...</span>
           </div>
         ) : (
-          papers.length > PAGE_SIZE && (
+          papers.length > 50 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground/60">
               <CheckCircle2 className="h-4 w-4" />
               <span>すべての論文を表示しました</span>

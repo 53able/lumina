@@ -38,6 +38,47 @@ class MockIntersectionObserver implements IntersectionObserver {
 global.IntersectionObserver = MockIntersectionObserver;
 
 /**
+ * ResizeObserver のモック（jsdom には存在しないため）
+ * useGridVirtualizer フックで使用される
+ */
+class MockResizeObserver implements ResizeObserver {
+  private callback: ResizeObserverCallback;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+
+  observe(target: Element): void {
+    // 初期サイズをコールバックに通知（1200px幅を想定）
+    const entry: ResizeObserverEntry = {
+      target,
+      contentRect: {
+        width: 1200,
+        height: 800,
+        top: 0,
+        left: 0,
+        bottom: 800,
+        right: 1200,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      },
+      borderBoxSize: [],
+      contentBoxSize: [],
+      devicePixelContentBoxSize: [],
+    };
+    // 非同期でコールバックを呼び出し（実際のResizeObserverと同様）
+    setTimeout(() => this.callback([entry], this), 0);
+  }
+
+  unobserve(): void {}
+
+  disconnect(): void {}
+}
+
+global.ResizeObserver = MockResizeObserver;
+
+/**
  * matchMedia のモック（jsdom には存在しないため）
  * useMediaQuery フックで使用される
  * Note: jsdom環境でのみ実行（Node.js環境では window が存在しない）
