@@ -3,8 +3,17 @@
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "@/shared/schemas";
+
+/**
+ * MemoryRouterでラップしたレンダリングヘルパー
+ */
+const renderWithRouter = (ui: ReactNode) => {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+};
 
 /**
  * PaperCard テスト
@@ -42,7 +51,7 @@ describe("PaperCard", () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
-      render(<PaperCard paper={paper} />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       expect(screen.getByText(/Sample Paper: A Novel Approach/i)).toBeInTheDocument();
     });
@@ -51,7 +60,7 @@ describe("PaperCard", () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
-      render(<PaperCard paper={paper} />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       expect(screen.getByText(/Alice Smith/)).toBeInTheDocument();
     });
@@ -60,7 +69,7 @@ describe("PaperCard", () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
-      render(<PaperCard paper={paper} />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       expect(screen.getByText("cs.AI")).toBeInTheDocument();
       expect(screen.getByText("cs.LG")).toBeInTheDocument();
@@ -70,7 +79,7 @@ describe("PaperCard", () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
-      render(<PaperCard paper={paper} />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       // 日付のフォーマットに応じてテスト
       expect(screen.getByText(/2024/)).toBeInTheDocument();
@@ -84,7 +93,7 @@ describe("PaperCard", () => {
       const paper = createSamplePaper();
       const handleClick = vi.fn();
 
-      render(<PaperCard paper={paper} onClick={handleClick} />);
+      renderWithRouter(<PaperCard paper={paper} onClick={handleClick} />);
 
       // カード全体をクリック
       const card = screen.getByRole("article");
@@ -99,7 +108,7 @@ describe("PaperCard", () => {
       const paper = createSamplePaper();
       const handleLike = vi.fn();
 
-      render(<PaperCard paper={paper} onLike={handleLike} />);
+      renderWithRouter(<PaperCard paper={paper} onLike={handleLike} />);
 
       const likeButton = screen.getByRole("button", { name: /いいね/i });
       await user.click(likeButton);
@@ -113,7 +122,7 @@ describe("PaperCard", () => {
       const paper = createSamplePaper();
       const handleBookmark = vi.fn();
 
-      render(<PaperCard paper={paper} onBookmark={handleBookmark} />);
+      renderWithRouter(<PaperCard paper={paper} onBookmark={handleBookmark} />);
 
       const bookmarkButton = screen.getByRole("button", { name: /ブックマーク/i });
       await user.click(bookmarkButton);
@@ -127,7 +136,7 @@ describe("PaperCard", () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
-      render(<PaperCard paper={paper} isLiked />);
+      renderWithRouter(<PaperCard paper={paper} isLiked />);
 
       const likeButton = screen.getByRole("button", { name: /いいね/i });
       expect(likeButton).toHaveAttribute("data-liked", "true");
@@ -137,7 +146,7 @@ describe("PaperCard", () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
-      render(<PaperCard paper={paper} isBookmarked />);
+      renderWithRouter(<PaperCard paper={paper} isBookmarked />);
 
       const bookmarkButton = screen.getByRole("button", { name: /ブックマーク/i });
       expect(bookmarkButton).toHaveAttribute("data-bookmarked", "true");
@@ -150,7 +159,7 @@ describe("PaperCard", () => {
       const paper = createSamplePaper();
       const whyRead = "機械学習モデルの効率的な学習方法を理解できます";
 
-      render(<PaperCard paper={paper} whyRead={whyRead} />);
+      renderWithRouter(<PaperCard paper={paper} whyRead={whyRead} />);
 
       expect(screen.getByText(whyRead)).toBeInTheDocument();
     });
@@ -159,7 +168,7 @@ describe("PaperCard", () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
-      render(<PaperCard paper={paper} />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       // whyRead用のテキストが存在しないことを確認（タイトルと著者以外に説明文がないこと）
       const cards = screen.getAllByText(/./);

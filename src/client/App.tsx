@@ -1,5 +1,6 @@
 import { Settings, Sparkles } from "lucide-react";
 import { type FC, useCallback, useEffect, useRef, useState } from "react";
+import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
 import { PaperDetail } from "@/client/components/PaperDetail";
 import { PaperExplorer } from "@/client/components/PaperExplorer";
@@ -19,6 +20,7 @@ import { useMediaQuery } from "@/client/hooks/useMediaQuery";
 import { useSemanticSearch } from "@/client/hooks/useSemanticSearch";
 import { useSyncPapers } from "@/client/hooks/useSyncPapers";
 import { summaryApi } from "@/client/lib/api";
+import { PaperPage } from "@/client/pages/PaperPage";
 import { useInteractionStore } from "@/client/stores/interactionStore";
 import { usePaperStore } from "@/client/stores/paperStore";
 import { useSearchHistoryStore } from "@/client/stores/searchHistoryStore";
@@ -29,12 +31,28 @@ import type { Paper, PaperSummary, SearchHistory as SearchHistoryType } from "@/
 /**
  * Lumina アプリケーションのルートコンポーネント
  *
+ * ルーティング設定:
+ * - / : 論文一覧（HomePage）
+ * - /papers/:id : 論文詳細ページ（PaperPage）
+ */
+export const App: FC = () => {
+  return (
+    <Routes>
+      <Route path="/papers/:id" element={<PaperPage />} />
+      <Route path="/*" element={<HomePage />} />
+    </Routes>
+  );
+};
+
+/**
+ * HomePage - 論文一覧ページ
+ *
  * Design Docsに基づく機能:
  * - ヘッダー（ロゴ・タイトル）
  * - PaperExplorer（検索・論文リスト）
  * - いいね/ブックマーク状態管理
  */
-export const App: FC = () => {
+const HomePage: FC = () => {
   const { papers, isLoading: isPapersLoading } = usePaperStore();
   const { apiKey, selectedCategories, syncPeriodDays, autoGenerateSummary, shouldAutoSync } =
     useSettingsStore();

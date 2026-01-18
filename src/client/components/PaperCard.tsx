@@ -1,6 +1,7 @@
 import { format } from "date-fns";
-import { Bookmark, Heart } from "lucide-react";
+import { Bookmark, ExternalLink, Heart } from "lucide-react";
 import type { FC } from "react";
+import { Link } from "react-router-dom";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
@@ -136,6 +137,22 @@ export const PaperCard: FC<PaperCardProps> = ({
                 className={`h-4 w-4 ${isBookmarked ? "fill-current text-yellow-500" : ""}`}
               />
             </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  asChild
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Link to={`/papers/${paper.id}`} aria-label="詳細ページを開く">
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>詳細ページを開く</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </CardContent>

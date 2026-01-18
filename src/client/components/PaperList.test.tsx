@@ -2,8 +2,17 @@
  * @vitest-environment jsdom
  */
 import { act, cleanup, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "@/shared/schemas";
+
+/**
+ * MemoryRouterでラップしたレンダリングヘルパー
+ */
+const renderWithRouter = (ui: ReactNode) => {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+};
 
 /**
  * PaperList テスト
@@ -43,7 +52,7 @@ describe("PaperList", () => {
         createSamplePaper("2401.00003", "Third Paper"),
       ];
 
-      render(<PaperList papers={papers} />);
+      renderWithRouter(<PaperList papers={papers} />);
 
       expect(screen.getByText("First Paper")).toBeInTheDocument();
       expect(screen.getByText("Second Paper")).toBeInTheDocument();
@@ -53,7 +62,7 @@ describe("PaperList", () => {
     it("正常系: 空の場合はメッセージが表示される", async () => {
       const { PaperList } = await import("./PaperList");
 
-      render(<PaperList papers={[]} />);
+      renderWithRouter(<PaperList papers={[]} />);
 
       expect(screen.getByText(/論文が見つかりません/i)).toBeInTheDocument();
     });
@@ -61,7 +70,7 @@ describe("PaperList", () => {
     it("正常系: ローディング中はスケルトンが表示される", async () => {
       const { PaperList } = await import("./PaperList");
 
-      render(<PaperList papers={[]} isLoading />);
+      renderWithRouter(<PaperList papers={[]} isLoading />);
 
       // ローディング中のスケルトン要素を確認
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
@@ -76,7 +85,7 @@ describe("PaperList", () => {
         createSamplePaper("2401.00002", "Paper 2"),
       ];
 
-      render(<PaperList papers={papers} showCount />);
+      renderWithRouter(<PaperList papers={papers} showCount />);
 
       // 件数と「件の論文」が表示されていることを確認
       expect(screen.getByText("2")).toBeInTheDocument();
@@ -96,7 +105,7 @@ describe("PaperList", () => {
         ["2401.00002", "データ分析の効率化に役立ちます"],
       ]);
 
-      render(<PaperList papers={papers} whyReadMap={whyReadMap} />);
+      renderWithRouter(<PaperList papers={papers} whyReadMap={whyReadMap} />);
 
       expect(screen.getByText("最新の機械学習手法を理解できます")).toBeInTheDocument();
       expect(screen.getByText("データ分析の効率化に役立ちます")).toBeInTheDocument();
@@ -106,7 +115,7 @@ describe("PaperList", () => {
       const { PaperList } = await import("./PaperList");
       const papers = [createSamplePaper("2401.00001", "Paper 1")];
 
-      render(<PaperList papers={papers} whyReadMap={new Map()} />);
+      renderWithRouter(<PaperList papers={papers} whyReadMap={new Map()} />);
 
       expect(screen.getByText("Paper 1")).toBeInTheDocument();
     });
@@ -134,7 +143,7 @@ describe("PaperList", () => {
       );
       const onRequestSync = vi.fn();
 
-      render(<PaperList papers={papers} onRequestSync={onRequestSync} />);
+      renderWithRouter(<PaperList papers={papers} onRequestSync={onRequestSync} />);
 
       // 仮想スクロールコンテナを取得（overflow-auto を持つ要素）
       const scrollContainer = document.querySelector(".overflow-auto");
@@ -155,7 +164,7 @@ describe("PaperList", () => {
       );
       const onRequestSync = vi.fn();
 
-      render(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={true} />);
+      renderWithRouter(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={true} />);
 
       // 仮想スクロールコンテナを取得
       const scrollContainer = document.querySelector(".overflow-auto");
@@ -178,7 +187,7 @@ describe("PaperList", () => {
       const onRequestSync = vi.fn();
 
       // 初回レンダリング（isSyncing: false）
-      render(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />);
+      renderWithRouter(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />);
 
       // microtask を処理
       await act(async () => {

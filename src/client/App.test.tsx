@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
@@ -24,11 +25,15 @@ const createTestQueryClient = () =>
   });
 
 /**
- * QueryClientProviderでラップしたレンダリングヘルパー
+ * QueryClientProviderとMemoryRouterでラップしたレンダリングヘルパー
  */
-const renderWithQueryClient = (ui: ReactNode) => {
+const renderWithProviders = (ui: ReactNode) => {
   const testQueryClient = createTestQueryClient();
-  return render(<QueryClientProvider client={testQueryClient}>{ui}</QueryClientProvider>);
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={testQueryClient}>{ui}</QueryClientProvider>
+    </MemoryRouter>
+  );
 };
 
 // グローバルfetchのモック
@@ -115,19 +120,19 @@ describe("App", () => {
 
   describe("レンダリング", () => {
     it("アプリのヘッダーが表示される", () => {
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Lumina");
     });
 
     it("検索ボックスが表示される", () => {
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByRole("searchbox")).toBeInTheDocument();
     });
 
     it("PaperExplorerセクションが表示される", () => {
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("論文を探す");
     });
@@ -135,13 +140,13 @@ describe("App", () => {
 
   describe("レイアウト", () => {
     it("main要素が存在する", () => {
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByRole("main")).toBeInTheDocument();
     });
 
     it("header要素が存在する", () => {
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByRole("banner")).toBeInTheDocument();
     });
@@ -155,7 +160,7 @@ describe("App", () => {
 
     it("正常系: いいねボタンをクリックするとinteractionStoreのtoggleLikeが呼ばれる", async () => {
       const user = userEvent.setup();
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       // 論文カードが表示されるのを待つ
       await waitFor(() => {
@@ -172,7 +177,7 @@ describe("App", () => {
 
     it("正常系: ブックマークボタンをクリックするとinteractionStoreのtoggleBookmarkが呼ばれる", async () => {
       const user = userEvent.setup();
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       // 論文カードが表示されるのを待つ
       await waitFor(() => {
@@ -191,7 +196,7 @@ describe("App", () => {
       // いいね済み状態をモック
       mockGetLikedPaperIds.mockReturnValue(new Set(["2401.00001"]));
 
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       // 論文カードが表示されるのを待つ
       await waitFor(() => {
@@ -207,7 +212,7 @@ describe("App", () => {
       // ブックマーク済み状態をモック
       mockGetBookmarkedPaperIds.mockReturnValue(new Set(["2401.00001"]));
 
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       // 論文カードが表示されるのを待つ
       await waitFor(() => {
@@ -226,20 +231,20 @@ describe("App", () => {
     });
 
     it("正常系: 検索履歴セクションが表示される", () => {
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByText("検索履歴")).toBeInTheDocument();
     });
 
     it("正常系: 検索履歴が表示される", () => {
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByText("強化学習")).toBeInTheDocument();
     });
 
     it("正常系: 検索履歴の削除ボタンをクリックするとdeleteHistoryが呼ばれる", async () => {
       const user = userEvent.setup();
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       // 削除ボタンをクリック
       const deleteButton = screen.getByRole("button", { name: "削除" });
@@ -251,7 +256,7 @@ describe("App", () => {
     it("正常系: 検索履歴がない場合は空状態メッセージを表示する", () => {
       mockGetRecentHistories.mockReturnValue([]);
 
-      renderWithQueryClient(<App />);
+      renderWithProviders(<App />);
 
       expect(screen.getByText("検索履歴がありません")).toBeInTheDocument();
     });
