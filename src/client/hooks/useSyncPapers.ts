@@ -73,6 +73,9 @@ export const useSyncPapers = (
   const [nextStart, setNextStart] = useState(0);
   const [totalResults, setTotalResults] = useState<number | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // 同期フラグ（レースコンディション防止用）
+  // useState は非同期バッチ更新のため、連続呼び出しを防げない
+  const isLoadingMoreRef = useRef(false);
 
   const queryKey = createSyncQueryKey(params);
 
@@ -142,18 +145,27 @@ export const useSyncPapers = (
 
   // 追加同期実行関数（次のページを取得）
   const syncMore = useCallback(async () => {
+    // useRef で同期的にチェック（レースコンディション防止）
+    // useState の setIsLoadingMore(true) は React のバッチ更新で遅延するため、
+    // IntersectionObserver の連続発火を防げない
+    if (isLoadingMoreRef.current) {
+      console.log("[useSyncPapers] syncMore already in progress, skipping");
+      return;
+    }
+
     // ストアに論文があるがnextStartが0の場合、ストアの件数を起点にする
     // （初回syncなしでsyncMoreが呼ばれた場合の対策）
     const effectiveStart =
       nextStart === 0 && storePapers.length > 0 ? storePapers.length : nextStart;
 
-    if (isLoadingMore) return;
     if (totalResults !== null && effectiveStart >= totalResults) {
       console.log("[useSyncPapers] No more papers to fetch");
       return;
     }
 
-    setIsLoadingMore(true);
+    // 同期フラグを即座に立てる（レースコンディション防止）
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true); // UI更新用
     console.log(`[useSyncPapers] Fetching more papers from start=${effectiveStart}`);
 
     try {
@@ -177,10 +189,10 @@ export const useSyncPapers = (
     } catch (err) {
       onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
     } finally {
+      isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
   }, [
-    isLoadingMore,
     totalResults,
     nextStart,
     storePapers.length,
