@@ -100,10 +100,20 @@ export const PaperList: FC<PaperListProps> = ({
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
   const loaderRef = useRef<HTMLDivElement>(null);
 
-  // isSyncing を ref で保持（useEffect の依存配列から除外するため）
-  // これにより isSyncing が変化しても IntersectionObserver が再作成されない
+  // すべての外部依存を ref で保持し、IntersectionObserver の再作成を防ぐ
+  // これにより displayCount/papers.length/isSyncing が変化しても observer は維持され、
+  // 連続発火（observer 再作成 → 要素がまだ画面内 → 即座に再発火）を防止する
   const isSyncingRef = useRef(isSyncing);
   isSyncingRef.current = isSyncing;
+
+  const displayCountRef = useRef(displayCount);
+  displayCountRef.current = displayCount;
+
+  const papersLengthRef = useRef(papers.length);
+  papersLengthRef.current = papers.length;
+
+  const onRequestSyncRef = useRef(onRequestSync);
+  onRequestSyncRef.current = onRequestSync;
 
   // papers が変わったら displayCount をリセット
   // papers配列の先頭ID + 長さで変更を検知
@@ -115,8 +125,8 @@ export const PaperList: FC<PaperListProps> = ({
   }, [papersKey]);
 
   // IntersectionObserver でスクロール末尾を検知して追加読み込み
-  // 注意: isSyncing は ref 経由で参照し、依存配列に含めない
-  // これにより isSyncing 変化時の observer 再作成を防ぎ、連続発火バグを回避
+  // すべての状態は ref 経由で参照し、依存配列は空（マウント時のみ observer 作成）
+  // これにより observer の再作成を完全に防ぎ、連続発火バグを回避
   useEffect(() => {
     const loaderElement = loaderRef.current;
     if (!loaderElement) return;
@@ -124,12 +134,12 @@ export const PaperList: FC<PaperListProps> = ({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
-          if (displayCount < papers.length) {
+          if (displayCountRef.current < papersLengthRef.current) {
             // ローカル論文がまだある → 表示件数を増やす
-            setDisplayCount((prev) => Math.min(prev + PAGE_SIZE, papers.length));
-          } else if (onRequestSync && !isSyncingRef.current) {
+            setDisplayCount((prev) => Math.min(prev + PAGE_SIZE, papersLengthRef.current));
+          } else if (onRequestSyncRef.current && !isSyncingRef.current) {
             // ローカル論文が尽きた → APIから追加取得
-            onRequestSync();
+            onRequestSyncRef.current();
           }
         }
       },
@@ -138,7 +148,7 @@ export const PaperList: FC<PaperListProps> = ({
 
     observer.observe(loaderElement);
     return () => observer.disconnect();
-  }, [displayCount, papers.length, onRequestSync]);
+  }, []);
 
   if (isLoading) {
     return <LoadingSkeleton />;
