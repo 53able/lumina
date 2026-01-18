@@ -1,3 +1,4 @@
+import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Paper, PaperSummary, SearchHistory, UserInteraction } from "@/shared/schemas";
 import { createLuminaDb, type LuminaDB } from "./db";
@@ -35,8 +36,8 @@ describe("LuminaDB", () => {
         abstract: "This is a test abstract.",
         authors: ["Author A", "Author B"],
         categories: ["cs.AI", "cs.LG"],
-        publishedAt: new Date("2024-01-01"),
-        updatedAt: new Date("2024-01-02"),
+        publishedAt: parseISO("2024-01-01"),
+        updatedAt: parseISO("2024-01-02"),
         pdfUrl: "https://arxiv.org/pdf/2401.00001.pdf",
         arxivUrl: "https://arxiv.org/abs/2401.00001",
         embedding: Array(1536).fill(0.1), // 1536次元ベクトル
@@ -61,8 +62,8 @@ describe("LuminaDB", () => {
           abstract: "AI abstract",
           authors: ["Author A"],
           categories: ["cs.AI"],
-          publishedAt: new Date("2024-01-01"),
-          updatedAt: new Date("2024-01-01"),
+          publishedAt: parseISO("2024-01-01"),
+          updatedAt: parseISO("2024-01-01"),
           pdfUrl: "https://arxiv.org/pdf/2401.00001.pdf",
           arxivUrl: "https://arxiv.org/abs/2401.00001",
         },
@@ -72,8 +73,8 @@ describe("LuminaDB", () => {
           abstract: "ML abstract",
           authors: ["Author B"],
           categories: ["cs.LG"],
-          publishedAt: new Date("2024-01-02"),
-          updatedAt: new Date("2024-01-02"),
+          publishedAt: parseISO("2024-01-02"),
+          updatedAt: parseISO("2024-01-02"),
           pdfUrl: "https://arxiv.org/pdf/2401.00002.pdf",
           arxivUrl: "https://arxiv.org/abs/2401.00002",
         },
@@ -95,8 +96,8 @@ describe("LuminaDB", () => {
           abstract: "abstract",
           authors: ["Author"],
           categories: ["cs.AI"],
-          publishedAt: new Date("2024-01-02"),
-          updatedAt: new Date("2024-01-02"),
+          publishedAt: parseISO("2024-01-02"),
+          updatedAt: parseISO("2024-01-02"),
           pdfUrl: "https://arxiv.org/pdf/2401.00002.pdf",
           arxivUrl: "https://arxiv.org/abs/2401.00002",
         },
@@ -106,8 +107,8 @@ describe("LuminaDB", () => {
           abstract: "abstract",
           authors: ["Author"],
           categories: ["cs.AI"],
-          publishedAt: new Date("2024-01-01"),
-          updatedAt: new Date("2024-01-01"),
+          publishedAt: parseISO("2024-01-01"),
+          updatedAt: parseISO("2024-01-01"),
           pdfUrl: "https://arxiv.org/pdf/2401.00001.pdf",
           arxivUrl: "https://arxiv.org/abs/2401.00001",
         },
@@ -212,7 +213,7 @@ describe("LuminaDB", () => {
           },
           queryEmbedding: [],
           resultCount: 10,
-          createdAt: new Date("2024-01-01"),
+          createdAt: parseISO("2024-01-01"),
         },
         {
           id: "id-2",
@@ -225,7 +226,7 @@ describe("LuminaDB", () => {
           },
           queryEmbedding: [],
           resultCount: 20,
-          createdAt: new Date("2024-01-02"),
+          createdAt: parseISO("2024-01-02"),
         },
       ];
 

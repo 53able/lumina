@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSemanticSearch } from "./useSemanticSearch";
 
@@ -26,8 +27,8 @@ const mockPapers = [
     abstract: "The dominant sequence transduction models...",
     authors: ["Ashish Vaswani"],
     categories: ["cs.CL", "cs.LG"],
-    publishedAt: new Date("2024-01-01"),
-    updatedAt: new Date("2024-01-01"),
+    publishedAt: parseISO("2024-01-01"),
+    updatedAt: parseISO("2024-01-01"),
     pdfUrl: "https://arxiv.org/pdf/2401.00001.pdf",
     arxivUrl: "https://arxiv.org/abs/2401.00001",
     embedding: createMockEmbedding(1), // 類似度高め
@@ -38,8 +39,8 @@ const mockPapers = [
     abstract: "We introduce a new language representation model...",
     authors: ["Jacob Devlin"],
     categories: ["cs.CL"],
-    publishedAt: new Date("2024-01-02"),
-    updatedAt: new Date("2024-01-02"),
+    publishedAt: parseISO("2024-01-02"),
+    updatedAt: parseISO("2024-01-02"),
     pdfUrl: "https://arxiv.org/pdf/2401.00002.pdf",
     arxivUrl: "https://arxiv.org/abs/2401.00002",
     embedding: createMockEmbedding(2), // 類似度中
@@ -50,8 +51,8 @@ const mockPapers = [
     abstract: "This paper discusses cooking methods...",
     authors: ["Chef Gordon"],
     categories: ["misc"],
-    publishedAt: new Date("2024-01-03"),
-    updatedAt: new Date("2024-01-03"),
+    publishedAt: parseISO("2024-01-03"),
+    updatedAt: parseISO("2024-01-03"),
     pdfUrl: "https://arxiv.org/pdf/2401.00003.pdf",
     arxivUrl: "https://arxiv.org/abs/2401.00003",
     embedding: createMockEmbedding(100), // 類似度低め
@@ -240,8 +241,8 @@ describe("useSemanticSearch", () => {
           abstract: "No embedding here...",
           authors: ["Someone"],
           categories: ["cs.AI"],
-          publishedAt: new Date("2024-01-04"),
-          updatedAt: new Date("2024-01-04"),
+          publishedAt: parseISO("2024-01-04"),
+          updatedAt: parseISO("2024-01-04"),
           pdfUrl: "https://arxiv.org/pdf/2401.00004.pdf",
           arxivUrl: "https://arxiv.org/abs/2401.00004",
           // embeddingなし

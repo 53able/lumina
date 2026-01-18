@@ -1,3 +1,4 @@
+import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLuminaDb, type LuminaDB } from "@/client/db/db";
 import type { Paper } from "@/shared/schemas";
@@ -21,8 +22,8 @@ const createSamplePaper = (overrides: Partial<Paper> = {}): Paper => ({
   abstract: "This is a sample abstract.",
   authors: ["Author A", "Author B"],
   categories: ["cs.AI", "cs.LG"],
-  publishedAt: new Date("2024-01-01"),
-  updatedAt: new Date("2024-01-02"),
+  publishedAt: parseISO("2024-01-01"),
+  updatedAt: parseISO("2024-01-02"),
   pdfUrl: "https://arxiv.org/pdf/2401.00001.pdf",
   arxivUrl: "https://arxiv.org/abs/2401.00001",
   embedding: Array(1536).fill(0.1),

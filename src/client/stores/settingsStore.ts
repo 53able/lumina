@@ -1,3 +1,4 @@
+import { parseISO } from "date-fns";
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
 import type { SyncPeriod } from "@/shared/schemas";
@@ -125,13 +126,13 @@ export const useSettingsStore = create<SettingsStore>()(
 
         getLastSyncedAt: () => {
           const stored = get().lastSyncedAt;
-          return stored ? new Date(stored) : null;
+          return stored ? parseISO(stored) : null;
         },
 
         shouldAutoSync: () => {
           const stored = get().lastSyncedAt;
           if (!stored) return true; // 一度も同期していない場合は自動同期
-          const lastSynced = new Date(stored).getTime();
+          const lastSynced = parseISO(stored).getTime();
           const now = Date.now();
           return now - lastSynced > AUTO_SYNC_THRESHOLD_MS;
         },

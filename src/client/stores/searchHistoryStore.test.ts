@@ -1,3 +1,4 @@
+import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLuminaDb, type LuminaDB } from "@/client/db/db";
 import type { SearchHistory } from "@/shared/schemas";
@@ -106,12 +107,12 @@ describe("searchHistoryStore", () => {
       const oldHistory = createSampleHistory({
         id: "old-id",
         originalQuery: "古い検索",
-        createdAt: new Date("2024-01-01"),
+        createdAt: parseISO("2024-01-01"),
       });
       const newHistory = createSampleHistory({
         id: "new-id",
         originalQuery: "新しい検索",
-        createdAt: new Date("2024-01-02"),
+        createdAt: parseISO("2024-01-02"),
       });
 
       // Act - 古い方を先に追加
