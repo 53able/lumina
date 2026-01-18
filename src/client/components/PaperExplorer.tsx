@@ -61,18 +61,19 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
 
   // URL状態管理フック（原則1: 状態の外部化）
   const {
+    searchQuery,
     filterMode,
     selectedCategories,
+    setSearchQuery,
     toggleFilterMode,
     toggleCategory,
     clearAllFilters,
     filterPapers,
   } = usePaperFilter();
 
-  // 論文と検索状態（親コンポーネントとの連携が必要なためローカルstate）
+  // 論文とローディング状態（親コンポーネントとの連携が必要なためローカルstate）
   const [papers, setPapers] = useState<Paper[]>(initialPapers);
   const [isLoading, setIsLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState<string | null>(null);
 
   // initialPapers が変更されたら papers state を更新
   useEffect(() => {
@@ -101,12 +102,12 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const likedCount = papers.filter((p) => likedPaperIds.has(p.id)).length;
   const bookmarkedCount = papers.filter((p) => bookmarkedPaperIds.has(p.id)).length;
 
-  // externalQuery が変更されたら searchQuery state を同期（検索履歴からの再検索用）
+  // externalQuery が変更されたら URL の searchQuery を同期（検索履歴からの再検索用）
   useEffect(() => {
     if (externalQuery !== null) {
       setSearchQuery(externalQuery);
     }
-  }, [externalQuery]);
+  }, [externalQuery, setSearchQuery]);
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
