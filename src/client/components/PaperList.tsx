@@ -234,7 +234,7 @@ export const PaperList: FC<PaperListProps> = ({
                       gap: `${GRID_GAP}px`,
                     }}
                   >
-                    {rowItems.map((paper) => (
+                    {rowItems.map((paper, colIndex) => (
                       <PaperCard
                         key={getPaperId(paper)}
                         paper={paper}
@@ -245,6 +245,7 @@ export const PaperList: FC<PaperListProps> = ({
                         isBookmarked={bookmarkedPaperIds.has(getPaperId(paper))}
                         whyRead={whyReadMap.get(getPaperId(paper))}
                         isExpanded={false}
+                        index={index * columnCount + colIndex}
                       />
                     ))}
                   </div>

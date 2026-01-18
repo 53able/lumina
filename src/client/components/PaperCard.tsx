@@ -29,6 +29,8 @@ interface PaperCardProps {
   whyRead?: string;
   /** 展開中フラグ */
   isExpanded?: boolean;
+  /** カードのインデックス番号（デバッグ/確認用） */
+  index?: number;
 }
 
 /**
@@ -47,6 +49,7 @@ export const PaperCard: FC<PaperCardProps> = ({
   isBookmarked = false,
   whyRead,
   isExpanded = false,
+  index,
 }) => {
   const handleCardClick = () => {
     onClick?.(paper);
@@ -78,7 +81,14 @@ export const PaperCard: FC<PaperCardProps> = ({
       data-expanded={isExpanded}
     >
       <CardHeader className="pb-2">
-        <CardTitle className="line-clamp-2 text-lg">{paper.title}</CardTitle>
+        <div className="flex items-start gap-2">
+          {index !== undefined && (
+            <span className="shrink-0 inline-flex items-center justify-center h-6 min-w-6 px-1.5 rounded-full bg-muted text-xs font-mono font-medium text-muted-foreground">
+              #{index + 1}
+            </span>
+          )}
+          <CardTitle className="line-clamp-2 text-lg">{paper.title}</CardTitle>
+        </div>
         {whyRead && (
           <p className="text-sm text-primary/80 line-clamp-2 mt-1 font-medium">{whyRead}</p>
         )}
