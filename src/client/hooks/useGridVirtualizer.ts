@@ -113,7 +113,8 @@ export const useGridVirtualizer = <T>({
   // containerWidth が 0 の場合（テスト環境や初期レンダリング時）はフォールバック値を使用
   const { columnCount, itemWidth } = useMemo(() => {
     // フォールバック幅（SSRやテスト環境用）
-    const effectiveWidth = containerWidth > 0 ? containerWidth : 1200;
+    // 小数点以下を切り捨てて精度問題を回避
+    const effectiveWidth = Math.floor(containerWidth > 0 ? containerWidth : 1200);
 
     // auto-fit 相当: コンテナ幅 / (最小幅 + ギャップ) で列数を計算
     // (containerWidth + columnGap) / (minItemWidth + columnGap) で正確に計算
@@ -123,7 +124,8 @@ export const useGridVirtualizer = <T>({
     );
 
     // 実際のアイテム幅を計算（ギャップを考慮して均等分割）
-    const width = (effectiveWidth - columnGap * (cols - 1)) / cols;
+    // Math.floor で切り捨てて、オーバーフローを防止
+    const width = Math.floor((effectiveWidth - columnGap * (cols - 1)) / cols);
 
     return { columnCount: cols, itemWidth: Math.max(width, minItemWidth) };
   }, [containerWidth, minItemWidth, columnGap]);
