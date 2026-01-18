@@ -160,14 +160,17 @@ describe("PaperDetail", () => {
       const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
-      expect(screen.getByText("AI要約")).toBeInTheDocument();
+      // セクションタイトルは「AI分析」に変更
+      expect(screen.getByText("AI分析")).toBeInTheDocument();
     });
 
     it("正常系: 要約生成ボタンが表示される", async () => {
       const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
-      expect(screen.getByRole("button", { name: /要約を生成/i })).toBeInTheDocument();
+      // 「要約のみ」と「要約 + 説明文」の2つのボタンが表示される
+      expect(screen.getByRole("button", { name: /要約のみ/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /要約 \+ 説明文/i })).toBeInTheDocument();
     });
 
     it("正常系: 要約生成ボタンをクリックするとonGenerateSummaryが呼ばれる", async () => {
@@ -177,9 +180,10 @@ describe("PaperDetail", () => {
       render(<PaperDetail paper={mockPaper} onGenerateSummary={handleGenerateSummary} />);
 
       const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: /要約を生成/i }));
+      await user.click(screen.getByRole("button", { name: /要約 \+ 説明文/i }));
 
-      expect(handleGenerateSummary).toHaveBeenCalledWith(mockPaper.id, "ja");
+      // paperId, language, target("both") の3引数で呼ばれる
+      expect(handleGenerateSummary).toHaveBeenCalledWith(mockPaper.id, "ja", "both");
     });
 
     it("正常系: 要約がある場合は表示される", async () => {

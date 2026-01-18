@@ -42,7 +42,9 @@ describe("PaperSummary", () => {
     it("正常系: 要約がない場合は生成ボタンを表示する", () => {
       render(<PaperSummary paperId="2401.00001" />);
 
-      expect(screen.getByRole("button", { name: /要約を生成/i })).toBeInTheDocument();
+      // 「要約のみ」と「要約 + 説明文」の2つのボタンが表示される
+      expect(screen.getByRole("button", { name: /要約のみ/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /要約 \+ 説明文/i })).toBeInTheDocument();
     });
 
     it("正常系: 生成ボタンをクリックするとonGenerateが呼ばれる", async () => {
@@ -51,9 +53,11 @@ describe("PaperSummary", () => {
 
       render(<PaperSummary paperId="2401.00001" onGenerate={mockOnGenerate} />);
 
-      await user.click(screen.getByRole("button", { name: /要約を生成/i }));
+      // 「要約 + 説明文」ボタンをクリック
+      await user.click(screen.getByRole("button", { name: /要約 \+ 説明文/i }));
 
-      expect(mockOnGenerate).toHaveBeenCalledWith("2401.00001", "ja");
+      // paperId, language, target("both") が渡される
+      expect(mockOnGenerate).toHaveBeenCalledWith("2401.00001", "ja", "both");
     });
   });
 
@@ -140,7 +144,7 @@ describe("PaperSummary", () => {
     it("正常系: サマリーセクションのタイトルが表示される", () => {
       render(<PaperSummary paperId="2401.00001" />);
 
-      expect(screen.getByText("AI要約")).toBeInTheDocument();
+      expect(screen.getByText("AI分析")).toBeInTheDocument();
     });
   });
 });
