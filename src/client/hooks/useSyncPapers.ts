@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { parseISO } from "date-fns";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { syncApi } from "@/client/lib/api";
 import { usePaperStore } from "@/client/stores/paperStore";
@@ -24,8 +25,8 @@ const normalizePaper = (paper: {
   embedding?: number[];
 }): Paper => ({
   ...paper,
-  publishedAt: paper.publishedAt instanceof Date ? paper.publishedAt : new Date(paper.publishedAt),
-  updatedAt: paper.updatedAt instanceof Date ? paper.updatedAt : new Date(paper.updatedAt),
+  publishedAt: paper.publishedAt instanceof Date ? paper.publishedAt : parseISO(paper.publishedAt),
+  updatedAt: paper.updatedAt instanceof Date ? paper.updatedAt : parseISO(paper.updatedAt),
 });
 
 /**

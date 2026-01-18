@@ -1,3 +1,4 @@
+import { parseISO } from "date-fns";
 import type { Paper } from "../../shared/schemas/index.js";
 
 /**
@@ -94,8 +95,8 @@ export const parseArxivEntry = (entryXml: string): Paper => {
   const authors = extractAllText(entryXml, "name");
   const categories = extractCategories(entryXml);
 
-  const publishedAt = new Date(extractText(entryXml, "published"));
-  const updatedAt = new Date(extractText(entryXml, "updated"));
+  const publishedAt = parseISO(extractText(entryXml, "published"));
+  const updatedAt = parseISO(extractText(entryXml, "updated"));
 
   const arxivUrl = extractLink(entryXml, "alternate", "text/html");
   const pdfUrl = extractLink(entryXml, "related", "application/pdf");

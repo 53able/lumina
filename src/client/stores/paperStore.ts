@@ -1,3 +1,4 @@
+import { compareDesc } from "date-fns";
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { LuminaDB } from "@/client/db/db";
@@ -134,7 +135,7 @@ export const usePaperStore = create<PaperStore>()(
  * @returns ソート済みの論文配列
  */
 const sortPapersByPublishedAt = (papers: Paper[]): Paper[] =>
-  [...papers].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+  [...papers].sort((a, b) => compareDesc(a.publishedAt, b.publishedAt));
 
 /**
  * paperStoreを初期化する
