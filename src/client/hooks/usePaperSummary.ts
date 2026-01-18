@@ -42,24 +42,19 @@ interface UsePaperSummaryReturn {
  * Hono RPC の型推論では Date として扱われるが、
  * 実際の JSON レスポンスでは ISO 文字列として返ってくるため変換が必要
  */
-const normalizeSummaryResponse = (
-  data: Awaited<ReturnType<typeof summaryApi>>
-): PaperSummary => ({
+const normalizeSummaryResponse = (data: Awaited<ReturnType<typeof summaryApi>>): PaperSummary => ({
   paperId: data.paperId,
   summary: data.summary,
   keyPoints: data.keyPoints,
   language: data.language,
   createdAt: new Date(data.createdAt as unknown as string),
   explanation:
-    "explanation" in data && typeof data.explanation === "string"
-      ? data.explanation
-      : undefined,
+    "explanation" in data && typeof data.explanation === "string" ? data.explanation : undefined,
   targetAudience:
     "targetAudience" in data && typeof data.targetAudience === "string"
       ? data.targetAudience
       : undefined,
-  whyRead:
-    "whyRead" in data && typeof data.whyRead === "string" ? data.whyRead : undefined,
+  whyRead: "whyRead" in data && typeof data.whyRead === "string" ? data.whyRead : undefined,
 });
 
 /**
@@ -135,7 +130,15 @@ export const usePaperSummary = ({
         setIsLoading(false);
       }
     },
-    [paperId, summaryLanguage, abstract, apiKey, getSummaryByPaperIdAndLanguage, addSummary, onError]
+    [
+      paperId,
+      summaryLanguage,
+      abstract,
+      apiKey,
+      getSummaryByPaperIdAndLanguage,
+      addSummary,
+      onError,
+    ]
   );
 
   return {

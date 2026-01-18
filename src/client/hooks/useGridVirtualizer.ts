@@ -118,10 +118,7 @@ export const useGridVirtualizer = <T>({
 
     // auto-fit 相当: コンテナ幅 / (最小幅 + ギャップ) で列数を計算
     // (containerWidth + columnGap) / (minItemWidth + columnGap) で正確に計算
-    const cols = Math.max(
-      1,
-      Math.floor((effectiveWidth + columnGap) / (minItemWidth + columnGap))
-    );
+    const cols = Math.max(1, Math.floor((effectiveWidth + columnGap) / (minItemWidth + columnGap)));
 
     // 実際のアイテム幅を計算（ギャップを考慮して均等分割）
     // Math.floor で切り捨てて、オーバーフローを防止
