@@ -7,6 +7,7 @@
  */
 
 import { hc } from "hono/client";
+import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { SearchRequest } from "@/shared/schemas";
 import type { AppType } from "../../api/app.js";
 
@@ -52,6 +53,30 @@ const withApiKey = (options?: ApiOptions) => {
       "X-OpenAI-API-Key": options.apiKey,
     },
   };
+};
+
+/**
+ * settingsStore から復号化された API key を取得する
+ *
+ * @description
+ * API 呼び出し前にこの関数を使用して平文の API key を取得し、
+ * searchApi/syncApi/summaryApi の options に渡す。
+ *
+ * @returns 平文の API key（未設定の場合は undefined）
+ *
+ * @example
+ * ```typescript
+ * const apiKey = await getDecryptedApiKey();
+ * const result = await searchApi(request, { apiKey });
+ * ```
+ */
+export const getDecryptedApiKey = async (): Promise<string | undefined> => {
+  const store = useSettingsStore.getState();
+  if (!store.hasApiKey()) {
+    return undefined;
+  }
+  const plainKey = await store.getApiKeyAsync();
+  return plainKey || undefined;
 };
 
 /**

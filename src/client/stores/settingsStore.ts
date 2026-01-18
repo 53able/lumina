@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
+import { decryptApiKey, encryptApiKey, isEncrypted } from "@/client/lib/crypto";
 import type { SyncPeriod } from "@/shared/schemas";
 import { parseISO, timestamp } from "@/shared/utils/dateTime";
 
@@ -14,9 +15,13 @@ const AUTO_SYNC_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 /**
  * settingsStore の状態型
+ *
+ * @remarks
+ * apiKey は暗号化された状態で保存される（enc: プレフィックス付き）。
+ * 平文の API key を取得するには getApiKeyAsync() を使用する。
  */
 interface SettingsState {
-  /** OpenAI APIキー */
+  /** OpenAI APIキー（暗号化済み） */
   apiKey: string;
   /** 対象カテゴリ */
   selectedCategories: string[];
@@ -32,8 +37,21 @@ interface SettingsState {
  * settingsStore のアクション型
  */
 interface SettingsActions {
-  /** APIキーを設定する */
+  /**
+   * APIキーを設定する（非同期、暗号化）
+   * @deprecated 同期版。暗号化が必要な場合は setApiKeyAsync を使用
+   */
   setApiKey: (apiKey: string) => void;
+  /**
+   * APIキーを設定する（暗号化して保存）
+   * @param plainKey - 平文の API key
+   */
+  setApiKeyAsync: (plainKey: string) => Promise<void>;
+  /**
+   * APIキーを取得する（復号化して返す）
+   * @returns 平文の API key
+   */
+  getApiKeyAsync: () => Promise<string>;
   /** APIキーが設定されているか確認する */
   hasApiKey: () => boolean;
   /** APIキーをクリアする */
@@ -58,6 +76,11 @@ interface SettingsActions {
   shouldAutoSync: () => boolean;
   /** 全設定をリセットする */
   resetAllSettings: () => void;
+  /**
+   * ストアを初期化する（移行ロジック含む）
+   * @description 平文で保存されている API key を検出し、自動暗号化する
+   */
+  initializeStore: () => Promise<void>;
 }
 
 type SettingsStore = SettingsState & SettingsActions;
@@ -66,6 +89,12 @@ type SettingsStore = SettingsState & SettingsActions;
  * settingsStore - アプリ設定の管理
  *
  * Zustand + localStorage永続化（persist middleware）
+ *
+ * @remarks
+ * API key は暗号化された状態で保存される。
+ * - 保存時: setApiKeyAsync() で暗号化
+ * - 取得時: getApiKeyAsync() で復号化
+ * - 移行: initializeStore() で平文を自動暗号化
  */
 export const useSettingsStore = create<SettingsStore>()(
   devtools(
@@ -79,8 +108,33 @@ export const useSettingsStore = create<SettingsStore>()(
         lastSyncedAt: null,
 
         // Actions
+
+        /**
+         * @deprecated 同期版。暗号化が必要な場合は setApiKeyAsync を使用
+         */
         setApiKey: (apiKey) => {
           set({ apiKey });
+        },
+
+        setApiKeyAsync: async (plainKey) => {
+          if (!plainKey) {
+            set({ apiKey: "" });
+            return;
+          }
+          const encrypted = await encryptApiKey(plainKey);
+          set({ apiKey: encrypted });
+        },
+
+        getApiKeyAsync: async () => {
+          const stored = get().apiKey;
+          if (!stored) {
+            return "";
+          }
+          // 暗号化されていない場合（移行前のデータ）はそのまま返す
+          if (!isEncrypted(stored)) {
+            return stored;
+          }
+          return decryptApiKey(stored);
         },
 
         hasApiKey: () => {
@@ -145,6 +199,16 @@ export const useSettingsStore = create<SettingsStore>()(
             autoGenerateSummary: false,
             lastSyncedAt: null,
           });
+        },
+
+        initializeStore: async () => {
+          const stored = get().apiKey;
+          // 平文で保存されている API key を検出し、自動暗号化
+          if (stored && !isEncrypted(stored)) {
+            console.info("[settingsStore] Migrating plaintext API key to encrypted format");
+            const encrypted = await encryptApiKey(stored);
+            set({ apiKey: encrypted });
+          }
         },
       }),
       {
