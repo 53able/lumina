@@ -68,8 +68,8 @@ describe("interactionStore", () => {
 
       // Assert
       expect(state.interactions).toHaveLength(1);
-      expect(state.interactions[0].paperId).toBe("2401.00001");
-      expect(state.interactions[0].type).toBe("like");
+      expect(state.interactions[0]!.paperId).toBe("2401.00001");
+      expect(state.interactions[0]!.type).toBe("like");
     });
   });
 
@@ -94,7 +94,7 @@ describe("interactionStore", () => {
         .equals("2401.00001")
         .toArray();
       expect(dbInteractions).toHaveLength(1);
-      expect(dbInteractions[0].type).toBe("like");
+      expect(dbInteractions[0]!.type).toBe("like");
     });
 
     it("正常系: いいねを取り消せる（トグル）", async () => {
@@ -166,7 +166,7 @@ describe("interactionStore", () => {
         .equals("2401.00001")
         .toArray();
       expect(dbInteractions).toHaveLength(1);
-      expect(dbInteractions[0].type).toBe("bookmark");
+      expect(dbInteractions[0]!.type).toBe("bookmark");
     });
 
     it("正常系: ブックマークを取り消せる（トグル）", async () => {

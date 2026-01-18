@@ -66,7 +66,7 @@ describe("paperStore", () => {
 
       // Assert
       expect(state.papers).toHaveLength(1);
-      expect(state.papers[0].id).toBe("2401.00001");
+      expect(state.papers[0]!.id).toBe("2401.00001");
     });
   });
 
@@ -83,7 +83,7 @@ describe("paperStore", () => {
       // Assert - Store
       const state = usePaperStore.getState();
       expect(state.papers).toHaveLength(1);
-      expect(state.papers[0].id).toBe("2401.00001");
+      expect(state.papers[0]!.id).toBe("2401.00001");
 
       // Assert - IndexedDB永続化
       const dbPaper = await mockDb.papers.get("2401.00001");
@@ -126,7 +126,7 @@ describe("paperStore", () => {
       // Assert
       const state = usePaperStore.getState();
       expect(state.papers).toHaveLength(1);
-      expect(state.papers[0].title).toBe("Updated Title");
+      expect(state.papers[0]!.title).toBe("Updated Title");
     });
   });
 

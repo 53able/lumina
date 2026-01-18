@@ -136,7 +136,8 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       const likeButtons = screen.getAllByRole("button", { name: /いいね/i });
-      await user.click(likeButtons[0]);
+      expect(likeButtons[0]).toBeDefined();
+      await user.click(likeButtons[0]!);
 
       expect(mockOnLike).toHaveBeenCalledWith("2401.00001");
     });
@@ -148,7 +149,8 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       const bookmarkButtons = screen.getAllByRole("button", { name: /ブックマーク/i });
-      await user.click(bookmarkButtons[0]);
+      expect(bookmarkButtons[0]).toBeDefined();
+      await user.click(bookmarkButtons[0]!);
 
       expect(mockOnBookmark).toHaveBeenCalledWith("2401.00001");
     });
@@ -160,7 +162,8 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       const articles = screen.getAllByRole("article");
-      await user.click(articles[0]);
+      expect(articles[0]).toBeDefined();
+      await user.click(articles[0]!);
 
       expect(mockOnPaperClick).toHaveBeenCalledWith(mockPapers[0]);
     });
