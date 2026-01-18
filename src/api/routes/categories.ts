@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Hono } from "hono";
 import { type Category, CategoryListResponseSchema } from "../../shared/schemas/index.js";
 
 /**
@@ -196,37 +196,11 @@ const ARXIV_CATEGORIES: Category[] = [
 ];
 
 /**
- * カテゴリ一覧取得のルート定義
+ * カテゴリ API アプリケーション
  */
-export const listCategoriesRoute = createRoute({
-  method: "get",
-  path: "/api/v1/categories",
-  tags: ["categories"],
-  summary: "カテゴリ一覧取得",
-  description: "arXivカテゴリの一覧とデフォルト選択を返します",
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: CategoryListResponseSchema,
-        },
-      },
-      description: "カテゴリ一覧",
-    },
-  },
-});
-
-/**
- * カテゴリAPIアプリケーション
- */
-export const categoriesApp = new OpenAPIHono();
-
-categoriesApp.openapi(listCategoriesRoute, (c) => {
-  return c.json(
-    {
-      categories: ARXIV_CATEGORIES,
-      defaultCategoryIds: DEFAULT_CATEGORY_IDS,
-    },
-    200
-  );
+export const categoriesApp = new Hono().get("/api/v1/categories", (c) => {
+  return c.json({
+    categories: ARXIV_CATEGORIES,
+    defaultCategoryIds: DEFAULT_CATEGORY_IDS,
+  });
 });

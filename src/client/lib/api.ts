@@ -1,26 +1,38 @@
 /**
- * 型安全なAPIクライアント
+ * 型安全な Hono RPC クライアント
  *
- * Zodスキーマで検証することで型安全性を確保。
- * Hono RPCクライアントは OpenAPIHono の .openapi() と完全互換ではないため、
- * fetchラッパーで代替。
+ * hono/client を使用してバックエンドと型安全に通信する。
+ * app.ts がメソッドチェーン形式で構築されているため、
+ * すべてのルートの入出力型が自動的に推論される。
  */
 
-import {
-  type PaperSummary,
-  PaperSummarySchema,
-  type SearchRequest,
-  type SearchResponse,
-  SearchResponseSchema,
-  SyncRequestSchema,
-  type SyncResponse,
-  SyncResponseSchema,
-} from "@/shared/schemas";
+import { hc } from "hono/client";
+import type { SearchRequest } from "@/shared/schemas";
+import type { AppType } from "../../api/app.js";
 
 /**
  * Basic認証のデフォルト認証情報
  */
 const DEFAULT_CREDENTIALS = btoa("admin:admin");
+
+/**
+ * APIクライアントのベースURL
+ * - 開発: Viteプロキシ経由で相対パス
+ * - 本番: Vercel同一ドメインで相対パス
+ */
+const getBaseUrl = () => {
+  if (typeof window === "undefined") return "";
+  return window.location.origin;
+};
+
+/**
+ * Hono RPC クライアント
+ */
+const client = hc<AppType>(getBaseUrl(), {
+  headers: {
+    Authorization: `Basic ${DEFAULT_CREDENTIALS}`,
+  },
+});
 
 /**
  * APIリクエストのオプション
@@ -31,48 +43,38 @@ interface ApiOptions {
 }
 
 /**
- * 共通ヘッダーを生成する
+ * OpenAI APIキーヘッダーを追加
  */
-const createHeaders = (options?: ApiOptions): HeadersInit => {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Basic ${DEFAULT_CREDENTIALS}`,
+const withApiKey = (options?: ApiOptions) => {
+  if (!options?.apiKey) return {};
+  return {
+    headers: {
+      "X-OpenAI-API-Key": options.apiKey,
+    },
   };
-
-  if (options?.apiKey) {
-    headers["X-OpenAI-API-Key"] = options.apiKey;
-  }
-
-  return headers;
 };
 
 /**
  * 検索API
  *
  * クエリをAIで拡張し、検索用Embeddingを生成する。
+ * Hono RPC により、レスポンス型は自動推論される。
  *
  * @param request 検索リクエスト
  * @param options APIオプション
- * @returns 検索レスポンス（Zod検証済み）
+ * @returns 検索レスポンス（RPC型推論）
  * @throws Error APIエラー時
  */
-export const searchApi = async (
-  request: SearchRequest,
-  options?: ApiOptions
-): Promise<SearchResponse> => {
-  const response = await fetch("/api/v1/search", {
-    method: "POST",
-    headers: createHeaders(options),
-    body: JSON.stringify(request),
-  });
+export const searchApi = async (request: SearchRequest, options?: ApiOptions) => {
+  const res = await client.api.v1.search.$post({ json: request }, withApiKey(options));
 
-  if (!response.ok) {
-    const error = (await response.json()) as { error?: string };
-    throw new Error(error.error ?? "検索に失敗しました");
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error("error" in error ? error.error : "検索に失敗しました");
   }
 
-  const data: unknown = await response.json();
-  return SearchResponseSchema.parse(data);
+  // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される
+  return res.json();
 };
 
 /**
@@ -90,31 +92,32 @@ type SyncApiInput = {
  * 同期API
  *
  * arXiv論文を取得し、Embeddingを生成する。
+ * Hono RPC により、レスポンス型は自動推論される。
  *
  * @param request 同期リクエスト
  * @param options APIオプション
- * @returns 同期レスポンス（Zod検証済み）
+ * @returns 同期レスポンス（RPC型推論）
  * @throws Error APIエラー時
  */
-export const syncApi = async (
-  request: SyncApiInput,
-  options?: ApiOptions
-): Promise<SyncResponse> => {
-  // デフォルト値を適用してバリデーション
-  const validatedRequest = SyncRequestSchema.parse(request);
+export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
+  const res = await client.api.v1.sync.$post(
+    {
+      json: {
+        categories: request.categories,
+        period: request.period ?? "30",
+        maxResults: request.maxResults ?? 50,
+        start: request.start ?? 0,
+      },
+    },
+    withApiKey(options)
+  );
 
-  const response = await fetch("/api/v1/sync", {
-    method: "POST",
-    headers: createHeaders(options),
-    body: JSON.stringify(validatedRequest),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Sync failed: ${response.status}`);
+  if (!res.ok) {
+    throw new Error(`Sync failed: ${res.status}`);
   }
 
-  const data: unknown = await response.json();
-  return SyncResponseSchema.parse(data);
+  // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される
+  return res.json();
 };
 
 /**
@@ -139,29 +142,36 @@ type SummaryApiInput = {
  * 要約API
  *
  * 論文のアブストラクトを要約し、キーポイントを抽出する。
+ * Hono RPC により、レスポンス型は自動推論される。
  *
  * @param paperId 論文ID
  * @param request 要約リクエスト
  * @param options APIオプション
- * @returns 要約レスポンス（Zod検証済み）
+ * @returns 要約レスポンス（RPC型推論）
  * @throws Error APIエラー時
  */
 export const summaryApi = async (
   paperId: string,
   request: SummaryApiInput,
   options?: ApiOptions
-): Promise<PaperSummary> => {
-  const response = await fetch(`/api/v1/summary/${encodeURIComponent(paperId)}`, {
-    method: "POST",
-    headers: createHeaders(options),
-    body: JSON.stringify(request),
-  });
+) => {
+  const res = await client.api.v1.summary[":id"].$post(
+    {
+      param: { id: paperId },
+      json: {
+        language: request.language,
+        abstract: request.abstract,
+        generateTarget: request.generateTarget,
+      },
+    },
+    withApiKey(options)
+  );
 
-  if (!response.ok) {
-    const error = (await response.json()) as { error?: string };
-    throw new Error(error.error ?? "要約生成に失敗しました");
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error("error" in error ? error.error : "要約生成に失敗しました");
   }
 
-  const data: unknown = await response.json();
-  return PaperSummarySchema.parse(data);
+  // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される
+  return res.json();
 };
