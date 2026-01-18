@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
-import { type GenerateTarget, summaryApi } from "@/client/lib/api";
-import { useSettingsStore } from "@/client/stores/settingsStore";
+import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "@/client/lib/api";
 import { useSummaryStore } from "@/client/stores/summaryStore";
 import type { PaperSummary } from "@/shared/schemas";
 
@@ -90,7 +89,6 @@ export const usePaperSummary = ({
   const [summaryLanguage, setSummaryLanguage] = useState<"ja" | "en">("ja");
   const [isLoading, setIsLoading] = useState(false);
 
-  const { apiKey } = useSettingsStore();
   const { getSummaryByPaperIdAndLanguage, addSummary } = useSummaryStore();
 
   // 現在の論文・言語に対応するサマリーを取得
@@ -102,10 +100,13 @@ export const usePaperSummary = ({
       setIsLoading(true);
 
       try {
+        // API key を復号化して取得
+        const apiKey = await getDecryptedApiKey();
+
         const response = await summaryApi(
           paperId,
           { language, abstract, generateTarget: target },
-          { apiKey: apiKey ?? undefined }
+          { apiKey }
         );
 
         const normalizedData = normalizeSummaryResponse(response);
@@ -130,15 +131,7 @@ export const usePaperSummary = ({
         setIsLoading(false);
       }
     },
-    [
-      paperId,
-      summaryLanguage,
-      abstract,
-      apiKey,
-      getSummaryByPaperIdAndLanguage,
-      addSummary,
-      onError,
-    ]
+    [paperId, summaryLanguage, abstract, getSummaryByPaperIdAndLanguage, addSummary, onError]
   );
 
   return {

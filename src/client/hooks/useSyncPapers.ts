@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { syncApi } from "@/client/lib/api";
+import { getDecryptedApiKey, syncApi } from "@/client/lib/api";
 import { usePaperStore } from "@/client/stores/paperStore";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { Paper, SyncResponse } from "@/shared/schemas";
@@ -64,8 +64,6 @@ interface SyncParams {
   categories: string[];
   /** 同期期間（日数） */
   period?: "7" | "30" | "90" | "180" | "365";
-  /** OpenAI APIキー（オプション） */
-  apiKey?: string;
 }
 
 /**
@@ -130,13 +128,16 @@ export const useSyncPapers = (
   const { data, isFetching, error, refetch } = useQuery({
     queryKey,
     queryFn: async (): Promise<SyncResponse> => {
+      // API key を復号化して取得
+      const apiKey = await getDecryptedApiKey();
+
       const response = await syncApi(
         {
           categories: params.categories,
           period: params.period,
           start: 0, // 初回は常に0から
         },
-        { apiKey: params.apiKey }
+        { apiKey }
       );
       // 日付文字列を Date オブジェクトに正規化
       return normalizeSyncResponse(response);
@@ -218,13 +219,16 @@ export const useSyncPapers = (
     console.log(`[useSyncPapers] Fetching more papers from start=${effectiveStart}`);
 
     try {
+      // API key を復号化して取得
+      const apiKey = await getDecryptedApiKey();
+
       const rawResponse = await syncApi(
         {
           categories: params.categories,
           period: params.period,
           start: effectiveStart,
         },
-        { apiKey: params.apiKey }
+        { apiKey }
       );
       // 日付文字列を Date オブジェクトに正規化
       const response = normalizeSyncResponse(rawResponse);

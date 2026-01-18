@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/
 import { useMediaQuery } from "@/client/hooks/useMediaQuery";
 import { useSemanticSearch } from "@/client/hooks/useSemanticSearch";
 import { useSyncPapers } from "@/client/hooks/useSyncPapers";
-import { summaryApi } from "@/client/lib/api";
+import { getDecryptedApiKey, summaryApi } from "@/client/lib/api";
 import { PaperPage } from "@/client/pages/PaperPage";
 import { usePaperStore } from "@/client/stores/paperStore";
 import { useSearchHistoryStore } from "@/client/stores/searchHistoryStore";
@@ -53,7 +53,7 @@ export const App: FC = () => {
  */
 const HomePage: FC = () => {
   const { papers, isLoading: isPapersLoading } = usePaperStore();
-  const { apiKey, selectedCategories, syncPeriodDays, autoGenerateSummary, shouldAutoSync } =
+  const { selectedCategories, syncPeriodDays, autoGenerateSummary, shouldAutoSync } =
     useSettingsStore();
   const {
     search,
@@ -152,10 +152,13 @@ const HomePage: FC = () => {
 
       setIsSummaryLoading(true);
       try {
+        // API key を復号化して取得
+        const decryptedApiKey = await getDecryptedApiKey();
+
         const newData = await summaryApi(
           paperId,
           { language, abstract: selectedPaper.abstract, generateTarget: target },
-          { apiKey: apiKey ?? undefined }
+          { apiKey: decryptedApiKey }
         );
 
         // APIレスポンスの日付を正規化（JSON では string として返る）
@@ -205,7 +208,7 @@ const HomePage: FC = () => {
         setIsSummaryLoading(false);
       }
     },
-    [selectedPaper, apiKey, addSummary, getSummaryByPaperIdAndLanguage]
+    [selectedPaper, addSummary, getSummaryByPaperIdAndLanguage]
   );
 
   // サマリー言語切替
@@ -223,7 +226,6 @@ const HomePage: FC = () => {
     {
       categories: selectedCategories,
       period: syncPeriodDays,
-      apiKey: apiKey ?? undefined,
     },
     {
       onSuccess: (data) => {

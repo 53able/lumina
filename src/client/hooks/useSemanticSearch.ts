@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
-import { searchApi } from "@/client/lib/api";
-import { useSettingsStore } from "@/client/stores/settingsStore";
+import { getDecryptedApiKey, searchApi } from "@/client/lib/api";
 import type { ExpandedQuery, Paper } from "@/shared/schemas";
 
 /**
@@ -100,7 +99,6 @@ export const useSemanticSearch = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [expandedQuery, setExpandedQuery] = useState<ExpandedQuery | null>(null);
-  const apiKey = useSettingsStore((state) => state.apiKey);
 
   const search = useCallback(
     async (query: string): Promise<SearchResult[]> => {
@@ -108,8 +106,11 @@ export const useSemanticSearch = ({
       setError(null);
 
       try {
+        // API key を復号化して取得
+        const apiKey = await getDecryptedApiKey();
+
         // 1. 検索APIを呼び出す（型安全なfetchラッパー経由）
-        const data = await searchApi({ query, limit }, { apiKey: apiKey || undefined });
+        const data = await searchApi({ query, limit }, { apiKey });
 
         // 2. 拡張クエリを保存
         setExpandedQuery(data.expandedQuery);
@@ -171,7 +172,7 @@ export const useSemanticSearch = ({
         setIsLoading(false);
       }
     },
-    [papers, limit, scoreThreshold, apiKey]
+    [papers, limit, scoreThreshold]
   );
 
   const reset = useCallback(() => {
