@@ -29,14 +29,6 @@ interface PaperListProps {
   showCount?: boolean;
   /** カードクリック時のコールバック */
   onPaperClick?: (paper: Paper) => void;
-  /** いいねボタンクリック時のコールバック */
-  onLike?: (paperId: string) => void;
-  /** ブックマークボタンクリック時のコールバック */
-  onBookmark?: (paperId: string) => void;
-  /** いいね済みの論文IDセット */
-  likedPaperIds?: Set<string>;
-  /** ブックマーク済みの論文IDセット */
-  bookmarkedPaperIds?: Set<string>;
   /** 論文ID → whyRead のマップ */
   whyReadMap?: Map<string, string>;
   /** 追加同期リクエスト時のコールバック */
@@ -102,10 +94,6 @@ export const PaperList: FC<PaperListProps> = ({
   isLoading = false,
   showCount = false,
   onPaperClick,
-  onLike,
-  onBookmark,
-  likedPaperIds = new Set(),
-  bookmarkedPaperIds = new Set(),
   whyReadMap = new Map(),
   onRequestSync,
   isSyncing = false,
@@ -209,10 +197,6 @@ export const PaperList: FC<PaperListProps> = ({
                       <PaperCard
                         paper={rowItems[0]}
                         onClick={onPaperClick}
-                        onLike={onLike}
-                        onBookmark={onBookmark}
-                        isLiked={likedPaperIds.has(getPaperId(rowItems[0]))}
-                        isBookmarked={bookmarkedPaperIds.has(getPaperId(rowItems[0]))}
                         whyRead={whyReadMap.get(getPaperId(rowItems[0]))}
                         isExpanded={true}
                       />
@@ -239,10 +223,6 @@ export const PaperList: FC<PaperListProps> = ({
                         key={getPaperId(paper)}
                         paper={paper}
                         onClick={onPaperClick}
-                        onLike={onLike}
-                        onBookmark={onBookmark}
-                        isLiked={likedPaperIds.has(getPaperId(paper))}
-                        isBookmarked={bookmarkedPaperIds.has(getPaperId(paper))}
                         whyRead={whyReadMap.get(getPaperId(paper))}
                         isExpanded={false}
                         index={index * columnCount + colIndex}

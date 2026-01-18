@@ -7,6 +7,16 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "@/shared/schemas";
 
+// InteractionContextをモック（PaperCardで使用される）
+vi.mock("@/client/contexts/InteractionContext", () => ({
+  useInteraction: (_paperId: string) => ({
+    isLiked: false,
+    isBookmarked: false,
+    toggleLike: vi.fn(),
+    toggleBookmark: vi.fn(),
+  }),
+}));
+
 /**
  * MemoryRouterでラップしたレンダリングヘルパー
  */
@@ -40,7 +50,7 @@ const createSamplePaper = (id: string, title: string): Paper => ({
 describe("PaperList", () => {
   afterEach(() => {
     cleanup();
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
 
   describe("レンダリング", () => {
@@ -164,7 +174,9 @@ describe("PaperList", () => {
       );
       const onRequestSync = vi.fn();
 
-      renderWithRouter(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={true} />);
+      renderWithRouter(
+        <PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={true} />
+      );
 
       // 仮想スクロールコンテナを取得
       const scrollContainer = document.querySelector(".overflow-auto");
@@ -187,7 +199,9 @@ describe("PaperList", () => {
       const onRequestSync = vi.fn();
 
       // 初回レンダリング（isSyncing: false）
-      renderWithRouter(<PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />);
+      renderWithRouter(
+        <PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />
+      );
 
       // microtask を処理
       await act(async () => {

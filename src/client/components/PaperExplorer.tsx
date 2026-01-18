@@ -5,11 +5,10 @@ import { PaperList } from "@/client/components/PaperList";
 import { PaperSearch } from "@/client/components/PaperSearch";
 import { Button } from "@/client/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
+import { useInteractionContext } from "@/client/contexts/InteractionContext";
+import { usePaperFilter } from "@/client/hooks/usePaperFilter";
 import { cn } from "@/client/lib/utils";
 import type { Paper } from "@/shared/schemas";
-
-/** フィルターモード */
-type FilterMode = "all" | "liked" | "bookmarked";
 
 /**
  * PaperExplorer コンポーネントのProps
@@ -23,14 +22,6 @@ interface PaperExplorerProps {
   onClear?: () => void;
   /** 論文クリック時のコールバック */
   onPaperClick?: (paper: Paper) => void;
-  /** いいねボタンクリック時のコールバック */
-  onLike?: (paperId: string) => void;
-  /** ブックマークボタンクリック時のコールバック */
-  onBookmark?: (paperId: string) => void;
-  /** いいね済みの論文IDセット */
-  likedPaperIds?: Set<string>;
-  /** ブックマーク済みの論文IDセット */
-  bookmarkedPaperIds?: Set<string>;
   /** 外部から設定される検索クエリ（検索履歴からの再検索用） */
   externalQuery?: string | null;
   /** 論文ID → whyRead のマップ */
@@ -58,10 +49,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   onSearch,
   onClear,
   onPaperClick,
-  onLike,
-  onBookmark,
-  likedPaperIds = new Set(),
-  bookmarkedPaperIds = new Set(),
   externalQuery = null,
   whyReadMap = new Map(),
   onRequestSync,
@@ -69,11 +56,23 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   expandedPaperId = null,
   renderExpandedDetail,
 }) => {
+  // Context経由でいいね/ブックマーク状態を取得
+  const { likedPaperIds, bookmarkedPaperIds } = useInteractionContext();
+
+  // URL状態管理フック（原則1: 状態の外部化）
+  const {
+    filterMode,
+    selectedCategories,
+    toggleFilterMode,
+    toggleCategory,
+    clearAllFilters,
+    filterPapers,
+  } = usePaperFilter();
+
+  // 論文と検索状態（親コンポーネントとの連携が必要なためローカルstate）
   const [papers, setPapers] = useState<Paper[]>(initialPapers);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
-  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
-  const [filterMode, setFilterMode] = useState<FilterMode>("all");
 
   // initialPapers が変更されたら papers state を更新
   useEffect(() => {
@@ -93,56 +92,14 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   }, [initialPapers]);
 
   // カテゴリ + いいね/ブックマークでフィルタリングした論文リスト
-  const filteredPapers = useMemo(() => {
-    // Step 1: いいね/ブックマークフィルター
-    const interactionFiltered =
-      filterMode === "liked"
-        ? papers.filter((paper) => likedPaperIds.has(paper.id))
-        : filterMode === "bookmarked"
-          ? papers.filter((paper) => bookmarkedPaperIds.has(paper.id))
-          : papers;
-
-    // Step 2: カテゴリフィルター（AND条件: 選択したすべてのカテゴリを含む論文のみ）
-    if (selectedCategories.size === 0) {
-      return interactionFiltered;
-    }
-    return interactionFiltered.filter((paper) =>
-      [...selectedCategories].every((cat) => paper.categories.includes(cat))
-    );
-  }, [papers, selectedCategories, filterMode, likedPaperIds, bookmarkedPaperIds]);
-
-  /**
-   * フィルターモードのトグル
-   */
-  const handleFilterModeToggle = (mode: FilterMode) => {
-    setFilterMode((prev) => (prev === mode ? "all" : mode));
-  };
+  const filteredPapers = useMemo(
+    () => filterPapers(papers, likedPaperIds, bookmarkedPaperIds),
+    [papers, filterPapers, likedPaperIds, bookmarkedPaperIds]
+  );
 
   // いいね/ブックマークの件数
   const likedCount = papers.filter((p) => likedPaperIds.has(p.id)).length;
   const bookmarkedCount = papers.filter((p) => bookmarkedPaperIds.has(p.id)).length;
-
-  /**
-   * カテゴリ選択/解除のトグル
-   */
-  const handleCategoryToggle = (category: string) => {
-    setSelectedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) {
-        next.delete(category);
-      } else {
-        next.add(category);
-      }
-      return next;
-    });
-  };
-
-  /**
-   * カテゴリフィルタをクリア
-   */
-  const handleCategoryClear = () => {
-    setSelectedCategories(new Set());
-  };
 
   // externalQuery が変更されたら searchQuery state を同期（検索履歴からの再検索用）
   useEffect(() => {
@@ -171,8 +128,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const handleClear = () => {
     setSearchQuery(null);
     setPapers(initialPapers);
-    setSelectedCategories(new Set()); // カテゴリフィルタもクリア
-    setFilterMode("all"); // いいね/ブックマークフィルタもクリア
+    clearAllFilters(); // URLフィルターもクリア
     onClear?.();
   };
 
@@ -228,7 +184,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleFilterModeToggle("liked")}
+                    onClick={() => toggleFilterMode("liked")}
                     className={cn(
                       "h-7 px-2.5 gap-1.5 transition-all",
                       filterMode === "liked"
@@ -254,7 +210,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleFilterModeToggle("bookmarked")}
+                    onClick={() => toggleFilterMode("bookmarked")}
                     className={cn(
                       "h-7 px-2.5 gap-1.5 transition-all",
                       filterMode === "bookmarked"
@@ -284,8 +240,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 <CategoryFilter
                   availableCategories={availableCategories}
                   selectedCategories={selectedCategories}
-                  onToggle={handleCategoryToggle}
-                  onClear={handleCategoryClear}
+                  onToggle={toggleCategory}
+                  onClear={clearAllFilters}
                 />
               </>
             )}
@@ -299,10 +255,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         isLoading={isLoading}
         showCount={hasSearched && !isLoading && filteredPapers.length > 0}
         onPaperClick={onPaperClick}
-        onLike={onLike}
-        onBookmark={onBookmark}
-        likedPaperIds={likedPaperIds}
-        bookmarkedPaperIds={bookmarkedPaperIds}
         whyReadMap={whyReadMap}
         // 検索結果表示中、カテゴリフィルタ中、いいね/ブックマークフィルタ中は追加読み込みを無効化
         onRequestSync={
