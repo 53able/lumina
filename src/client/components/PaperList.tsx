@@ -11,11 +11,11 @@ const MIN_CARD_WIDTH = 300;
 /** グリッドのギャップ（px） */
 const GRID_GAP = 20;
 
-/** 通常行の推定高さ（px） */
+/** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
 const ESTIMATED_ROW_HEIGHT = 200;
 
-/** 展開行の高さ（px）- 固定値で仮想スクロールの計算と一致させる */
-const EXPANDED_ROW_HEIGHT = 480;
+/** 展開行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
+const ESTIMATED_EXPANDED_ROW_HEIGHT = 480;
 
 /**
  * PaperList コンポーネントのProps
@@ -128,7 +128,7 @@ export const PaperList: FC<PaperListProps> = ({
     rowGap: GRID_GAP,
     columnGap: GRID_GAP,
     estimatedRowHeight: ESTIMATED_ROW_HEIGHT,
-    estimatedExpandedRowHeight: EXPANDED_ROW_HEIGHT,
+    estimatedExpandedRowHeight: ESTIMATED_EXPANDED_ROW_HEIGHT,
     overscan: 3,
   });
 
@@ -202,7 +202,7 @@ export const PaperList: FC<PaperListProps> = ({
                   // 展開行: 全幅でカードと詳細を横並び（高さはコンテンツに合わせる）
                   <div
                     className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_2fr] animate-in fade-in duration-300 p-1"
-                    style={{ minHeight: `${EXPANDED_ROW_HEIGHT}px` }}
+                    style={{ minHeight: `${ESTIMATED_EXPANDED_ROW_HEIGHT}px` }}
                   >
                     {/* 左側: コンパクトなカード */}
                     <div className="lg:sticky lg:top-0 lg:self-start">
