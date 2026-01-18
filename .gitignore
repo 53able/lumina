@@ -34,5 +34,6 @@ tmp/
 
 # TypeScript
 *.tsbuildinfo
+src/**/*.js
 
 .cursor/**/*
