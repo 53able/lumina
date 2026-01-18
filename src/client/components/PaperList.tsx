@@ -9,7 +9,7 @@ import type { Paper } from "@/shared/schemas";
 const MIN_CARD_WIDTH = 300;
 
 /** グリッドのギャップ（px） */
-const GRID_GAP = 16;
+const GRID_GAP = 20;
 
 /** 通常行の推定高さ（px） */
 const ESTIMATED_ROW_HEIGHT = 200;
@@ -55,7 +55,7 @@ interface PaperListProps {
 const LoadingSkeleton: FC = () => (
   <div
     data-testid="paper-list-loading"
-    className="grid gap-4"
+    className="grid gap-5"
     style={{
       gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
     }}
