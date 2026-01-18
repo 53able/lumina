@@ -65,21 +65,26 @@ describe("PaperExplorer", () => {
 
   describe("検索機能", () => {
     it("検索実行中はローディング状態になる", async () => {
-      // 検索が解決するまで長めに待機させる（テスト間の干渉を防ぐ）
-      const mockOnSearch = vi
-        .fn()
-        .mockReturnValue(new Promise((resolve) => setTimeout(() => resolve(mockPapers), 500)));
+      // Promiseを手動で制御できるようにする
+      let resolveSearch: (value: typeof mockPapers) => void;
+      const mockOnSearch = vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          resolveSearch = resolve;
+        })
+      );
 
       render(<PaperExplorer onSearch={mockOnSearch} />);
 
-      const user = userEvent.setup();
-      await user.type(screen.getByRole("searchbox"), "transformer");
+      // delay: null で高速化
+      const user = userEvent.setup({ delay: null });
+      await user.type(screen.getByRole("searchbox"), "test");
       await user.click(screen.getByRole("button", { name: /検索/i }));
 
-      // Reactの状態更新を待つ
-      await waitFor(() => {
-        expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
-      });
+      // ローディング状態を確認
+      expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
+
+      // クリーンアップ: Promiseを解決
+      resolveSearch!(mockPapers);
     });
 
     it("検索するとonSearchコールバックが呼ばれる", async () => {
@@ -87,7 +92,7 @@ describe("PaperExplorer", () => {
 
       render(<PaperExplorer onSearch={mockOnSearch} />);
 
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       await user.type(screen.getByRole("searchbox"), "transformer");
       await user.click(screen.getByRole("button", { name: /検索/i }));
 
@@ -99,7 +104,7 @@ describe("PaperExplorer", () => {
 
       render(<PaperExplorer onSearch={mockOnSearch} />);
 
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       await user.type(screen.getByRole("searchbox"), "transformer");
       await user.click(screen.getByRole("button", { name: /検索/i }));
 
@@ -113,7 +118,7 @@ describe("PaperExplorer", () => {
 
       render(<PaperExplorer onSearch={mockOnSearch} />);
 
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       await user.type(screen.getByRole("searchbox"), "transformer");
       await user.click(screen.getByRole("button", { name: /検索/i }));
 
@@ -131,7 +136,7 @@ describe("PaperExplorer", () => {
 
       render(<PaperExplorer initialPapers={mockPapers} onLike={mockOnLike} />);
 
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const likeButtons = screen.getAllByRole("button", { name: /いいね/i });
       await user.click(likeButtons[0]);
 
@@ -143,7 +148,7 @@ describe("PaperExplorer", () => {
 
       render(<PaperExplorer initialPapers={mockPapers} onBookmark={mockOnBookmark} />);
 
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const bookmarkButtons = screen.getAllByRole("button", { name: /ブックマーク/i });
       await user.click(bookmarkButtons[0]);
 
@@ -155,7 +160,7 @@ describe("PaperExplorer", () => {
 
       render(<PaperExplorer initialPapers={mockPapers} onPaperClick={mockOnPaperClick} />);
 
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const articles = screen.getAllByRole("article");
       await user.click(articles[0]);
 
@@ -175,7 +180,7 @@ describe("PaperExplorer", () => {
 
       render(<PaperExplorer onSearch={mockOnSearch} />);
 
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       await user.type(screen.getByRole("searchbox"), "transformer");
       await user.click(screen.getByRole("button", { name: /検索/i }));
 

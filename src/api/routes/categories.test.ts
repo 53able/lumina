@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createApp } from "../app";
 import { CategoryListResponseSchema } from "../../shared/schemas/category";
+import { createApp } from "../app";
 
 describe("カテゴリ情報取得API", () => {
   const app = createApp();

@@ -222,8 +222,13 @@ describe("searchHistoryStore", () => {
       );
       await initializeSearchHistoryStore(mockDb);
 
-      await useSearchHistoryStore.getState().addHistory(createSampleHistory({ id: "id-1" }));
-      await useSearchHistoryStore.getState().addHistory(createSampleHistory({ id: "id-2" }));
+      // 異なるoriginalQueryを持つ履歴を追加（同じクエリだと上書きされる仕様）
+      await useSearchHistoryStore
+        .getState()
+        .addHistory(createSampleHistory({ id: "id-1", originalQuery: "強化学習" }));
+      await useSearchHistoryStore
+        .getState()
+        .addHistory(createSampleHistory({ id: "id-2", originalQuery: "深層学習" }));
 
       // Act
       const count = useSearchHistoryStore.getState().getHistoryCount();
