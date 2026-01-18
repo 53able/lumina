@@ -6,6 +6,7 @@ import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
+import { useInteraction } from "@/client/contexts/InteractionContext";
 import { getCategoryDescription } from "@/client/lib/categoryDescriptions";
 import type { Paper } from "@/shared/schemas";
 
@@ -17,14 +18,6 @@ interface PaperCardProps {
   paper: Paper;
   /** カードクリック時のコールバック */
   onClick?: (paper: Paper) => void;
-  /** いいねボタンクリック時のコールバック */
-  onLike?: (paperId: string) => void;
-  /** ブックマークボタンクリック時のコールバック */
-  onBookmark?: (paperId: string) => void;
-  /** いいね済みフラグ */
-  isLiked?: boolean;
-  /** ブックマーク済みフラグ */
-  isBookmarked?: boolean;
   /** なぜ読むべきか（1行キャッチコピー） */
   whyRead?: string;
   /** 展開中フラグ */
@@ -43,26 +36,25 @@ interface PaperCardProps {
 export const PaperCard: FC<PaperCardProps> = ({
   paper,
   onClick,
-  onLike,
-  onBookmark,
-  isLiked = false,
-  isBookmarked = false,
   whyRead,
   isExpanded = false,
   index,
 }) => {
+  // Context経由でいいね/ブックマーク状態を取得
+  const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
+
   const handleCardClick = () => {
     onClick?.(paper);
   };
 
   const handleLikeClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onLike?.(paper.id);
+    toggleLike();
   };
 
   const handleBookmarkClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onBookmark?.(paper.id);
+    toggleBookmark();
   };
 
   // 著者の表示（3人以上の場合は省略）

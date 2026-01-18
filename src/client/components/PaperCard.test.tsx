@@ -8,6 +8,21 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "@/shared/schemas";
 
+// InteractionContextをモック
+const mockToggleLike = vi.fn();
+const mockToggleBookmark = vi.fn();
+let mockLikedPaperIds = new Set<string>();
+let mockBookmarkedPaperIds = new Set<string>();
+
+vi.mock("@/client/contexts/InteractionContext", () => ({
+  useInteraction: (paperId: string) => ({
+    isLiked: mockLikedPaperIds.has(paperId),
+    isBookmarked: mockBookmarkedPaperIds.has(paperId),
+    toggleLike: () => mockToggleLike(paperId),
+    toggleBookmark: () => mockToggleBookmark(paperId),
+  }),
+}));
+
 /**
  * MemoryRouterでラップしたレンダリングヘルパー
  */
@@ -43,7 +58,9 @@ const createSamplePaper = (overrides: Partial<Paper> = {}): Paper => ({
 describe("PaperCard", () => {
   afterEach(() => {
     cleanup();
-    vi.resetAllMocks();
+    vi.clearAllMocks();
+    mockLikedPaperIds = new Set<string>();
+    mockBookmarkedPaperIds = new Set<string>();
   });
 
   describe("レンダリング", () => {
@@ -102,32 +119,30 @@ describe("PaperCard", () => {
       expect(handleClick).toHaveBeenCalledWith(paper);
     });
 
-    it("正常系: いいねボタンクリックでonLikeが呼ばれる", async () => {
+    it("正常系: いいねボタンクリックでtoggleLikeが呼ばれる", async () => {
       const { PaperCard } = await import("./PaperCard");
       const user = userEvent.setup();
       const paper = createSamplePaper();
-      const handleLike = vi.fn();
 
-      renderWithRouter(<PaperCard paper={paper} onLike={handleLike} />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       const likeButton = screen.getByRole("button", { name: /いいね/i });
       await user.click(likeButton);
 
-      expect(handleLike).toHaveBeenCalledWith(paper.id);
+      expect(mockToggleLike).toHaveBeenCalledWith(paper.id);
     });
 
-    it("正常系: ブックマークボタンクリックでonBookmarkが呼ばれる", async () => {
+    it("正常系: ブックマークボタンクリックでtoggleBookmarkが呼ばれる", async () => {
       const { PaperCard } = await import("./PaperCard");
       const user = userEvent.setup();
       const paper = createSamplePaper();
-      const handleBookmark = vi.fn();
 
-      renderWithRouter(<PaperCard paper={paper} onBookmark={handleBookmark} />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       const bookmarkButton = screen.getByRole("button", { name: /ブックマーク/i });
       await user.click(bookmarkButton);
 
-      expect(handleBookmark).toHaveBeenCalledWith(paper.id);
+      expect(mockToggleBookmark).toHaveBeenCalledWith(paper.id);
     });
   });
 
@@ -135,8 +150,9 @@ describe("PaperCard", () => {
     it("正常系: いいね済みの状態が表示される", async () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
+      mockLikedPaperIds = new Set([paper.id]);
 
-      renderWithRouter(<PaperCard paper={paper} isLiked />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       const likeButton = screen.getByRole("button", { name: /いいね/i });
       expect(likeButton).toHaveAttribute("data-liked", "true");
@@ -145,8 +161,9 @@ describe("PaperCard", () => {
     it("正常系: ブックマーク済みの状態が表示される", async () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
+      mockBookmarkedPaperIds = new Set([paper.id]);
 
-      renderWithRouter(<PaperCard paper={paper} isBookmarked />);
+      renderWithRouter(<PaperCard paper={paper} />);
 
       const bookmarkButton = screen.getByRole("button", { name: /ブックマーク/i });
       expect(bookmarkButton).toHaveAttribute("data-bookmarked", "true");

@@ -6,6 +6,21 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "@/shared/schemas";
 
+// InteractionContextをモック
+const mockToggleLike = vi.fn();
+const mockToggleBookmark = vi.fn();
+let mockLikedPaperIds = new Set<string>();
+let mockBookmarkedPaperIds = new Set<string>();
+
+vi.mock("@/client/contexts/InteractionContext", () => ({
+  useInteraction: (paperId: string) => ({
+    isLiked: mockLikedPaperIds.has(paperId),
+    isBookmarked: mockBookmarkedPaperIds.has(paperId),
+    toggleLike: () => mockToggleLike(paperId),
+    toggleBookmark: () => mockToggleBookmark(paperId),
+  }),
+}));
+
 // モック用の論文データ
 const mockPaper: Paper = {
   id: "2401.00001",
@@ -33,7 +48,9 @@ const mockPaper: Paper = {
 describe("PaperDetail", () => {
   afterEach(() => {
     cleanup();
-    vi.resetAllMocks();
+    vi.clearAllMocks();
+    mockLikedPaperIds = new Set<string>();
+    mockBookmarkedPaperIds = new Set<string>();
   });
 
   describe("論文情報の表示", () => {
@@ -108,30 +125,28 @@ describe("PaperDetail", () => {
   });
 
   describe("インタラクション", () => {
-    it("正常系: いいねボタンをクリックするとonLikeが呼ばれる", async () => {
+    it("正常系: いいねボタンをクリックするとtoggleLikeが呼ばれる", async () => {
       const { PaperDetail } = await import("./PaperDetail");
-      const handleLike = vi.fn();
 
-      render(<PaperDetail paper={mockPaper} onLike={handleLike} />);
+      render(<PaperDetail paper={mockPaper} />);
 
       const user = userEvent.setup();
       const likeButton = screen.getByRole("button", { name: /いいね/i });
       await user.click(likeButton);
 
-      expect(handleLike).toHaveBeenCalledWith(mockPaper.id);
+      expect(mockToggleLike).toHaveBeenCalledWith(mockPaper.id);
     });
 
-    it("正常系: ブックマークボタンをクリックするとonBookmarkが呼ばれる", async () => {
+    it("正常系: ブックマークボタンをクリックするとtoggleBookmarkが呼ばれる", async () => {
       const { PaperDetail } = await import("./PaperDetail");
-      const handleBookmark = vi.fn();
 
-      render(<PaperDetail paper={mockPaper} onBookmark={handleBookmark} />);
+      render(<PaperDetail paper={mockPaper} />);
 
       const user = userEvent.setup();
       const bookmarkButton = screen.getByRole("button", { name: /ブックマーク/i });
       await user.click(bookmarkButton);
 
-      expect(handleBookmark).toHaveBeenCalledWith(mockPaper.id);
+      expect(mockToggleBookmark).toHaveBeenCalledWith(mockPaper.id);
     });
 
     // 閉じるボタンはDialogContentが提供するため、PaperDetailのテスト対象外
@@ -140,7 +155,9 @@ describe("PaperDetail", () => {
   describe("状態表示", () => {
     it("正常系: いいね済み状態が反映される", async () => {
       const { PaperDetail } = await import("./PaperDetail");
-      render(<PaperDetail paper={mockPaper} isLiked />);
+      mockLikedPaperIds = new Set([mockPaper.id]);
+
+      render(<PaperDetail paper={mockPaper} />);
 
       const likeButton = screen.getByRole("button", { name: /いいね/i });
       expect(likeButton).toHaveAttribute("data-liked", "true");
@@ -148,7 +165,9 @@ describe("PaperDetail", () => {
 
     it("正常系: ブックマーク済み状態が反映される", async () => {
       const { PaperDetail } = await import("./PaperDetail");
-      render(<PaperDetail paper={mockPaper} isBookmarked />);
+      mockBookmarkedPaperIds = new Set([mockPaper.id]);
+
+      render(<PaperDetail paper={mockPaper} />);
 
       const bookmarkButton = screen.getByRole("button", { name: /ブックマーク/i });
       expect(bookmarkButton).toHaveAttribute("data-bookmarked", "true");

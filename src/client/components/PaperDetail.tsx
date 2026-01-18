@@ -4,6 +4,7 @@ import type { FC } from "react";
 import { type GenerateTarget, PaperSummary } from "@/client/components/PaperSummary";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
+import { useInteraction } from "@/client/contexts/InteractionContext";
 import type { Paper, PaperSummary as PaperSummaryType } from "@/shared/schemas";
 
 /**
@@ -12,14 +13,6 @@ import type { Paper, PaperSummary as PaperSummaryType } from "@/shared/schemas";
 interface PaperDetailProps {
   /** 論文データ */
   paper: Paper;
-  /** いいねボタンクリック時のコールバック */
-  onLike?: (paperId: string) => void;
-  /** ブックマークボタンクリック時のコールバック */
-  onBookmark?: (paperId: string) => void;
-  /** いいね済みフラグ */
-  isLiked?: boolean;
-  /** ブックマーク済みフラグ */
-  isBookmarked?: boolean;
   /** 論文要約データ */
   summary?: PaperSummaryType;
   /** 要約生成時のコールバック（target: 生成対象） */
@@ -46,10 +39,6 @@ interface PaperDetailProps {
  */
 export const PaperDetail: FC<PaperDetailProps> = ({
   paper,
-  onLike,
-  onBookmark,
-  isLiked = false,
-  isBookmarked = false,
   summary,
   onGenerateSummary,
   isSummaryLoading = false,
@@ -57,12 +46,15 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   onSummaryLanguageChange,
   autoGenerateSummary = false,
 }) => {
+  // Context経由でいいね/ブックマーク状態を取得
+  const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
+
   const handleLikeClick = () => {
-    onLike?.(paper.id);
+    toggleLike();
   };
 
   const handleBookmarkClick = () => {
-    onBookmark?.(paper.id);
+    toggleBookmark();
   };
 
   return (
