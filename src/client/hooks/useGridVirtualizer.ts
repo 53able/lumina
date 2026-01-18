@@ -189,6 +189,7 @@ export const useGridVirtualizer = <T>({
     getScrollElement: () => scrollContainerRef.current,
     estimateSize,
     overscan,
+    gap: rowGap, // 行間のギャップを設定
     // 行の高さが変わったときに再計算
     getItemKey: (index) => {
       const row = rows[index];
