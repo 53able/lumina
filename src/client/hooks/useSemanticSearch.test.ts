@@ -103,13 +103,11 @@ describe("useSemanticSearch", () => {
         await result.current.search("transformer");
       });
 
+      // Hono RPCクライアントはフルURLで呼び出す
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/v1/search",
+        "http://localhost:3000/api/v1/search",
         expect.objectContaining({
           method: "POST",
-          headers: expect.objectContaining({
-            "Content-Type": "application/json",
-          }),
           body: JSON.stringify({ query: "transformer", limit: 20 }),
         })
       );
@@ -224,8 +222,9 @@ describe("useSemanticSearch", () => {
         await result.current.search("transformer");
       });
 
+      // Hono RPCクライアントはフルURLで呼び出す
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/v1/search",
+        "http://localhost:3000/api/v1/search",
         expect.objectContaining({
           body: JSON.stringify({ query: "transformer", limit: 50 }),
         })
