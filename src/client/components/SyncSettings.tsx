@@ -1,11 +1,7 @@
 import { Calendar, Info } from "lucide-react";
 import type { FC } from "react";
 import { Label } from "@/client/components/ui/label";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/client/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { SyncPeriod } from "@/shared/schemas";
 
@@ -30,8 +26,7 @@ const SYNC_PERIOD_OPTIONS: {
  * - 最終同期日時の表示
  */
 export const SyncSettings: FC = () => {
-  const { syncPeriodDays, setSyncPeriodDays, getLastSyncedAt } =
-    useSettingsStore();
+  const { syncPeriodDays, setSyncPeriodDays, getLastSyncedAt } = useSettingsStore();
 
   const lastSyncedAt = getLastSyncedAt();
 

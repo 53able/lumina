@@ -100,6 +100,11 @@ export const PaperList: FC<PaperListProps> = ({
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
   const loaderRef = useRef<HTMLDivElement>(null);
 
+  // isSyncing を ref で保持（useEffect の依存配列から除外するため）
+  // これにより isSyncing が変化しても IntersectionObserver が再作成されない
+  const isSyncingRef = useRef(isSyncing);
+  isSyncingRef.current = isSyncing;
+
   // papers が変わったら displayCount をリセット
   // papers配列の先頭ID + 長さで変更を検知
   const papersKey = `${papers[0]?.id ?? "empty"}-${papers.length}`;
@@ -110,6 +115,8 @@ export const PaperList: FC<PaperListProps> = ({
   }, [papersKey]);
 
   // IntersectionObserver でスクロール末尾を検知して追加読み込み
+  // 注意: isSyncing は ref 経由で参照し、依存配列に含めない
+  // これにより isSyncing 変化時の observer 再作成を防ぎ、連続発火バグを回避
   useEffect(() => {
     const loaderElement = loaderRef.current;
     if (!loaderElement) return;
@@ -120,7 +127,7 @@ export const PaperList: FC<PaperListProps> = ({
           if (displayCount < papers.length) {
             // ローカル論文がまだある → 表示件数を増やす
             setDisplayCount((prev) => Math.min(prev + PAGE_SIZE, papers.length));
-          } else if (onRequestSync && !isSyncing) {
+          } else if (onRequestSync && !isSyncingRef.current) {
             // ローカル論文が尽きた → APIから追加取得
             onRequestSync();
           }
@@ -131,7 +138,7 @@ export const PaperList: FC<PaperListProps> = ({
 
     observer.observe(loaderElement);
     return () => observer.disconnect();
-  }, [displayCount, papers.length, onRequestSync, isSyncing]);
+  }, [displayCount, papers.length, onRequestSync]);
 
   if (isLoading) {
     return <LoadingSkeleton />;

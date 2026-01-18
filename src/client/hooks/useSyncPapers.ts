@@ -192,14 +192,7 @@ export const useSyncPapers = (
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [
-    totalResults,
-    nextStart,
-    storePapers.length,
-    params,
-    addPapers,
-    setLastSyncedAt,
-  ]);
+  }, [totalResults, nextStart, storePapers.length, params, addPapers, setLastSyncedAt]);
 
   // まだ論文があるかどうか
   const hasMore = totalResults === null || nextStart < totalResults;

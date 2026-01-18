@@ -10,7 +10,7 @@ export const createAuthMiddleware = (): MiddlewareHandler => {
 
   return async (c, next) => {
     const authHeader = c.req.header("Authorization");
-    
+
     if (!authHeader || !authHeader.startsWith("Basic ")) {
       c.header("WWW-Authenticate", 'Basic realm="Lumina API"');
       return c.text("Unauthorized", 401);

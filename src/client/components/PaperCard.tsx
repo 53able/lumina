@@ -4,11 +4,7 @@ import type { FC } from "react";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/client/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
 import { getCategoryDescription } from "@/client/lib/categoryDescriptions";
 import type { Paper } from "@/shared/schemas";
 
@@ -75,9 +71,7 @@ export const PaperCard: FC<PaperCardProps> = ({
     <Card
       role="article"
       className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-        isExpanded
-          ? "ring-2 ring-primary/50 shadow-lg bg-card/90"
-          : ""
+        isExpanded ? "ring-2 ring-primary/50 shadow-lg bg-card/90" : ""
       }`}
       onClick={handleCardClick}
       data-expanded={isExpanded}

@@ -4,11 +4,7 @@ import { CategoryFilter } from "@/client/components/CategoryFilter";
 import { PaperList } from "@/client/components/PaperList";
 import { PaperSearch } from "@/client/components/PaperSearch";
 import { Button } from "@/client/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/client/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
 import { cn } from "@/client/lib/utils";
 import type { Paper } from "@/shared/schemas";
 
@@ -76,9 +72,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const [papers, setPapers] = useState<Paper[]>(initialPapers);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
-  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
-    new Set()
-  );
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
 
   // initialPapers が変更されたら papers state を更新
@@ -244,18 +238,13 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     disabled={likedCount === 0}
                   >
                     <Heart
-                      className={cn(
-                        "h-3.5 w-3.5",
-                        filterMode === "liked" && "fill-current"
-                      )}
+                      className={cn("h-3.5 w-3.5", filterMode === "liked" && "fill-current")}
                     />
                     <span className="text-xs">{likedCount}</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  {filterMode === "liked"
-                    ? "すべての論文を表示"
-                    : "いいねした論文のみ表示"}
+                  {filterMode === "liked" ? "すべての論文を表示" : "いいねした論文のみ表示"}
                 </TooltipContent>
               </Tooltip>
 
@@ -275,10 +264,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     disabled={bookmarkedCount === 0}
                   >
                     <Bookmark
-                      className={cn(
-                        "h-3.5 w-3.5",
-                        filterMode === "bookmarked" && "fill-current"
-                      )}
+                      className={cn("h-3.5 w-3.5", filterMode === "bookmarked" && "fill-current")}
                     />
                     <span className="text-xs">{bookmarkedCount}</span>
                   </Button>

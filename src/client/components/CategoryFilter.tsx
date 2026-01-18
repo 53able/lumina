@@ -2,11 +2,7 @@ import { X } from "lucide-react";
 import type { FC } from "react";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/client/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
 import { getCategoryDescription } from "@/client/lib/categoryDescriptions";
 import { cn } from "@/client/lib/utils";
 

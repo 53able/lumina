@@ -2,11 +2,7 @@ import { Check, RotateCcw } from "lucide-react";
 import type { FC } from "react";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/client/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
 import { CATEGORY_DESCRIPTIONS } from "@/client/lib/categoryDescriptions";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 
@@ -28,14 +24,7 @@ const CATEGORY_GROUPS: Record<string, string[]> = {
     "cs.PL",
   ],
   Statistics: ["stat.ML", "stat.ME", "stat.TH", "stat.AP", "stat.CO"],
-  Mathematics: [
-    "math.OC",
-    "math.PR",
-    "math.ST",
-    "math.CO",
-    "math.NA",
-    "math.IT",
-  ],
+  Mathematics: ["math.OC", "math.PR", "math.ST", "math.CO", "math.NA", "math.IT"],
   Physics: ["quant-ph", "physics.comp-ph", "physics.data-an"],
   "Other Sciences": ["q-bio.NC", "q-bio.QM", "eess.SP", "eess.AS", "econ.EM"],
 };
@@ -49,12 +38,8 @@ const CATEGORY_GROUPS: Record<string, string[]> = {
  * - デフォルトにリセット
  */
 export const CategorySettings: FC = () => {
-  const {
-    selectedCategories,
-    addCategory,
-    removeCategory,
-    resetCategoriesToDefault,
-  } = useSettingsStore();
+  const { selectedCategories, addCategory, removeCategory, resetCategoriesToDefault } =
+    useSettingsStore();
 
   const selectedSet = new Set(selectedCategories);
 
@@ -102,9 +87,7 @@ export const CategorySettings: FC = () => {
                       <Badge
                         variant={isSelected ? "default" : "outline"}
                         className={`cursor-pointer transition-all hover:scale-105 ${
-                          isSelected
-                            ? "bg-primary/90 hover:bg-primary"
-                            : "hover:bg-muted"
+                          isSelected ? "bg-primary/90 hover:bg-primary" : "hover:bg-muted"
                         }`}
                         onClick={() => handleToggle(categoryId)}
                       >
@@ -113,10 +96,7 @@ export const CategorySettings: FC = () => {
                       </Badge>
                     </TooltipTrigger>
                     {description && (
-                      <TooltipContent
-                        side="top"
-                        className="max-w-[280px] text-xs"
-                      >
+                      <TooltipContent side="top" className="max-w-[280px] text-xs">
                         {description}
                       </TooltipContent>
                     )}
@@ -130,9 +110,7 @@ export const CategorySettings: FC = () => {
 
       {/* 選択数の警告 */}
       {selectedCategories.length === 0 && (
-        <p className="text-xs text-amber-600">
-          少なくとも1つのカテゴリを選択してください
-        </p>
+        <p className="text-xs text-amber-600">少なくとも1つのカテゴリを選択してください</p>
       )}
     </div>
   );
