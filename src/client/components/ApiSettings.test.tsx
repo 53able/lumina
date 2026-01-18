@@ -1,9 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isEncrypted } from "@/client/lib/crypto";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 
 describe("ApiSettings", () => {
@@ -42,7 +43,7 @@ describe("ApiSettings", () => {
   });
 
   describe("APIキー保存", () => {
-    it("APIキーを入力して保存ボタンを押すとストアに保存される", async () => {
+    it("APIキーを入力して保存ボタンを押すとストアに暗号化されて保存される", async () => {
       const { ApiSettings } = await import("./ApiSettings");
       const user = userEvent.setup();
       render(<ApiSettings />);
@@ -53,7 +54,12 @@ describe("ApiSettings", () => {
       await user.type(input, "sk-test-api-key-12345");
       await user.click(saveButton);
 
-      expect(useSettingsStore.getState().apiKey).toBe("sk-test-api-key-12345");
+      // 非同期で暗号化されるので waitFor で待機
+      await waitFor(() => {
+        const storedKey = useSettingsStore.getState().apiKey;
+        expect(storedKey).not.toBe(""); // 何か保存されている
+        expect(isEncrypted(storedKey)).toBe(true); // 暗号化されている
+      });
     });
 
     it("保存成功後、成功メッセージが表示される", async () => {
@@ -67,7 +73,10 @@ describe("ApiSettings", () => {
       await user.type(input, "sk-test-api-key-12345");
       await user.click(saveButton);
 
-      expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
+      // 非同期で暗号化されるので waitFor で待機
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
+      });
     });
   });
 

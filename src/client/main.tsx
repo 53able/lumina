@@ -9,6 +9,7 @@ import { luminaDb } from "./db/db";
 import { initializeInteractionStore } from "./stores/interactionStore";
 import { initializePaperStore } from "./stores/paperStore";
 import { initializeSearchHistoryStore } from "./stores/searchHistoryStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import { initializeSummaryStore } from "./stores/summaryStore";
 import "./index.css";
 
@@ -34,12 +35,16 @@ if (!rootElement) {
   throw new Error("Root element not found");
 }
 
-// アプリ起動前にIndexedDBを初期化
+// アプリ起動前にIndexedDBを初期化 + settingsStoreの移行
 Promise.all([
   initializePaperStore(luminaDb),
   initializeSummaryStore(luminaDb),
   initializeInteractionStore(luminaDb),
   initializeSearchHistoryStore(luminaDb),
+  // 平文で保存されている API key を暗号化に移行
+  useSettingsStore
+    .getState()
+    .initializeStore(),
 ]).then(() => {
   createRoot(rootElement).render(
     <StrictMode>
