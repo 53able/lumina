@@ -112,9 +112,10 @@ export const useGridVirtualizer = <T>({
   // 列数とアイテム幅を計算
   // containerWidth が 0 の場合（テスト環境や初期レンダリング時）はフォールバック値を使用
   const { columnCount, itemWidth } = useMemo(() => {
-    // フォールバック幅（SSRやテスト環境用）
+    // フォールバック幅: containerWidthが0の場合は最小幅を使用して1列を保証
+    // これにより、ResizeObserverが発火する前のモバイルレイアウト崩れを防止
     // 小数点以下を切り捨てて精度問題を回避
-    const effectiveWidth = Math.floor(containerWidth > 0 ? containerWidth : 1200);
+    const effectiveWidth = Math.floor(containerWidth > 0 ? containerWidth : minItemWidth);
 
     // auto-fit 相当: コンテナ幅 / (最小幅 + ギャップ) で列数を計算
     // (containerWidth + columnGap) / (minItemWidth + columnGap) で正確に計算
