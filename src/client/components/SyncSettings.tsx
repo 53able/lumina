@@ -1,9 +1,9 @@
 import { Calendar, Info } from "lucide-react";
 import type { FC } from "react";
-import { Label } from "@/client/components/ui/label";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
-import { useSettingsStore } from "@/client/stores/settingsStore";
-import type { SyncPeriod } from "@/shared/schemas";
+import { Label } from "./ui/label";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { useSettingsStore } from "../stores/settingsStore";
+import type { SyncPeriod } from "../../shared/schemas";
 
 /** 同期期間オプションの定義 */
 const SYNC_PERIOD_OPTIONS: {

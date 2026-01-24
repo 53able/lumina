@@ -1,16 +1,16 @@
 import type { FC } from "react";
-import { ApiSettings } from "@/client/components/ApiSettings";
-import { CategorySettings } from "@/client/components/CategorySettings";
-import { SyncSettings } from "@/client/components/SyncSettings";
-import { Button } from "@/client/components/ui/button";
+import { ApiSettings } from "./ApiSettings";
+import { CategorySettings } from "./CategorySettings";
+import { SyncSettings } from "./SyncSettings";
+import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/client/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/client/components/ui/tabs";
+} from "./ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 /**
  * SettingsDialog Props

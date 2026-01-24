@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getDecryptedApiKey, syncApi } from "@/client/lib/api";
-import { usePaperStore } from "@/client/stores/paperStore";
-import { useSettingsStore } from "@/client/stores/settingsStore";
-import type { Paper, SyncResponse } from "@/shared/schemas";
-import { normalizeDate, now, timestamp } from "@/shared/utils/dateTime";
+import { getDecryptedApiKey, syncApi } from "../lib/api";
+import { usePaperStore } from "../stores/paperStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import type { Paper, SyncResponse } from "../../shared/schemas";
+import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
 
 /**
  * APIレスポンスの論文データを正規化（日付文字列をDateオブジェクトに変換）

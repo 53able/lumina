@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import type { FC } from "react";
 import { Link } from "react-router-dom";
-import { cn } from "@/client/lib/utils";
+import { cn } from "../lib/utils";
 
 /**
  * BackToListLink のProps

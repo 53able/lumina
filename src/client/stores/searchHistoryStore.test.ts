@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLuminaDb, type LuminaDB } from "@/client/db/db";
-import type { SearchHistory } from "@/shared/schemas";
-import { now, parseISO } from "@/shared/utils/dateTime";
+import { createLuminaDb, type LuminaDB } from "../db/db";
+import type { SearchHistory } from "../../shared/schemas";
+import { now, parseISO } from "../../shared/utils/dateTime";
 
 /**
  * searchHistoryStore テスト

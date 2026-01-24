@@ -1,14 +1,14 @@
 import { Bookmark, Heart, X } from "lucide-react";
 import { type FC, type ReactNode, useEffect, useMemo, useState } from "react";
-import { CategoryFilter } from "@/client/components/CategoryFilter";
-import { PaperList } from "@/client/components/PaperList";
-import { PaperSearch } from "@/client/components/PaperSearch";
-import { Button } from "@/client/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
-import { useInteractionContext } from "@/client/contexts/InteractionContext";
-import { usePaperFilter } from "@/client/hooks/usePaperFilter";
-import { cn } from "@/client/lib/utils";
-import type { Paper } from "@/shared/schemas";
+import { CategoryFilter } from "./CategoryFilter";
+import { PaperList } from "./PaperList";
+import { PaperSearch } from "./PaperSearch";
+import { Button } from "./ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { useInteractionContext } from "../contexts/InteractionContext";
+import { usePaperFilter } from "../hooks/usePaperFilter";
+import { cn } from "../lib/utils";
+import type { Paper } from "../../shared/schemas";
 
 /**
  * PaperExplorer コンポーネントのProps

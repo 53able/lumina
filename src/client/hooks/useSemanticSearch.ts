@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { getDecryptedApiKey, searchApi } from "@/client/lib/api";
-import type { ExpandedQuery, Paper } from "@/shared/schemas";
+import { getDecryptedApiKey, searchApi } from "../lib/api";
+import type { ExpandedQuery, Paper } from "../../shared/schemas";
 
 /**
  * 検索結果の型

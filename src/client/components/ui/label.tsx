@@ -1,6 +1,6 @@
 import type * as React from "react";
 
-import { cn } from "@/client/lib/utils";
+import { cn } from "../../lib/utils";
 
 /**
  * Label コンポーネント

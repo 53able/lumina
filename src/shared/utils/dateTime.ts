@@ -6,7 +6,7 @@
  *
  * @example
  * ```ts
- * import { now, timestamp, toISOString, measureTime } from '@/shared/utils/dateTime';
+ * import { now, timestamp, toISOString, measureTime } from './dateTime';
  *
  * // 現在時刻の取得
  * const currentDate = now();

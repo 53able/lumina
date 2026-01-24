@@ -1,8 +1,8 @@
 import { compareDesc } from "date-fns";
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import type { LuminaDB } from "@/client/db/db";
-import type { Paper } from "@/shared/schemas";
+import type { LuminaDB } from "../db/db";
+import type { Paper } from "../../shared/schemas";
 
 /**
  * paperStore の状態型

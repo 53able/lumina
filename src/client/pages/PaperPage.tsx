@@ -2,12 +2,12 @@ import { FileQuestion } from "lucide-react";
 import type { FC } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { BackToListLink } from "@/client/components/BackToListLink";
-import { PaperDetail } from "@/client/components/PaperDetail";
-import { Button } from "@/client/components/ui/button";
-import { usePaperSummary } from "@/client/hooks/usePaperSummary";
-import { usePaperStore } from "@/client/stores/paperStore";
-import { useSettingsStore } from "@/client/stores/settingsStore";
+import { BackToListLink } from "../components/BackToListLink";
+import { PaperDetail } from "../components/PaperDetail";
+import { Button } from "../components/ui/button";
+import { usePaperSummary } from "../hooks/usePaperSummary";
+import { usePaperStore } from "../stores/paperStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 /**
  * PaperPage - 論文単一ページ

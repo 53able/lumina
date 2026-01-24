@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Paper, PaperSummary, SearchHistory, UserInteraction } from "@/shared/schemas";
-import { now, parseISO } from "@/shared/utils/dateTime";
+import type { Paper, PaperSummary, SearchHistory, UserInteraction } from "../../shared/schemas";
+import { now, parseISO } from "../../shared/utils/dateTime";
 import { createLuminaDb, type LuminaDB } from "./db";
 
 /**

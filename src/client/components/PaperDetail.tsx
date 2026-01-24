@@ -1,11 +1,11 @@
 import { format } from "date-fns";
 import { Bookmark, ExternalLink, FileText, Heart } from "lucide-react";
 import type { FC } from "react";
-import { type GenerateTarget, PaperSummary } from "@/client/components/PaperSummary";
-import { Badge } from "@/client/components/ui/badge";
-import { Button } from "@/client/components/ui/button";
-import { useInteraction } from "@/client/contexts/InteractionContext";
-import type { Paper, PaperSummary as PaperSummaryType } from "@/shared/schemas";
+import { type GenerateTarget, PaperSummary } from "./PaperSummary";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { useInteraction } from "../contexts/InteractionContext";
+import type { Paper, PaperSummary as PaperSummaryType } from "../../shared/schemas";
 
 /**
  * PaperDetail コンポーネントのProps

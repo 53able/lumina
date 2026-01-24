@@ -1,9 +1,9 @@
 import { CheckCircle2, Loader2, Search } from "lucide-react";
 import { type FC, type ReactNode, useCallback, useRef } from "react";
-import { PaperCard } from "@/client/components/PaperCard";
-import { Card } from "@/client/components/ui/card";
-import { useGridVirtualizer } from "@/client/hooks/useGridVirtualizer";
-import type { Paper } from "@/shared/schemas";
+import { PaperCard } from "./PaperCard";
+import { Card } from "./ui/card";
+import { useGridVirtualizer } from "../hooks/useGridVirtualizer";
+import type { Paper } from "../../shared/schemas";
 
 /** カードの最小幅（px） */
 const MIN_CARD_WIDTH = 300;

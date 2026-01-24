@@ -1,10 +1,10 @@
 import { Check, RotateCcw } from "lucide-react";
 import type { FC } from "react";
-import { Badge } from "@/client/components/ui/badge";
-import { Button } from "@/client/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/client/components/ui/tooltip";
-import { CATEGORY_DESCRIPTIONS } from "@/client/lib/categoryDescriptions";
-import { useSettingsStore } from "@/client/stores/settingsStore";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { CATEGORY_DESCRIPTIONS } from "../lib/categoryDescriptions";
+import { useSettingsStore } from "../stores/settingsStore";
 
 /** カテゴリをグループ化するための定義 */
 const CATEGORY_GROUPS: Record<string, string[]> = {
