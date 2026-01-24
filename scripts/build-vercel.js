@@ -58,10 +58,11 @@ if (existsSync(join(rootDir, "public/lumina.svg"))) {
 // 3. Function をコピー（tsupでバンドル済み）
 cpSync(join(rootDir, "api/index.js"), join(outputDir, "functions/api.func/index.js"));
 
-// 4. Function の設定ファイルを作成（Edge Runtime）
+// 4. Function の設定ファイルを作成（Node.js Runtime）
 const funcConfig = {
-	runtime: "edge",
-	entrypoint: "index.js",
+	runtime: "nodejs20.x",
+	handler: "index.js",
+	launcherType: "Nodejs",
 };
 
 writeFileSync(
