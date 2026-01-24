@@ -4,50 +4,67 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import devServer from "@hono/vite-dev-server";
 
-export default defineConfig({
-  plugins: [
-    react({
-      // JSXの自動検出を有効化（React 17+）
-      jsxRuntime: "automatic",
-    }),
-    tailwindcss(),
-    devServer({
-      entry: "src/api/app.ts",
-      exclude: [/^\/assets\/.+/, /^\/favicon\.ico$/, /^\/static\/.+/],
-    }),
-  ],
-  resolve: {
-    alias: {
-      "@": resolve(import.meta.dirname, "./src"),
-    },
-  },
-  // dev:viteコマンドでVite単体起動時のポート設定
-  server: {
-    port: 3000,
-  },
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    // SSR対応: クライアント側のビルドのみ
-    rollupOptions: {
-      input: resolve(import.meta.dirname, "src/client/main.tsx"),
-      output: {
-        // 静的アセットを /assets に出力
-        assetFileNames: "assets/index.[ext]",
-        entryFileNames: "assets/index.js",
-        chunkFileNames: "assets/[name].js",
+export default defineConfig(({ mode }) => {
+  if (mode === "ssr") {
+    return {
+      plugins: [react(), tailwindcss()],
+      resolve: {
+        alias: {
+          "@": resolve(import.meta.dirname, "./src"),
+        },
+      },
+      build: {
+        ssr: true,
+        outDir: "dist",
+        rollupOptions: {
+          input: "src/api/app.tsx",
+          output: {
+            entryFileNames: "index.js",
+          },
+        },
+      },
+    };
+  }
+
+  return {
+    plugins: [
+      react({
+        jsxRuntime: "automatic",
+      }),
+      tailwindcss(),
+      devServer({
+        entry: "src/api/app.tsx",
+        exclude: [/^\/assets\/.+/, /^\/favicon\.ico$/, /^\/static\/.+/],
+      }),
+    ],
+    resolve: {
+      alias: {
+        "@": resolve(import.meta.dirname, "./src"),
       },
     },
-  },
-  test: {
-    globals: true,
-    environment: "node",
-    setupFiles: ["fake-indexeddb/auto", "./src/test/setup.ts"],
-    exclude: [
-      "**/node_modules/**",
-      "**/dist/**",
-      // FIXME: jsdom環境でハングするため一時的に除外
-      "**/PaperExplorer.test.tsx",
-    ],
-  },
+    server: {
+      port: 3000,
+    },
+    build: {
+      outDir: "dist/static",
+      emptyOutDir: true,
+      rollupOptions: {
+        input: resolve(import.meta.dirname, "src/client/main.tsx"),
+        output: {
+          assetFileNames: "assets/[name].[ext]",
+          entryFileNames: "assets/index.js",
+        },
+      },
+    },
+    test: {
+      globals: true,
+      environment: "node",
+      setupFiles: ["fake-indexeddb/auto", "./src/test/setup.ts"],
+      exclude: [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/PaperExplorer.test.tsx",
+      ],
+    },
+  };
 });
