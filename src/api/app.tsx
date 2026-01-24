@@ -57,6 +57,9 @@ export const createApp = () => {
         },
       });
 
+      const url = new URL(c.req.url);
+      const pathname = url.pathname;
+
       return (
         <html lang="ja">
           <head>
@@ -84,7 +87,7 @@ export const createApp = () => {
           </head>
           <body>
             <div id="root">
-              <StaticRouter location={c.req.url}>
+              <StaticRouter location={pathname}>
                 <QueryClientProvider client={queryClient}>
                   <InteractionProvider>
                     <App />

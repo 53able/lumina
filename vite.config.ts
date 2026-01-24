@@ -46,8 +46,8 @@ export default defineConfig(({ mode }) => {
       port: 3000,
     },
     build: {
-      outDir: "dist/static",
-      emptyOutDir: true,
+      outDir: "dist",
+      emptyOutDir: false,
       rollupOptions: {
         input: resolve(import.meta.dirname, "src/client/main.tsx"),
         output: {
