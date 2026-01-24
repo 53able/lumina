@@ -56,12 +56,10 @@ cpSync(join(rootDir, "public/lumina.svg"), join(outputDir, "static/lumina.svg"))
 // 3. Function をコピー
 cpSync(join(rootDir, "api/index.js"), join(outputDir, "functions/api.func/index.js"));
 
-// 4. Function の設定ファイルを作成
+// 4. Function の設定ファイルを作成（Edge Functions）
 const funcConfig = {
-  runtime: "nodejs20.x",
-  handler: "index.js",
-  memory: 1024,
-  maxDuration: 30,
+  runtime: "edge",
+  entrypoint: "index.js",
 };
 
 writeFileSync(
