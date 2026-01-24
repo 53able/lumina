@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Paper } from "../../shared/schemas";
+import type { Paper } from "../../shared/schemas/index.js";
 
 // InteractionContextをモック
 const mockToggleLike = vi.fn();

@@ -1,10 +1,10 @@
 import { X } from "lucide-react";
 import type { FC } from "react";
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { getCategoryDescription } from "../lib/categoryDescriptions";
-import { cn } from "../lib/utils";
+import { Badge } from "./ui/badge.js";
+import { Button } from "./ui/button.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.js";
+import { getCategoryDescription } from "../lib/categoryDescriptions.js";
+import { cn } from "../lib/utils.js";
 
 /**
  * CategoryFilter コンポーネントのProps

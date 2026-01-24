@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ArxivQueryOptions, fetchArxivPapers, parseArxivEntry } from "./arxivFetcher";
+import { type ArxivQueryOptions, fetchArxivPapers, parseArxivEntry } from "./arxivFetcher.js";
 
 describe("arXivFetcher", () => {
   describe("parseArxivEntry", () => {

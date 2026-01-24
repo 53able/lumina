@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EMBEDDING_DIMENSION } from "../../shared/schemas";
-import { createApp } from "../app";
+import { EMBEDDING_DIMENSION } from "../../shared/schemas/index.js";
+import { createApp } from "../app.js";
 
 // OpenAIサービスをモック
 vi.mock("../services/openai", async (importOriginal) => {
@@ -12,7 +12,7 @@ vi.mock("../services/openai", async (importOriginal) => {
   };
 });
 
-import { createEmbedding, expandQuery } from "../services/openai";
+import { createEmbedding, expandQuery } from "../services/openai.js";
 
 describe("検索API", () => {
   const app = createApp();

@@ -1,7 +1,7 @@
 import { Search } from "lucide-react";
 import { type FC, type FormEvent, useState } from "react";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { Button } from "./ui/button.js";
+import { Input } from "./ui/input.js";
 
 /**
  * PaperSearch コンポーネントのProps

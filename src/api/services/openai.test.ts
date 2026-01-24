@@ -5,7 +5,7 @@ import {
   generateExplanation,
   generateSummary,
   type OpenAIConfig,
-} from "./openai";
+} from "./openai.js";
 
 // AI SDKをモック
 vi.mock("ai", () => ({

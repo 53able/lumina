@@ -1,7 +1,7 @@
 import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLuminaDb, type LuminaDB } from "../db/db";
-import type { Paper } from "../../shared/schemas";
+import { createLuminaDb, type LuminaDB } from "../db/db.js";
+import type { Paper } from "../../shared/schemas/index.js";
 
 /**
  * paperStore テスト

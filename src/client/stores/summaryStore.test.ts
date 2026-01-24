@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLuminaDb, type LuminaDB } from "../db/db";
-import type { PaperSummary } from "../../shared/schemas";
-import { now } from "../../shared/utils/dateTime";
+import { createLuminaDb, type LuminaDB } from "../db/db.js";
+import type { PaperSummary } from "../../shared/schemas/index.js";
+import { now } from "../../shared/utils/dateTime.js";
 
 /**
  * summaryStore テスト

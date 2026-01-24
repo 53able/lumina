@@ -11,4 +11,4 @@ export {
   parseISO,
   timestamp,
   toISOString,
-} from "./dateTime";
+} from "./dateTime.js";

@@ -1,9 +1,9 @@
 import { type FC, useState } from "react";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Switch } from "./ui/switch";
-import { useSettingsStore } from "../stores/settingsStore";
+import { Button } from "./ui/button.js";
+import { Input } from "./ui/input.js";
+import { Label } from "./ui/label.js";
+import { Switch } from "./ui/switch.js";
+import { useSettingsStore } from "../stores/settingsStore.js";
 
 /**
  * ApiSettings - OpenAI APIキー設定コンポーネント

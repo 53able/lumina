@@ -7,8 +7,8 @@
  */
 
 import { hc } from "hono/client";
-import { useSettingsStore } from "../stores/settingsStore";
-import type { SearchRequest } from "../../shared/schemas";
+import { useSettingsStore } from "../stores/settingsStore.js";
+import type { SearchRequest } from "../../shared/schemas/index.js";
 import type { AppType } from "../../api/app.js";
 
 /**

@@ -4,8 +4,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PaperSummary as PaperSummaryType } from "../../shared/schemas";
-import { PaperSummary } from "./PaperSummary";
+import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index.js";
+import { PaperSummary } from "./PaperSummary.js";
 
 /**
  * PaperSummary コンポーネントテスト

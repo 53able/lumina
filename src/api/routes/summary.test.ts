@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "../app";
+import { createApp } from "../app.js";
 
 // OpenAIサービスをモック
 vi.mock("../services/openai", async (importOriginal) => {
@@ -10,7 +10,7 @@ vi.mock("../services/openai", async (importOriginal) => {
   };
 });
 
-import { generateSummary } from "../services/openai";
+import { generateSummary } from "../services/openai.js";
 
 describe("要約API", () => {
   const app = createApp();

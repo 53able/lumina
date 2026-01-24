@@ -1,8 +1,8 @@
 import { BookOpen, Loader2, Sparkles, Target, Users } from "lucide-react";
 import { type FC, useEffect, useRef, useState } from "react";
-import { Button } from "./ui/button";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import type { PaperSummary as PaperSummaryType } from "../../shared/schemas";
+import { Button } from "./ui/button.js";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs.js";
+import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index.js";
 
 /**
  * コンテンツ表示モード

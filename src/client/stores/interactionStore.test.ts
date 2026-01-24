@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLuminaDb, type LuminaDB } from "../db/db";
-import type { UserInteraction } from "../../shared/schemas";
-import { now } from "../../shared/utils/dateTime";
+import { createLuminaDb, type LuminaDB } from "../db/db.js";
+import type { UserInteraction } from "../../shared/schemas/index.js";
+import { now } from "../../shared/utils/dateTime.js";
 
 /**
  * interactionStore テスト

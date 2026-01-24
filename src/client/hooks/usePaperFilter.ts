@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { Paper } from "../../shared/schemas";
+import type { Paper } from "../../shared/schemas/index.js";
 
 /**
  * フィルターモード

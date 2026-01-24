@@ -7,7 +7,7 @@ import {
   parseISO,
   timestamp,
   toISOString,
-} from "./dateTime";
+} from "./dateTime.js";
 
 describe("dateTime utilities", () => {
   describe("now", () => {
