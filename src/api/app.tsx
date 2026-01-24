@@ -48,11 +48,12 @@ export const createApp = () => {
   // API v1 ルートを統合
   const apiV1 = new Hono<{ Bindings: Env }>()
     .use("*", authMiddleware)
-    .route("/", categoriesApp)
-    .route("/", embeddingApp)
-    .route("/", searchApp)
-    .route("/", summaryApp)
-    .route("/", syncApp);
+    .route("/", categoriesApp);
+    // 一時的に AI 関連のルートをコメントアウト（デプロイエラー調査のため）
+    // .route("/", embeddingApp)
+    // .route("/", searchApp)
+    // .route("/", summaryApp)
+    // .route("/", syncApp);
 
   app.route("/api/v1", apiV1);
 
