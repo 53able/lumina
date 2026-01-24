@@ -3,18 +3,18 @@
   "installCommand": "pnpm install",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.ts"
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
     },
     {
-      "src": "/health",
-      "dest": "/api/index.ts"
+      "source": "/health",
+      "destination": "/api/index.ts"
     },
     {
-      "src": "/(.*)",
-      "dest": "/api/index.ts"
+      "source": "/((?!assets/).*)",
+      "destination": "/api/index.ts"
     }
   ],
   "headers": [
