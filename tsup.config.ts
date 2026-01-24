@@ -20,34 +20,12 @@ export default defineConfig({
   dts: false,
   // コード分割なし（単一ファイル）
   splitting: false,
-  // すべての依存関係をバンドル
+  // すべての依存関係をバンドル（Vercel Functions用）
   bundle: true,
-  // 外部パッケージ（node_modules）はバンドルしない
-  noExternal: [/^\./, /^@\//, /^src\//],
-  external: [
-    "hono",
-    "hono/*",
-    "@hono/*",
-    "@tanstack/*",
-    "react",
-    "react/*",
-    "react-dom",
-    "react-dom/*",
-    "react-router",
-    "react-router/*",
-    "zod",
-    "date-fns",
-    "ai",
-    "@ai-sdk/*",
-    "lucide-react",
-    "class-variance-authority",
-    "clsx",
-    "tailwind-merge",
-    "@radix-ui/*",
-    "sonner",
-    "zustand",
-    "dexie",
-  ],
+  // すべてのパッケージをバンドルに含める
+  noExternal: [/.*/],
+  // Node.js 組み込みモジュールのみ外部化
+  external: [],
   // esbuild オプションで paths エイリアスを解決
   esbuildOptions(options) {
     options.alias = {
