@@ -56,6 +56,9 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    ssr: {
+      noExternal: true,
+    },
     test: {
       globals: true,
       environment: "node",

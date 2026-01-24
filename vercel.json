@@ -12,15 +12,15 @@
     },
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "/api/index.js"
     },
     {
       "src": "/health",
-      "dest": "/api/index.ts"
+      "dest": "/api/index.js"
     },
     {
       "src": "/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "/api/index.js"
     }
   ]
 }
