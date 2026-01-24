@@ -8,8 +8,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "dev": "vite",
-    "api:dev": "tsx watch --clear-screen=false src/api/server.ts",
+    "dev": "tsx watch --clear-screen=false --tsconfig tsconfig.api.json src/api/server.ts",
+    "dev:vite": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsgo --noEmit",
@@ -24,6 +24,7 @@
     "@ai-sdk/openai": "^1.3.0",
     "@electric-sql/pglite": "^0.3.0",
     "@hono/node-server": "^1.14.1",
+    "@hono/react-renderer": "^0.1.0",
     "@hono/zod-validator": "^0.7.6",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -48,6 +49,7 @@
     "lucide-react": "^0.511.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "react-router": "^7.0.0",
     "react-hook-form": "^7.68.0",
     "react-router-dom": "^7",
     "sonner": "^2.0.7",

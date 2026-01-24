@@ -17,6 +17,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.14.1
         version: 1.19.9(hono@4.11.4)
+      '@hono/react-renderer':
+        specifier: ^0.1.0
+        version: 0.1.1(hono@4.11.4)
       '@hono/zod-validator':
         specifier: ^0.7.6
         version: 0.7.6(hono@4.11.4)(zod@4.3.5)
@@ -92,6 +95,9 @@ importers:
       react-hook-form:
         specifier: ^7.68.0
         version: 7.71.1(react@19.2.3)
+      react-router:
+        specifier: ^7.0.0
+        version: 7.12.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react-router-dom:
         specifier: ^7
         version: 7.12.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -575,6 +581,12 @@ packages:
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
+
+  '@hono/react-renderer@0.1.1':
+    resolution: {integrity: sha512-nUisu4r/2xs1gzXk9LqPp9dBfUygbbF0Bp4K/FtFRJt6fv9b/ADMzpYajySMl2HxmZhYuX4vsMXFAxsSB/cVLw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      hono: '*'
 
   '@hono/zod-validator@0.7.6':
     resolution: {integrity: sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw==}
@@ -2505,6 +2517,10 @@ snapshots:
   '@floating-ui/utils@0.2.10': {}
 
   '@hono/node-server@1.19.9(hono@4.11.4)':
+    dependencies:
+      hono: 4.11.4
+
+  '@hono/react-renderer@0.1.1(hono@4.11.4)':
     dependencies:
       hono: 4.11.4
 
