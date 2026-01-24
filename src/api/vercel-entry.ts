@@ -1,10 +1,10 @@
 /**
  * Vercel Functions エントリーポイント
  *
- * tsup でバンドルされ、api-build/vercel-entry.js として出力される。
- * Vercel は api/index.js からこのバンドルを re-export する。
+ * tsup でバンドルされ、api/index.js として出力される。
+ * Node.js Functionsで動作（react-dom/serverがNode.js APIに依存するため）。
  */
-import { handle } from "hono/vercel";
+import { handle } from "@hono/node-server/vercel";
 import { createApp } from "./app.js";
 
 const app = createApp();
