@@ -1,3 +1,5 @@
 {
-  "buildCommand": "pnpm build && node scripts/build-vercel.js"
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api" }
+  ]
 }

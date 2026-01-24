@@ -274,11 +274,25 @@ graph LR
 
 ## Vercel設定
 
-### api/index.ts
+Vercel標準のrewrites設定を使用し、Edge Functionsで動作する。
+
+### ビルドフロー
+
+```
+vite build    → dist/assets/（静的ファイル）
+tsup          → api/index.js（Edge Function）
+```
+
+### src/api/vercel-entry.ts
 
 ```typescript
 import { handle } from "hono/vercel";
-import { createApp } from "../src/api/app.js";
+import { createApp } from "./app.js";
+
+// Edge Functions 設定
+export const config = {
+  runtime: "edge",
+};
 
 const app = createApp();
 
@@ -293,19 +307,18 @@ export const PATCH = handle(app);
 
 ```json
 {
-  "functions": {
-    "api/index.ts": {
-      "includeFiles": "{src/api,src/shared,src/client}/**/*.{ts,tsx}"
-    }
-  },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/health", "destination": "/api" },
-    { "source": "/assets/:path*", "destination": "/assets/:path*" },
     { "source": "/(.*)", "destination": "/api" }
   ]
 }
 ```
+
+Vercelは`dist/`の静的ファイルを優先配信するため、`/assets/*`の除外設定は不要。
+
+### ルーティング優先順位
+
+1. `dist/assets/*` → 静的ファイル（Viteビルド出力）
+2. `/(.*)`（その他）→ Edge Function（SSR/API）
 
 ---
 
