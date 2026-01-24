@@ -5,7 +5,7 @@
  * .vercel/output/ に以下の構造を作成する:
  * - config.json: ルーティング設定
  * - static/: 静的ファイル（Vite ビルド出力）
- * - functions/api.func/: Edge Function
+ * - functions/api.func/: Serverless Function
  */
 
 import { cpSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
@@ -18,7 +18,7 @@ const outputDir = join(rootDir, ".vercel/output");
 
 // 出力ディレクトリをクリーンアップ
 if (existsSync(outputDir)) {
-	rmSync(outputDir, { recursive: true });
+  rmSync(outputDir, { recursive: true });
 }
 
 // ディレクトリ構造を作成
@@ -27,22 +27,22 @@ mkdirSync(join(outputDir, "functions/api.func"), { recursive: true });
 
 // 1. config.json を作成
 const config = {
-	version: 3,
-	routes: [
-		// 静的アセット（immutableキャッシュ）
-		{
-			src: "/assets/(.*)",
-			headers: {
-				"Cache-Control": "public, max-age=31536000, immutable",
-				"X-Content-Type-Options": "nosniff",
-			},
-		},
-		// API ルート
-		{ src: "/api/(.*)", dest: "/api" },
-		{ src: "/health", dest: "/api" },
-		// その他すべてのリクエストを API（SSR）にルーティング
-		{ src: "/(.*)", dest: "/api" },
-	],
+  version: 3,
+  routes: [
+    // 静的アセット
+    {
+      src: "/assets/(.*)",
+      headers: {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+      },
+    },
+    // API ルート
+    { src: "/api/(.*)", dest: "/api" },
+    { src: "/health", dest: "/api" },
+    // その他すべてのリクエストを API（SSR）にルーティング
+    { src: "/(.*)", dest: "/api" },
+  ],
 };
 
 writeFileSync(join(outputDir, "config.json"), JSON.stringify(config, null, 2));
@@ -51,32 +51,30 @@ writeFileSync(join(outputDir, "config.json"), JSON.stringify(config, null, 2));
 cpSync(join(rootDir, "dist"), join(outputDir, "static"), { recursive: true });
 
 // public/ の既存ファイル（lumina.svg）もコピー
-if (existsSync(join(rootDir, "public/lumina.svg"))) {
-	cpSync(join(rootDir, "public/lumina.svg"), join(outputDir, "static/lumina.svg"));
-}
+cpSync(join(rootDir, "public/lumina.svg"), join(outputDir, "static/lumina.svg"));
 
-// 3. Function をコピー（tsupでバンドル済み）
+// 3. Function をコピー
 cpSync(join(rootDir, "api/index.js"), join(outputDir, "functions/api.func/index.js"));
 
-// 4. Function の設定ファイルを作成（Edge Runtime）
+// 4. Function の設定ファイルを作成（Edge Functions）
 const funcConfig = {
-	runtime: "edge",
-	entrypoint: "index.js",
+  runtime: "edge",
+  entrypoint: "index.js",
 };
 
 writeFileSync(
-	join(outputDir, "functions/api.func/.vc-config.json"),
-	JSON.stringify(funcConfig, null, 2)
+  join(outputDir, "functions/api.func/.vc-config.json"),
+  JSON.stringify(funcConfig, null, 2)
 );
 
 // 5. Function の package.json を作成（ESM サポート用）
 const funcPackageJson = {
-	type: "module",
+  type: "module",
 };
 
 writeFileSync(
-	join(outputDir, "functions/api.func/package.json"),
-	JSON.stringify(funcPackageJson, null, 2)
+  join(outputDir, "functions/api.func/package.json"),
+  JSON.stringify(funcPackageJson, null, 2)
 );
 
-console.log("✅ Build Output API created at .vercel/output/");
+console.log("✅ Build Output created at .vercel/output/");
