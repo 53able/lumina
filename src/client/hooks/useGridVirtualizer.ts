@@ -229,7 +229,7 @@ export const useGridVirtualizer = <T>({
     overscan,
     gap: rowGap, // 行間のギャップを設定
     // 行の高さが変わったときに再計算
-    getItemKey: (index) => {
+    getItemKey: (index: number) => {
       const row = rows[index];
       if (!row) return `row-${index}`;
       // 展開状態と含まれるアイテムIDをキーに

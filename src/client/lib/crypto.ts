@@ -50,7 +50,7 @@ const getBrowserSalt = (): string => {
  * 文字列を ArrayBuffer に変換する
  */
 const stringToBuffer = (str: string): ArrayBuffer => {
-  return new TextEncoder().encode(str);
+  return new TextEncoder().encode(str).buffer;
 };
 
 /**

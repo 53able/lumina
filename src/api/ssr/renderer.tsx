@@ -2,8 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { StaticRouter } from "react-router";
-import { App } from "../../client/App";
-import { InteractionProvider } from "../../client/contexts/InteractionContext";
+import { App } from "@/client/App";
+import { InteractionProvider } from "@/client/contexts/InteractionContext";
 import type { InitialData } from "./dataLoader";
 import { HtmlTemplate } from "./html";
 import {
