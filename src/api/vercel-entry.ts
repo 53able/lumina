@@ -10,14 +10,41 @@
 import { handle } from "@hono/node-server/vercel";
 import { createApp } from "./app.js";
 
-const app = createApp();
+// #region agent log
+const log = (msg, data = {}) => {
+  fetch('http://127.0.0.1:7244/ingest/4c856d42-37db-45be-bf90-f3bccfe1e6a0', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      location: 'src/api/vercel-entry.ts',
+      message: msg,
+      data,
+      timestamp: Date.now(),
+      sessionId: 'debug-session',
+      hypothesisId: 'PQR'
+    })
+  }).catch(() => {});
+  console.log(`[DEBUG] ${msg}`, JSON.stringify(data));
+};
+// #endregion
 
-/**
- * Vercel Node.js Functions 用ハンドラ
- *
- * すべてのHTTPメソッド（GET/POST/PUT/DELETE/PATCH）を処理
- */
-export default handle(app);
+log('Vercel entry point loading');
+
+const app = createApp();
+log('App created');
+
+const handler = handle(app);
+log('Handler created');
+
+export default (req, res) => {
+  log('Request received', { method: req.method, url: req.url });
+  try {
+    return handler(req, res);
+  } catch (err) {
+    log('Handler error', { error: err.message, stack: err.stack });
+    throw err;
+  }
+};
 
 // 型エクスポート（RPCクライアント用）
 export type { AppType } from "./app.js";
