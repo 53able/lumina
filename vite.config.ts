@@ -4,28 +4,36 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react({
+      // JSXの自動検出を有効化（React 17+）
+      jsxRuntime: "automatic",
+    }),
+    tailwindcss(),
+  ],
   resolve: {
     alias: {
       "@": resolve(import.meta.dirname, "./src"),
     },
   },
+  // Note: proxy設定は不要（ViteミドルウェアモードでHonoと統合済み）
+  // dev:viteコマンドでVite単体起動時のポート設定
   server: {
     port: 5173,
-    proxy: {
-      "/api": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      "/health": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-    },
   },
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // SSR対応: クライアント側のビルドのみ
+    rollupOptions: {
+      input: resolve(import.meta.dirname, "index.html"),
+      output: {
+        // 静的アセットを /assets に出力
+        assetFileNames: "assets/[name].[ext]",
+        entryFileNames: "assets/[name].js",
+        chunkFileNames: "assets/[name].js",
+      },
+    },
   },
   test: {
     globals: true,

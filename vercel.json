@@ -3,7 +3,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{src/api,src/shared}/**/*.ts"
+      "includeFiles": "{src/api,src/shared,src/client}/**/*.{ts,tsx}"
     }
   },
   "headers": [
@@ -28,6 +28,14 @@
     },
     {
       "source": "/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/assets/:path*",
+      "destination": "/assets/:path*"
+    },
+    {
+      "source": "/(.*)",
       "destination": "/api"
     }
   ]
