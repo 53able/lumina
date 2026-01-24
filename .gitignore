@@ -38,4 +38,3 @@ tmp/
 src/**/*.js
 
 .cursor/**/*
-public/assets/

@@ -5,7 +5,7 @@ export default defineConfig({
   entry: {
     index: "src/api/vercel-entry.ts",
   },
-  // 出力先（Vercel Serverless Functions はルートの api/ を参照）
+  // 出力先（api/ ディレクトリに直接出力）
   outDir: "api",
   // ESM 形式
   format: ["esm"],
@@ -20,12 +20,34 @@ export default defineConfig({
   dts: false,
   // コード分割なし（単一ファイル）
   splitting: false,
-  // すべての依存関係をバンドル（Vercel Functions用）
+  // すべての依存関係をバンドル
   bundle: true,
-  // すべてのパッケージをバンドルに含める
-  noExternal: [/.*/],
-  // Node.js 組み込みモジュールのみ外部化
-  external: [],
+  // 外部パッケージ（node_modules）はバンドルしない
+  noExternal: [/^\./, /^@\//, /^src\//],
+  external: [
+    "hono",
+    "hono/*",
+    "@hono/*",
+    "@tanstack/*",
+    "react",
+    "react/*",
+    "react-dom",
+    "react-dom/*",
+    "react-router",
+    "react-router/*",
+    "zod",
+    "date-fns",
+    "ai",
+    "@ai-sdk/*",
+    "lucide-react",
+    "class-variance-authority",
+    "clsx",
+    "tailwind-merge",
+    "@radix-ui/*",
+    "sonner",
+    "zustand",
+    "dexie",
+  ],
   // esbuild オプションで paths エイリアスを解決
   esbuildOptions(options) {
     options.alias = {

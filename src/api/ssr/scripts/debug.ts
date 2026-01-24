@@ -1,28 +1,13 @@
 /**
- * デバッグスクリプト生成のオプション
- */
-export interface DebugScriptOptions {
-  /**
-   * CSP nonce（本番環境で必須）
-   */
-  nonce?: string;
-}
-
-/**
  * デバッグ用スクリプトを生成
  *
  * SSR環境でのデバッグ情報を収集するためのスクリプト。
  * スクリプトタグの確認、エラー監視、Promise拒否の監視を行う。
- * 本番環境ではCSP nonceを使用してインラインスクリプトを許可する。
  *
- * @param options - デバッグスクリプト生成のオプション
  * @returns デバッグスクリプトのHTML文字列
  */
-export const generateDebugScript = (options: DebugScriptOptions = {}): string => {
-  const { nonce } = options;
-  const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
-
-  return `<script${nonceAttr}>
+export const generateDebugScript = (): string => {
+  return `<script>
 console.log('[SSR Debug] Inline script executed');
 // DOMContentLoaded後にスクリプトタグを確認
 const checkScripts = () => {
