@@ -31,6 +31,12 @@ export interface SSRRenderOptions {
     css?: string[];
     js?: string[];
   };
+  /**
+   * CSP nonce（本番環境で必須）
+   *
+   * インラインスクリプトに付与してCSPを通過させる。
+   */
+  nonce?: string;
 }
 
 /**
@@ -43,7 +49,7 @@ export const renderSSR = (options: SSRRenderOptions): string => {
   // SSR環境で古いJSXトランスフォームに備えて React をグローバルに公開しておく
   // （App.tsx 側がグローバル React を参照するケースに対応）
   (globalThis as typeof globalThis & { React: typeof React }).React = React;
-  const { pathname, initialData, assets } = options;
+  const { pathname, initialData, assets, nonce } = options;
 
   // React RouterのStaticRouterを使用してサーバー側でルーティング
   // クライアントと同様に QueryClientProvider / InteractionProvider でラップ
@@ -72,9 +78,10 @@ export const renderSSR = (options: SSRRenderOptions): string => {
   const html = renderToString(<HtmlTemplate assets={assets} />);
 
   // スクリプトを生成（文字列操作で挿入することでdangerouslySetInnerHTMLの警告を回避）
+  // 本番環境ではnonceを使用してCSPを通過させる
   const preambleScript = generatePreambleScript();
-  const initialDataScript = generateInitialDataScript(initialData);
-  const debugScript = generateDebugScript();
+  const initialDataScript = generateInitialDataScript({ initialData, nonce });
+  const debugScript = generateDebugScript({ nonce });
 
   // appHtmlを<div id="root">の中に挿入（dangerouslySetInnerHTMLの警告を回避）
   const ROOT_DIV_OPEN = '<div id="root">';

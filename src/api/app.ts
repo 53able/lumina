@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { createAuthMiddleware } from "./middleware/auth.js";
-import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders.js";
+import { CSP_NONCE_KEY, createSecurityHeadersMiddleware } from "./middleware/securityHeaders.js";
 import { categoriesApp } from "./routes/categories.js";
 import { embeddingApp } from "./routes/embedding.js";
 import { healthApp } from "./routes/health.js";
@@ -11,6 +11,16 @@ import { syncApp } from "./routes/sync.js";
 import { loadInitialData } from "./ssr/dataLoader.js";
 import type { SSRRenderOptions } from "./ssr/renderer.js";
 import { renderSSR } from "./ssr/renderer.js";
+
+/**
+ * Honoアプリケーションのコンテキスト変数の型定義
+ */
+type AppVariables = {
+  /**
+   * CSP nonce（本番環境でセキュリティヘッダーミドルウェアが設定）
+   */
+  [CSP_NONCE_KEY]: string;
+};
 
 /**
  * 本番環境用のデフォルトアセットパス
@@ -46,7 +56,7 @@ export const createApp = (options?: CreateAppOptions) => {
   const securityHeadersMiddleware = createSecurityHeadersMiddleware();
   const assets = options?.assets ?? PRODUCTION_ASSETS;
 
-  const app = new Hono()
+  const app = new Hono<{ Variables: AppVariables }>()
     .use("*", logger())
     .use("*", securityHeadersMiddleware)
     .route("/", healthApp)
@@ -67,6 +77,9 @@ export const createApp = (options?: CreateAppOptions) => {
       return c.notFound();
     }
 
+    // CSP nonceを取得（本番環境でセキュリティヘッダーミドルウェアが設定）
+    const nonce = c.get(CSP_NONCE_KEY) as string | undefined;
+
     try {
       // 初期データを取得
       const initialData = await loadInitialData(app, c, pathname);
@@ -76,6 +89,7 @@ export const createApp = (options?: CreateAppOptions) => {
         pathname,
         initialData,
         assets,
+        nonce,
       });
 
       return c.html(html);
@@ -85,6 +99,7 @@ export const createApp = (options?: CreateAppOptions) => {
       const html = renderSSR({
         pathname,
         assets,
+        nonce,
       });
       return c.html(html);
     }
