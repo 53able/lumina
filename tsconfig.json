@@ -17,6 +17,8 @@
   "include": [
     "src/api/**/*.ts",
     "src/api/**/*.tsx",
+    "src/client/**/*.ts",
+    "src/client/**/*.tsx",
     "src/shared/**/*.ts",
     "api/**/*.ts"
   ],
