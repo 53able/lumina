@@ -25,8 +25,8 @@ export const createApp = () => {
   // SSR 用のレンダラー設定
   app.use(
     "*",
-    reactRenderer(({ children }) => {
-      const isProd = import.meta.env?.PROD || (typeof process !== "undefined" && process.env.NODE_ENV === "production");
+    reactRenderer(({ children }, c) => {
+      const isProd = import.meta.env?.PROD || c.env?.NODE_ENV === "production";
       const assets = isProd
         ? {
             css: "/assets/index.css",
