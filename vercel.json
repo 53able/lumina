@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "pnpm build",
+  "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/api" }
