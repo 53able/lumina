@@ -42,30 +42,9 @@ interface CreateAppOptions {
  * @returns Honoアプリインスタンス
  */
 export const createApp = (options?: CreateAppOptions) => {
-  // #region agent log
-  const log = (msg, data = {}) => {
-    fetch('http://127.0.0.1:7244/ingest/4c856d42-37db-45be-bf90-f3bccfe1e6a0', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        location: 'src/api/app.ts',
-        message: msg,
-        data,
-        timestamp: Date.now(),
-        sessionId: 'debug-session',
-        hypothesisId: 'P'
-      })
-    }).catch(() => {});
-    console.log(`[DEBUG] ${msg}`, JSON.stringify(data));
-  };
-  // #endregion
-
-  log('createApp started');
   const authMiddleware = createAuthMiddleware();
   const securityHeadersMiddleware = createSecurityHeadersMiddleware();
   const assets = options?.assets ?? PRODUCTION_ASSETS;
-
-  log('Middleware created');
 
   const app = new Hono()
     .use("*", logger())
@@ -77,8 +56,6 @@ export const createApp = (options?: CreateAppOptions) => {
     .route("/", searchApp)
     .route("/", summaryApp)
     .route("/", syncApp);
-
-  log('Routes registered');
 
   // SSRルート: APIルートと静的アセット以外のすべてのリクエストを処理
   app.get("*", async (c) => {

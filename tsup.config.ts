@@ -24,8 +24,33 @@ export default defineConfig({
   bundle: true,
   // すべてのパッケージをバンドルに含める
   noExternal: [/.*/],
-  // Node.js 組み込みモジュールのみ外部化
-  external: [],
+  // Node.js 組み込みモジュールを外部化（ESMバンドルで require エラーを避けるため）
+  external: [
+    "util",
+    "crypto",
+    "stream",
+    "async_hooks",
+    "events",
+    "buffer",
+    "path",
+    "fs",
+    "url",
+    "http",
+    "https",
+    "zlib",
+    "node:util",
+    "node:crypto",
+    "node:stream",
+    "node:async_hooks",
+    "node:events",
+    "node:buffer",
+    "node:path",
+    "node:fs",
+    "node:url",
+    "node:http",
+    "node:https",
+    "node:zlib",
+  ],
   // esbuild オプションで paths エイリアスを解決
   esbuildOptions(options) {
     options.alias = {
