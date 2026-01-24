@@ -7,8 +7,8 @@ export default defineConfig({
   },
   // 出力先（api/ ディレクトリに直接出力）
   outDir: "api",
-  // ESM 形式
-  format: ["esm"],
+  // CJS 形式
+  format: ["cjs"],
   // Node.js 20 をターゲット
   target: "node20",
   platform: "node",
