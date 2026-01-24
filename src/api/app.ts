@@ -16,7 +16,7 @@ import { renderSSR } from "./ssr/renderer.js";
  * 本番環境用のデフォルトアセットパス
  */
 const PRODUCTION_ASSETS: SSRRenderOptions["assets"] = {
-  css: ["/assets/index.css"],
+  css: ["/assets/main.css"],
   js: ["/assets/index.js"],
 };
 
