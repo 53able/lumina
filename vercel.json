@@ -4,15 +4,7 @@
   "buildCommand": "pnpm build",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.ts"
-    },
-    {
-      "source": "/health",
-      "destination": "/api/index.ts"
-    },
-    {
-      "source": "/((?!assets).*)",
+      "source": "/((?!assets|api|health|favicon|.*\\.(ico|png|svg|jpg|jpeg|gif|webp|woff|woff2|ttf|eot)).*)",
       "destination": "/api/index.ts"
     }
   ],
