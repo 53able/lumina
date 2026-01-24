@@ -10,8 +10,9 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false --tsconfig tsconfig.api.json src/api/server.ts",
     "dev:vite": "vite",
-    "build": "vite build && pnpm build:api",
+    "build": "vite build && pnpm build:api && pnpm build:vercel",
     "build:api": "tsup",
+    "build:vercel": "tsx scripts/build-vercel.ts",
     "preview": "vite preview",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
