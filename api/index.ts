@@ -1,4 +1,5 @@
 import { handle } from "hono/vercel";
+// @ts-ignore
 import app from "./app.js";
 
 export const config = {
