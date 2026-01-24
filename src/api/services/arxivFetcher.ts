@@ -1,5 +1,5 @@
 import { parseISO } from "date-fns";
-import type { Paper } from "../../shared/schemas/index.js";
+import type { Paper } from "../../shared/schemas/index";
 
 /**
  * arXiv API クエリオプション

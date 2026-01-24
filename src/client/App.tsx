@@ -2,12 +2,12 @@ import { Settings, Sparkles } from "lucide-react";
 import { type FC, useCallback, useEffect, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
-import { PaperDetail } from "./components/PaperDetail.js";
-import { PaperExplorer } from "./components/PaperExplorer.js";
-import { SearchHistory } from "./components/SearchHistory.js";
-import { SettingsDialog } from "./components/SettingsDialog.js";
-import { SyncButton } from "./components/SyncButton.js";
-import { Button } from "./components/ui/button.js";
+import { PaperDetail } from "./components/PaperDetail";
+import { PaperExplorer } from "./components/PaperExplorer";
+import { SearchHistory } from "./components/SearchHistory";
+import { SettingsDialog } from "./components/SettingsDialog";
+import { SyncButton } from "./components/SyncButton";
+import { Button } from "./components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -15,17 +15,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from "./components/ui/sheet.js";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip.js";
-import { useMediaQuery } from "./hooks/useMediaQuery.js";
-import { useSemanticSearch } from "./hooks/useSemanticSearch.js";
-import { useSyncPapers } from "./hooks/useSyncPapers.js";
-import { getDecryptedApiKey, summaryApi } from "./lib/api.js";
-import { PaperPage } from "./pages/PaperPage.js";
-import { usePaperStore } from "./stores/paperStore.js";
-import { useSearchHistoryStore } from "./stores/searchHistoryStore.js";
-import { useSettingsStore } from "./stores/settingsStore.js";
-import { useSummaryStore } from "./stores/summaryStore.js";
-import type { Paper, PaperSummary, SearchHistory as SearchHistoryType } from "../shared/schemas/index.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
+import { useMediaQuery } from "./hooks/useMediaQuery";
+import { useSemanticSearch } from "./hooks/useSemanticSearch";
+import { useSyncPapers } from "./hooks/useSyncPapers";
+import { getDecryptedApiKey, summaryApi } from "./lib/api";
+import { PaperPage } from "./pages/PaperPage";
+import { usePaperStore } from "./stores/paperStore";
+import { useSearchHistoryStore } from "./stores/searchHistoryStore";
+import { useSettingsStore } from "./stores/settingsStore";
+import { useSummaryStore } from "./stores/summaryStore";
+import type { Paper, PaperSummary, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
 
 /**
  * Lumina アプリケーションのルートコンポーネント

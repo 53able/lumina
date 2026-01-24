@@ -1,16 +1,16 @@
 /// <reference types="vite/client" />
 import { Hono } from "hono";
 import { logger } from "hono/logger";
-import { createAuthMiddleware } from "./middleware/auth.js";
-import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders.js";
-import { categoriesApp } from "./routes/categories.js";
-import { embeddingApp } from "./routes/embedding.js";
-import { healthApp } from "./routes/health.js";
-import { searchApp } from "./routes/search.js";
-import { summaryApp } from "./routes/summary.js";
-import { syncApp } from "./routes/sync.js";
-import { loadInitialData } from "./ssr/dataLoader.js";
-import { renderSSR } from "./ssr/renderer.js";
+import { createAuthMiddleware } from "./middleware/auth";
+import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders";
+import { categoriesApp } from "./routes/categories";
+import { embeddingApp } from "./routes/embedding";
+import { healthApp } from "./routes/health";
+import { searchApp } from "./routes/search";
+import { summaryApp } from "./routes/summary";
+import { syncApp } from "./routes/sync";
+import { loadInitialData } from "./ssr/dataLoader";
+import { renderSSR } from "./ssr/renderer";
 
 /**
  * SSR用のアセットパス定義

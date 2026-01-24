@@ -6,7 +6,7 @@
 import { type RenderOptions, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { InteractionProvider } from "../contexts/InteractionContext.js";
+import { InteractionProvider } from "../contexts/InteractionContext";
 
 /**
  * InteractionContextのモック値の型

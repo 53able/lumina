@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import { decryptApiKey, encryptApiKey, isEncrypted } from "../lib/crypto.js";
-import type { SyncPeriod } from "../../shared/schemas/index.js";
-import { parseISO, timestamp } from "../../shared/utils/dateTime.js";
+import { decryptApiKey, encryptApiKey, isEncrypted } from "../lib/crypto";
+import type { SyncPeriod } from "../../shared/schemas/index";
+import { parseISO, timestamp } from "../../shared/utils/dateTime";
 
 /** デフォルトの対象カテゴリ */
 const DEFAULT_CATEGORIES = ["cs.AI", "cs.LG", "cs.CL", "stat.ML"];

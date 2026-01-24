@@ -2,16 +2,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import type { InitialData } from "../api/ssr/dataLoader.js";
-import { App } from "./App.js";
-import { ClientOnlyToaster } from "./components/ClientOnlyToaster.js";
-import { InteractionProvider } from "./contexts/InteractionContext.js";
-import { luminaDb } from "./db/db.js";
-import { initializeInteractionStore } from "./stores/interactionStore.js";
-import { initializePaperStore, usePaperStore } from "./stores/paperStore.js";
-import { initializeSearchHistoryStore } from "./stores/searchHistoryStore.js";
-import { useSettingsStore } from "./stores/settingsStore.js";
-import { initializeSummaryStore } from "./stores/summaryStore.js";
+import type { InitialData } from "../api/ssr/dataLoader";
+import { App } from "./App";
+import { ClientOnlyToaster } from "./components/ClientOnlyToaster";
+import { InteractionProvider } from "./contexts/InteractionContext";
+import { luminaDb } from "./db/db";
+import { initializeInteractionStore } from "./stores/interactionStore";
+import { initializePaperStore, usePaperStore } from "./stores/paperStore";
+import { initializeSearchHistoryStore } from "./stores/searchHistoryStore";
+import { useSettingsStore } from "./stores/settingsStore";
+import { initializeSummaryStore } from "./stores/summaryStore";
 import "./index.css";
 
 /**

@@ -5,7 +5,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Paper } from "../../shared/schemas/index.js";
+import type { Paper } from "../../shared/schemas/index";
 
 // InteractionContextをモック（PaperCardで使用される）
 vi.mock("@/client/contexts/InteractionContext", () => ({

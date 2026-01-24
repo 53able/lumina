@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import type { FC } from "react";
-import { Button } from "./ui/button.js";
+import { Button } from "./ui/button";
 
 /**
  * SyncButton Props

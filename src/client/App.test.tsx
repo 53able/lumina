@@ -7,8 +7,8 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "./App.js";
-import { InteractionProvider } from "./contexts/InteractionContext.js";
+import { App } from "./App";
+import { InteractionProvider } from "./contexts/InteractionContext";
 
 /**
  * テスト用のQueryClientラッパー

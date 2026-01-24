@@ -1,4 +1,4 @@
-import type { InitialData } from "../dataLoader.js";
+import type { InitialData } from "../dataLoader";
 
 /**
  * 初期データを埋め込むスクリプトを生成

@@ -1,8 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { EmbeddingRequestSchema } from "../../shared/schemas/index.js";
-import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
-import { createEmbedding, getOpenAIConfig } from "../services/openai.js";
+import { EmbeddingRequestSchema } from "../../shared/schemas/index";
+import { measureTime, timestamp } from "../../shared/utils/dateTime";
+import { createEmbedding, getOpenAIConfig } from "../services/openai";
 
 /**
  * Embedding API アプリケーション

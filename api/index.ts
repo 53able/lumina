@@ -1,5 +1,5 @@
 import { handle } from "hono/vercel";
-import app from "../src/api/app.js";
+import app from "../src/api/app";
 
 /**
  * Vercel Edge Functions 用ハンドラ
@@ -18,4 +18,4 @@ export const DELETE = handle(app);
 export const PATCH = handle(app);
 
 // 型エクスポート（RPCクライアント用）
-export type { AppType } from "../src/api/app.js";
+export type { AppType } from "../src/api/app";

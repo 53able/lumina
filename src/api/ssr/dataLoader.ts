@@ -1,6 +1,6 @@
 import type { Context } from "hono";
-import type { Paper, PaperSummary } from "../../shared/schemas/index.js";
-import type { AppType } from "../app.js";
+import type { Paper, PaperSummary } from "../../shared/schemas/index";
+import type { AppType } from "../app";
 
 /**
  * 初期データの型定義
@@ -27,7 +27,9 @@ const DEFAULT_SYNC_PERIOD_DAYS = 7;
 const getInternalAuthHeader = (): string => {
   const username = process.env.BASIC_AUTH_USERNAME ?? "admin";
   const password = process.env.BASIC_AUTH_PASSWORD ?? "admin";
-  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+  const credentials = `${username}:${password}`;
+  // Edge Runtime / Browser 互換の btoa を使用
+  return `Basic ${btoa(credentials)}`;
 };
 
 /**

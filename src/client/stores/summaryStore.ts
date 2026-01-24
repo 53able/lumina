@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import type { LuminaDB } from "../db/db.js";
-import type { PaperSummary } from "../../shared/schemas/index.js";
+import type { LuminaDB } from "../db/db";
+import type { PaperSummary } from "../../shared/schemas/index";
 
 /**
  * summaryStore の状態型

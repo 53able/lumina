@@ -1,10 +1,10 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import type { Paper } from "../../shared/schemas/index.js";
-import { SyncRequestSchema } from "../../shared/schemas/index.js";
-import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
-import { fetchArxivPapers } from "../services/arxivFetcher.js";
-import { createEmbedding, getOpenAIConfig, type OpenAIConfig } from "../services/openai.js";
+import type { Paper } from "../../shared/schemas/index";
+import { SyncRequestSchema } from "../../shared/schemas/index";
+import { measureTime, timestamp } from "../../shared/utils/dateTime";
+import { fetchArxivPapers } from "../services/arxivFetcher";
+import { createEmbedding, getOpenAIConfig, type OpenAIConfig } from "../services/openai";
 
 /**
  * 論文にEmbeddingを生成して付与する

@@ -1,5 +1,5 @@
 import { createContext, type FC, type ReactNode, useContext, useMemo } from "react";
-import { useInteractionStore } from "../stores/interactionStore.js";
+import { useInteractionStore } from "../stores/interactionStore";
 
 /**
  * 単一論文に対するインタラクション状態

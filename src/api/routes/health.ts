@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { now, toISOString } from "../../shared/utils/dateTime.js";
+import { now, toISOString } from "../../shared/utils/dateTime";
 
 /**
  * ヘルスチェックのレスポンススキーマ

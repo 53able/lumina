@@ -4,8 +4,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index.js";
-import { SearchHistory } from "./SearchHistory.js";
+import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
+import { SearchHistory } from "./SearchHistory";
 
 /**
  * SearchHistory コンポーネントテスト

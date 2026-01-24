@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PaperSchema } from "./paper.js";
+import { PaperSchema } from "./paper";
 
 /**
  * 同期期間（日数）

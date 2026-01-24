@@ -1,8 +1,8 @@
 import type { FC } from "react";
-import { ApiSettings } from "./ApiSettings.js";
-import { CategorySettings } from "./CategorySettings.js";
-import { SyncSettings } from "./SyncSettings.js";
-import { Button } from "./ui/button.js";
+import { ApiSettings } from "./ApiSettings";
+import { CategorySettings } from "./CategorySettings";
+import { SyncSettings } from "./SyncSettings";
+import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog.js";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs.js";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 /**
  * SettingsDialog Props

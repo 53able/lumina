@@ -4,7 +4,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Paper } from "../../shared/schemas/index.js";
+import type { Paper } from "../../shared/schemas/index";
 
 // InteractionContextをモック
 const mockToggleLike = vi.fn();

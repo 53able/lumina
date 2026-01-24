@@ -1,8 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
-import { now } from "../../shared/utils/dateTime.js";
-import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai.js";
+import { now } from "../../shared/utils/dateTime";
+import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai";
 
 /**
  * 生成対象の種類
