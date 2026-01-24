@@ -5,13 +5,7 @@ node_modules/
 # Build output
 dist/
 build/
-api/
-
-# Environment (ローカル開発用)
-.env
-.env.local
-.env.*.local
-.vercel
+.vercel/
 
 # IDE
 .vscode/

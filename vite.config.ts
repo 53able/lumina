@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import devServer from "@hono/vite-dev-server";
 
 export default defineConfig({
   plugins: [
@@ -10,16 +11,19 @@ export default defineConfig({
       jsxRuntime: "automatic",
     }),
     tailwindcss(),
+    devServer({
+      entry: "src/api/app.ts",
+      exclude: [/^\/assets\/.+/, /^\/favicon\.ico$/, /^\/static\/.+/],
+    }),
   ],
   resolve: {
     alias: {
       "@": resolve(import.meta.dirname, "./src"),
     },
   },
-  // Note: proxy設定は不要（ViteミドルウェアモードでHonoと統合済み）
   // dev:viteコマンドでVite単体起動時のポート設定
   server: {
-    port: 5173,
+    port: 3000,
   },
   build: {
     outDir: "dist",
