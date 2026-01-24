@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Env } from "../types/env";
 import type { Category } from "../../shared/schemas/index";
 
 /**
@@ -198,7 +199,7 @@ const ARXIV_CATEGORIES: Category[] = [
 /**
  * カテゴリ API アプリケーション
  */
-export const categoriesApp = new Hono().get("/categories", (c) => {
+export const categoriesApp = new Hono<{ Bindings: Env }>().get("/categories", (c) => {
   return c.json({
     categories: ARXIV_CATEGORIES,
     defaultCategoryIds: DEFAULT_CATEGORY_IDS,

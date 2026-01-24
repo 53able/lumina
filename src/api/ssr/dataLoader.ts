@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { Paper, PaperSummary } from "../../shared/schemas/index";
 import type { AppType } from "../app";
+import type { Env } from "../types/env";
 
 /**
  * 初期データの型定義
@@ -24,9 +25,9 @@ const DEFAULT_SYNC_PERIOD_DAYS = 7;
 /**
  * Basic認証のデフォルト認証情報（内部リクエスト用）
  */
-const getInternalAuthHeader = (): string => {
-  const username = process.env.BASIC_AUTH_USERNAME ?? "admin";
-  const password = process.env.BASIC_AUTH_PASSWORD ?? "admin";
+const getInternalAuthHeader = (c: Context<{ Bindings: Env }>): string => {
+  const username = c.env.BASIC_AUTH_USERNAME ?? "admin";
+  const password = c.env.BASIC_AUTH_PASSWORD ?? "admin";
   const credentials = `${username}:${password}`;
   // Edge Runtime / Browser 互換の btoa を使用
   return `Basic ${btoa(credentials)}`;
@@ -39,7 +40,7 @@ const getInternalAuthHeader = (): string => {
  * @param path - APIパス
  * @returns 内部APIリクエスト用のURL
  */
-const createInternalApiUrl = (c: Context, path: string): string => {
+const createInternalApiUrl = (c: Context<{ Bindings: Env }>, path: string): string => {
   // リクエストのオリジンを使用（環境に依存しない）
   const url = new URL(c.req.url);
   return `${url.origin}${path}`;
@@ -52,7 +53,10 @@ const createInternalApiUrl = (c: Context, path: string): string => {
  * @param c - Honoコンテキスト
  * @returns 初期データ
  */
-export const loadHomePageData = async (app: AppType, c: Context): Promise<InitialData> => {
+export const loadHomePageData = async (
+  app: AppType,
+  c: Context<{ Bindings: Env }>
+): Promise<InitialData> => {
   try {
     // 内部でAPIを呼び出して論文を取得
     // デフォルト設定で同期を実行
@@ -60,7 +64,7 @@ export const loadHomePageData = async (app: AppType, c: Context): Promise<Initia
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: getInternalAuthHeader(),
+        Authorization: getInternalAuthHeader(c),
       },
       body: JSON.stringify({
         categories: DEFAULT_CATEGORIES,
@@ -96,7 +100,7 @@ export const loadHomePageData = async (app: AppType, c: Context): Promise<Initia
  */
 export const loadPaperPageData = async (
   app: AppType,
-  c: Context,
+  c: Context<{ Bindings: Env }>,
   paperId: string
 ): Promise<InitialData> => {
   try {
@@ -129,7 +133,7 @@ export const loadPaperPageData = async (
  */
 export const loadInitialData = async (
   app: AppType,
-  c: Context,
+  c: Context<{ Bindings: Env }>,
   pathname: string
 ): Promise<InitialData> => {
   // 論文詳細ページのパターン: /papers/:id

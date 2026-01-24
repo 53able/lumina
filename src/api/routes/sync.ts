@@ -1,5 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
+import type { Env } from "../types/env";
 import type { Paper } from "../../shared/schemas/index";
 import { SyncRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
@@ -23,7 +24,7 @@ const generatePaperEmbedding = async (paper: Paper, config: OpenAIConfig): Promi
 /**
  * 同期 API アプリケーション
  */
-export const syncApp = new Hono().post(
+export const syncApp = new Hono<{ Bindings: Env }>().post(
   "/sync",
   zValidator("json", SyncRequestSchema),
   async (c) => {

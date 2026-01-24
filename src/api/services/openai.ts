@@ -1,6 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, generateText } from "ai";
 import type { Context } from "hono";
+import type { Env } from "../types/env";
 import { z } from "zod";
 
 /**
@@ -68,9 +69,9 @@ export interface ExplanationResult {
  * リクエストからOpenAI APIキーを取得する
  * 優先順位: 1. リクエストヘッダー (X-OpenAI-API-Key) 2. 環境変数 (OPENAI_API_KEY)
  */
-export const getOpenAIConfig = (c: Context): OpenAIConfig => {
+export const getOpenAIConfig = (c: Context<{ Bindings: Env }>): OpenAIConfig => {
   const headerKey = c.req.header("X-OpenAI-API-Key");
-  const envKey = process.env.OPENAI_API_KEY;
+  const envKey = c.env.OPENAI_API_KEY;
 
   const apiKey = headerKey ?? envKey;
 

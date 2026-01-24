@@ -1,14 +1,14 @@
 import type { MiddlewareHandler } from "hono";
+import type { Env } from "../types/env";
 
 /**
  * Basic認証ミドルウェアの作成
- * 環境変数から認証情報を取得し、未設定の場合はデフォルト値を使用
  */
-export const createAuthMiddleware = (): MiddlewareHandler => {
-  const expectedUsername = process.env.BASIC_AUTH_USERNAME ?? "admin";
-  const expectedPassword = process.env.BASIC_AUTH_PASSWORD ?? "admin";
-
+export const createAuthMiddleware = (): MiddlewareHandler<{ Bindings: Env }> => {
   return async (c, next) => {
+    const expectedUsername = c.env.BASIC_AUTH_USERNAME ?? "admin";
+    const expectedPassword = c.env.BASIC_AUTH_PASSWORD ?? "admin";
+
     const authHeader = c.req.header("Authorization");
 
     if (!authHeader || !authHeader.startsWith("Basic ")) {
@@ -18,8 +18,9 @@ export const createAuthMiddleware = (): MiddlewareHandler => {
 
     try {
       const base64Credentials = authHeader.slice(6);
-      const credentials = Buffer.from(base64Credentials, "base64").toString("utf-8");
-      const [username, password] = credentials.split(":");
+      // Edge Runtime / Browser 互換の方法でデコード
+      const decoded = atob(base64Credentials);
+      const [username, password] = decoded.split(":");
 
       if (username === expectedUsername && password === expectedPassword) {
         await next();

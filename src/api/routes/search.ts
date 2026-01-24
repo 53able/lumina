@@ -1,5 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
+import type { Env } from "../types/env";
 import { type ExpandedQuery, SearchRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
 import { createEmbedding, expandQuery, getOpenAIConfig } from "../services/openai";
@@ -21,7 +22,7 @@ const generateStubExpandedQuery = (query: string): ExpandedQuery => {
 /**
  * 検索 API アプリケーション
  */
-export const searchApp = new Hono().post(
+export const searchApp = new Hono<{ Bindings: Env }>().post(
   "/search",
   zValidator("json", SearchRequestSchema),
   async (c) => {

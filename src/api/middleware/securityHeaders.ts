@@ -1,18 +1,10 @@
 import type { MiddlewareHandler } from "hono";
+import type { Env } from "../types/env";
 
 /**
  * セキュリティヘッダーの設定値
- *
- * @description
- * - X-Content-Type-Options: MIME スニッフィング攻撃を防止
- * - X-Frame-Options: クリックジャッキング攻撃を防止
- * - Referrer-Policy: リファラー情報の漏洩を制限
- * - Permissions-Policy: 不要な Web API へのアクセスを制限
- * - Content-Security-Policy: XSS 攻撃を緩和
  */
-const createSecurityHeaders = (): Readonly<Record<string, string>> => {
-  const isProd = process.env.NODE_ENV === "production";
-
+const getSecurityHeaders = (isProd: boolean): Readonly<Record<string, string>> => {
   const headers: Record<string, string> = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -20,8 +12,6 @@ const createSecurityHeaders = (): Readonly<Record<string, string>> => {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   };
 
-  // 開発環境では Vite デブサーバー (localhost:5173) からのスクリプト/スタイルを許可するため、
-  // 厳格な Content-Security-Policy は本番環境のみに適用する。
   if (isProd) {
     headers["Content-Security-Policy"] = [
       "default-src 'self'",
@@ -38,24 +28,16 @@ const createSecurityHeaders = (): Readonly<Record<string, string>> => {
 
 /**
  * セキュリティヘッダーミドルウェアを作成する
- *
- * @description
- * 開発環境・本番環境の両方でセキュリティヘッダーを適用する。
- * Vercel 本番環境では vercel.json の headers 設定も併用される。
- * ヘッダーオブジェクトは一度だけ作成され、すべてのリクエストで再利用される。
- *
- * @returns Hono ミドルウェアハンドラー
  */
-export const createSecurityHeadersMiddleware = (): MiddlewareHandler => {
-  // ヘッダーオブジェクトを一度だけ作成して再利用（パフォーマンス最適化）
-  const SECURITY_HEADERS = createSecurityHeaders();
-  const headerEntries = Object.entries(SECURITY_HEADERS);
-
+export const createSecurityHeadersMiddleware = (): MiddlewareHandler<{ Bindings: Env }> => {
   return async (c, next) => {
+    const isProd = c.env.NODE_ENV === "production";
+    const securityHeaders = getSecurityHeaders(isProd);
+
     await next();
 
     // レスポンスにセキュリティヘッダーを追加
-    for (const [key, value] of headerEntries) {
+    for (const [key, value] of Object.entries(securityHeaders)) {
       c.header(key, value);
     }
   };

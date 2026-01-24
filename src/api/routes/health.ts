@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Env } from "../types/env";
 import { z } from "zod";
 import { now, toISOString } from "../../shared/utils/dateTime";
 
@@ -13,7 +14,7 @@ export const HealthResponseSchema = z.object({
 /**
  * ヘルスチェック用 Hono アプリ
  */
-export const healthApp = new Hono().get("/health", (c) => {
+export const healthApp = new Hono<{ Bindings: Env }>().get("/health", (c) => {
   return c.json({
     status: "ok" as const,
     timestamp: toISOString(now()),
