@@ -1,8 +1,28 @@
 {
-  "files": [],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "src/api/**/*.ts",
+    "src/api/**/*.tsx",
+    "src/shared/**/*.ts",
+    "api/**/*.ts"
+  ],
+  "exclude": ["**/*.test.ts", "src/test/**"],
   "references": [
     { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.api.json" }
+    { "path": "./tsconfig.node.json" }
   ]
 }
