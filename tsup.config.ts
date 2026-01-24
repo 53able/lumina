@@ -5,8 +5,8 @@ export default defineConfig({
   entry: {
     index: "src/api/vercel-entry.ts",
   },
-  // 出力先（Vercelの outputDirectory と合わせて dist/api/ に出力）
-  outDir: "dist/api",
+  // 出力先（Vercel Serverless Functions はルートの api/ を参照）
+  outDir: "api",
   // ESM 形式
   format: ["esm"],
   // Node.js 20 をターゲット
