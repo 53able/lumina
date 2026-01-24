@@ -26,11 +26,11 @@ export default defineConfig({
     emptyOutDir: true,
     // SSR対応: クライアント側のビルドのみ
     rollupOptions: {
-      input: resolve(import.meta.dirname, "index.html"),
+      input: resolve(import.meta.dirname, "src/client/main.tsx"),
       output: {
         // 静的アセットを /assets に出力
-        assetFileNames: "assets/[name].[ext]",
-        entryFileNames: "assets/[name].js",
+        assetFileNames: "assets/index.[ext]",
+        entryFileNames: "assets/index.js",
         chunkFileNames: "assets/[name].js",
       },
     },
