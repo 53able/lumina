@@ -22,7 +22,7 @@ const generateStubExpandedQuery = (query: string): ExpandedQuery => {
  * 検索 API アプリケーション
  */
 export const searchApp = new Hono().post(
-  "/api/v1/search",
+  "/search",
   zValidator("json", SearchRequestSchema),
   async (c) => {
     const startTime = timestamp();

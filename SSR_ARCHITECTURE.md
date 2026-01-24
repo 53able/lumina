@@ -1,166 +1,124 @@
-# SSRアーキテクチャ
+# SSRアーキテクチャ設計書
 
 HonoアプリケーションにSSR（Server-Side Rendering）機能を統合し、Vercel Edge Runtimeに最適化したアーキテクチャの設計ドキュメント。
 
 ## 概要
 
-このアーキテクチャは、以下の目的を達成する：
+このアーキテクチャは、認知負荷を最小限に抑えつつ、Vercel と Hono の「標準プラクティス」を最大限に活用することを目的とする。
 
-- **SEO対応**: サーバー側でHTMLを生成し、検索エンジンがコンテンツをクロール可能に
-- **初期表示の高速化**: 初期データをHTMLに埋め込み、クライアント側のローディング時間を短縮
-- **Vercel標準への準拠**: `@hono/vite-dev-server` を使用した開発環境と、Vercel Edge Functions による本番環境の統合
-- **オフライン対応の維持**: IndexedDBベースの機能を維持しつつSSRの利点を享受
-
-## 用語
-
-| 用語 | 説明 |
-|------|------|
-| SSR | Server-Side Rendering。サーバー側でReactコンポーネントをHTML文字列に変換 |
-| ハイドレーション | SSRで生成されたHTMLにReactのイベントハンドラや状態を「注入」する処理 |
-| Vite Dev Server | `@hono/vite-dev-server` によりHonoアプリをVite内で直接実行する開発モード |
-| Edge Runtime | Vercelが提供する、Node.jsより軽量でグローバルな実行環境 |
-
----
+- **SEO対応**: サーバー側でHTMLを生成し、検索エンジンがコンテンツを完全にクロール可能にする。
+- **初期表示の高速化**: 初期データをHTMLに埋め込み、ハイドレーション時のラグを最小化する。
+- **標準への準拠**: `@hono/vite-dev-server` による開発環境と、`hono/vercel` による本番環境をシームレスに統合する。
+- **型安全な通信**: Hono RPC を使用し、クライアント・サーバー間でエンドツーエンドの型安全性を確保する。
 
 ## アーキテクチャ全体図
 
 ```mermaid
 graph TB
-    subgraph Browser["クライアント（ブラウザ）"]
+    subgraph Browser["クライアント (Browser)"]
         Client[main.tsx<br/>ハイドレーション]
     end
 
-    subgraph Vercel["Vercel (Edge Runtime / Vite Dev)"]
+    subgraph Vercel["Vercel (Edge Runtime)"]
         direction TB
-        App[app.ts<br/>Hono App]
-        APIRoutes[APIルート<br/>/api/v1/*]
-        SSRRoute[SSRルート<br/>app.get '*']
+        Adapter[api/index.ts<br/>hono/vercel]
+        App[src/api/app.ts<br/>統合Hono App]
+        
+        subgraph Routes["ルート定義"]
+            APIRoutes[APIルート<br/>/api/v1/*]
+            SSRRoute[SSRルート<br/>app.get '*']
+        end
         
         subgraph SSR["SSRモジュール"]
             DataLoader[dataLoader.ts]
             Renderer[renderer.tsx]
-            HTML[html.tsx]
         end
     end
 
-    Browser -->|HTTP GET /| App
+    Browser -->|HTTP GET /| Adapter
+    Adapter --> App
     App --> APIRoutes
     App --> SSRRoute
 
     SSRRoute --> DataLoader
-    DataLoader -->|内部API呼び出し| APIRoutes
+    DataLoader -->|内部fetch| APIRoutes
     DataLoader --> Renderer
-    Renderer --> HTML
+    Renderer -->|HTML生成| SSRRoute
     SSRRoute -->|HTMLレスポンス| Browser
-    Client -->|JavaScript実行| Browser
 ```
-
----
 
 ## ファイル構成
 
+「基本形」に基づき、責務を明確に分離した構成。
+
 ```
 api/
-└── index.ts            # Vercel Edge Functions エントリーポイント
+└── index.ts            # Vercel エントリーポイント（hono/vercel ハンドラ）
 
 src/api/
-├── app.ts              # Honoアプリ定義（API + SSR）
-├── routes/             # 各APIエンドポイント
-└── ssr/
-    ├── dataLoader.ts   # 初期データ取得ロジック
-    ├── renderer.tsx    # React SSR レンダリング
-    └── html.tsx        # HTML テンプレート
+├── app.ts              # Honoアプリ統合（Middleware / API / SSR）
+├── routes/             # API v1 エンドポイント定義（プレフィックスなし）
+└── ssr/                # SSRロジック（データ取得、レンダリング）
 
 src/client/
 ├── main.tsx            # クライアントエントリー（ハイドレーション）
 └── index.css           # グローバルスタイル
 ```
 
----
+## 実装のポイント（実装の基本形）
 
-## 主要モジュールの責務
+### 1. エントリーポイントの最小化 (`api/index.ts`)
 
-### 1. app.ts - Honoアプリケーション
+Vercel の仕様に基づき、ハンドラをエクスポートするだけの最小限のファイルにする。
 
-**責務**: APIルートとSSRルートの統合、および環境に応じたアセット管理
+```typescript
+import { handle } from 'hono/vercel'
+import app from '../src/api/app'
 
-- `@hono/vite-dev-server` のエントリーポイントとして機能
-- `import.meta.env.PROD` を使用して、開発用（Vite）と本番用（ビルド済み）のアセットパスを自動的に切り替え
-- APIルート（`/api/*`）とSSRルート（`app.get("*")`）を一つのインスタンスで管理
+export const GET = handle(app)
+export const POST = handle(app)
+// ...
+```
 
-### 2. api/index.ts - Vercelハンドラ
+### 2. アプリケーションの階層化 (`src/api/app.ts`)
 
-**責務**: Vercel Edge Runtime へのアダプター
+APIルートとSSRルートを分離し、認知負荷を下げる。
 
-- `hono/vercel` の `handle` 関数を使用して、HonoアプリをEdge Functionsとして公開
-- 全てのHTTPメソッド（GET, POST, etc.）をハンドリング
+```typescript
+const apiV1 = new Hono()
+  .use('*', authMiddleware)
+  .route('/search', searchApp)
+  // ...
 
-### 3. dataLoader.ts - 初期データローダー
+const app = new Hono()
+  .use('*', logger())
+  .route('/api/v1', apiV1)  // APIプレフィックスの一括付与
+  .get('*', ssrHandler)     // それ以外はすべてSSR
+```
 
-**責務**: リクエストパスに応じた初期データのフェッチ
+### 3. 環境に応じたアセット管理
 
-- `app.fetch()` を使用した内部API呼び出しにより、ネットワーク経由ではなくプロセス内でデータを取得
-- SEOに必要なメタ情報や初期表示用の論文データを収集
+Vite の環境変数を使用し、開発環境と本番環境で読み込むスクリプトを自動的に切り替える。
 
-### 4. renderer.tsx - SSRレンダラー
+```typescript
+const isProd = import.meta.env.PROD
+const assets = isProd 
+  ? { js: ['/assets/index.js'], css: ['/assets/index.css'] }
+  : { js: ['/src/client/main.tsx'], css: ['/src/client/index.css'] }
+```
 
-**責務**: ReactコンポーネントのHTML文字列化
+### 4. 内部フェッチによる初期データ取得 (`dataLoader.ts`)
 
-- `react-dom/server` の `renderToString` を使用
-- `window.__INITIAL_DATA__` へのデータ埋め込みを行い、クライアント側でのシームレスなハイドレーションを実現
-
----
+SSR時に初期データを取得する際、ネットワーク経由ではなく `app.fetch(request)` を使用してプロセス内でAPIを呼び出す。これにより、型安全性を維持しつつパフォーマンスを向上させる。
 
 ## 開発と本番のフロー
 
-### 開発環境
+1. **開発**: `pnpm dev` (Vite) により、`@hono/vite-dev-server` が `app.ts` を読み込み、HMR と SSR を同時に提供。
+2. **ビルド**: `vite build` でクライアントアセットを生成。
+3. **本番**: Vercel が `api/index.ts` を検出し、Edge Function としてデプロイ。`vercel.json` のリライトにより全リクエストが Hono へ送られる。
 
-`pnpm dev` (Vite) を実行すると、以下のフローで動作する：
+## 成果
 
-1. Viteが起動し、`@hono/vite-dev-server` プラグインが `src/api/app.ts` を読み込む
-2. Honoアプリが3000番ポートで待機
-3. ブラウザからのリクエストに対し、HonoがSSRを実行
-4. アセットパスは `/src/client/main.tsx` のようなソースファイルパスを指し、ViteがオンデマンドでコンパイルとHMRを提供
-
-### 本番環境（Vercel）
-
-Vercelへのデプロイ時は以下のフローで動作する：
-
-1. `vite build` により、クライアントアセットが `dist/assets/` に生成される
-2. Vercelが `api/index.ts` を検出し、Edge Functionとしてデプロイ
-3. `vercel.json` のリライト設定により、静的ファイル以外が `api/index.ts` へ送られる
-4. `app.ts` は `import.meta.env.PROD` により、`dist/assets/` 配下のビルド済みファイルを指すようになる
-
----
-
-## Vercel設定 (`vercel.json`)
-
-Vercel標準のルーティング設定を使用。
-
-```json
-{
-  "version": 2,
-  "routes": [
-    {
-      "src": "/assets/(.*)",
-      "headers": {
-        "Cache-Control": "public, max-age=31536000, immutable"
-      },
-      "continue": true
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/api/index.ts"
-    }
-  ]
-}
-```
-
----
-
-## 改善された点（再構築の成果）
-
-1. **認知負荷の低減**: 独自実装の `server.ts`（約140行）を廃止し、公式プラグインに移行
-2. **型安全性の向上**: Viteによるサーバーサイドコードの処理により、環境変数の型補完などが容易に
-3. **パフォーマンス**: Edge Runtime への移行により、コールドスタートの高速化とグローバルな低レイテンシを実現
-4. **メンテナンス性**: Vercel と Hono の「標準」に沿った構成により、エコシステムの恩恵を最大限に享受可能
+- **一貫性**: 開発と本番で同一の Hono インスタンスが動作。
+- **保守性**: ルート定義が階層化され、変更の影響範囲が明確。
+- **速度**: Edge Runtime への最適化により、グローバルな低レイテンシを実現。

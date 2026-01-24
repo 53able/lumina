@@ -8,7 +8,7 @@ import { createEmbedding, getOpenAIConfig } from "../services/openai.js";
  * Embedding API アプリケーション
  */
 export const embeddingApp = new Hono().post(
-  "/api/v1/embedding",
+  "/embedding",
   zValidator("json", EmbeddingRequestSchema),
   async (c) => {
     const startTime = timestamp();

@@ -24,7 +24,7 @@ const generatePaperEmbedding = async (paper: Paper, config: OpenAIConfig): Promi
  * 同期 API アプリケーション
  */
 export const syncApp = new Hono().post(
-  "/api/v1/sync",
+  "/sync",
   zValidator("json", SyncRequestSchema),
   async (c) => {
     const startTime = timestamp();

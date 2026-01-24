@@ -50,7 +50,7 @@ const generateStubKeyPoints = (language: "ja" | "en"): string[] => {
  * 要約 API アプリケーション
  */
 export const summaryApp = new Hono().post(
-  "/api/v1/summary/:id",
+  "/summary/:id",
   zValidator("json", SummaryRequestSchema),
   async (c) => {
     const paperId = c.req.param("id");

@@ -46,13 +46,18 @@ export const createApp = () => {
   const app = new Hono()
     .use("*", logger())
     .use("*", securityHeadersMiddleware)
-    .route("/", healthApp)
-    .use("/api/v1/*", authMiddleware)
+    .route("/", healthApp);
+
+  // API v1 ルートを統合
+  const apiV1 = new Hono()
+    .use("*", authMiddleware)
     .route("/", categoriesApp)
     .route("/", embeddingApp)
     .route("/", searchApp)
     .route("/", summaryApp)
     .route("/", syncApp);
+
+  app.route("/api/v1", apiV1);
 
   // SSRルート: APIルートと静的アセット以外のすべてのリクエストを処理
   app.get("*", async (c) => {

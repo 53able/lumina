@@ -11,10 +11,11 @@ SSR（Server-Side Rendering）アーキテクチャを Vercel および Hono の
 ### 2. Vercel Edge Runtime への最適化
 本番環境のエントリーポイント（`api/index.ts`）を `hono/vercel` ハンドラを用いた Edge Runtime 構成に変更しました。これにより、従来の Node.js Runtime よりも高速なレスポンスが期待できます。
 
-### 3. アセット管理の自動化
-`src/api/app.ts` 内で Vite の環境変数（`import.meta.env.PROD`）を判別し、開発用ソースと本番用ビルド成果物のアセットパスを自動的に切り替える仕組みを導入しました。
+### 4. API ルーティングの階層化
+APIルートを `apiV1` インスタンスに集約し、`app.route("/api/v1", apiV1)` で一括管理するように変更しました。各エンドポイント定義から `/api/v1` の重複した記述を排除し、認知負荷をさらに低減しました。
 
-## アーキテクチャの変化
+## アーキテクチャ図（最新版）
+より「基本形」に忠実な、階層化されたルーティング構成になっています。
 
 ### Before: 独自統合モデル
 独自実装のサーバーが Vite と Hono を手動でブリッジしており、リクエスト/レスポンスの変換が必要で認知負荷が高い状態でした。
@@ -33,27 +34,27 @@ graph LR
     end
 ```
 
-### After: Vercel/Hono 標準モデル
-Vite が Hono をプラグインとして管理し、Vercel の規約にシームレスに適合する構成になりました。
+### After: Vercel/Hono 標準モデル（階層化ルーティング）
+Vite が Hono をプラグインとして管理し、Vercel の規約にシームレスに適合する構成になりました。APIルートが階層化され、管理が容易になっています。
 
 ```mermaid
 graph LR
-    subgraph ViteEco["Vite エコシステム"]
-        Vite[Vite Dev Server]
-        HonoPlugin["@hono/vite-dev-server"]
-        Hono[Hono App (app.ts)]
+    subgraph AppContainer["統合Hono App (app.ts)"]
+        direction TB
+        Main[Main App]
+        APIV1[API v1 Route]
+        SSRRoute[SSR Route]
         
-        Vite --> HonoPlugin
-        HonoPlugin --> Hono
+        Main -->|/api/v1| APIV1
+        Main -->|*| SSRRoute
     end
     
     subgraph VercelEco["Vercel 本番環境"]
         Edge[Edge Runtime]
-        VercelHandler[hono/vercel]
-        HonoProd[Hono App (app.ts)]
+        VercelHandler[api/index.ts]
         
         Edge --> VercelHandler
-        VercelHandler --> HonoProd
+        VercelHandler --> Main
     end
 ```
 
