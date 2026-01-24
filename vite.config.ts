@@ -22,8 +22,10 @@ export default defineConfig({
     port: 5173,
   },
   build: {
-    outDir: "dist",
-    emptyOutDir: true,
+    // Vercel: public/ は静的ファイルとして配信される
+    outDir: "public",
+    // public/ には既存ファイル（lumina.svg）があるため上書きしない
+    emptyOutDir: false,
     // SSR対応: index.html を使わずクライアントJSのみビルド
     rollupOptions: {
       input: resolve(import.meta.dirname, "src/client/main.tsx"),
