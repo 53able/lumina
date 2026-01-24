@@ -2,19 +2,10 @@
  * Vercel Functions エントリーポイント
  *
  * tsup でバンドルされ、api/index.js として出力される。
- * Vercel が自動的にこのファイルを Edge Function として認識する。
+ * Build Output API の .vc-config.json で Edge Runtime を指定。
  */
 import { handle } from "hono/vercel";
 import { createApp } from "./app.js";
-
-/**
- * Edge Functions 設定
- *
- * @see https://vercel.com/docs/functions/runtimes/edge-runtime
- */
-export const config = {
-	runtime: "edge",
-};
 
 const app = createApp();
 
