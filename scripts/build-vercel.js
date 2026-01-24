@@ -78,9 +78,9 @@ writeFileSync(
   JSON.stringify(funcConfig, null, 2)
 );
 
-// 5. Function の package.json を作成（ESM サポート用）
+// 5. Function の package.json を作成（CommonJS用）
 const funcPackageJson = {
-  type: "module",
+	type: "commonjs",
 };
 
 writeFileSync(
