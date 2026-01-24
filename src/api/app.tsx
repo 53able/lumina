@@ -5,14 +5,14 @@ import type { Env } from "./types/env";
 import { createAuthMiddleware } from "./middleware/auth";
 import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders";
 import { categoriesApp } from "./routes/categories";
-import { embeddingApp } from "./routes/embedding";
+// import { embeddingApp } from "./routes/embedding";
 import { healthApp } from "./routes/health";
-import { searchApp } from "./routes/search";
-import { summaryApp } from "./routes/summary";
-import { syncApp } from "./routes/sync";
-import { renderToString } from "react-dom/server.edge";
-import React from "react";
-import { HtmlTemplate } from "./ssr/html";
+// import { searchApp } from "./routes/search";
+// import { summaryApp } from "./routes/summary";
+// import { syncApp } from "./routes/sync";
+// import { renderToString } from "react-dom/server.edge";
+// import React from "react";
+// import { HtmlTemplate } from "./ssr/html";
 
 /**
  * SSR用のアセットパス定義
@@ -73,7 +73,19 @@ export const createApp = () => {
 
     // SPAモード: SSRをせずに、共通のHTMLテンプレートを返す
     // クライアント側でハイドレーションではなくマウントが行われる
-    const html = renderToString(<HtmlTemplate assets={assets} />);
+    const html = `
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lumina</title>
+    ${assets.css.map((h) => `<link rel="stylesheet" href="${h}">`).join("")}
+  </head>
+  <body>
+    <div id="root"></div>
+    ${assets.js.map((s) => `<script type="module" src="${s}"></script>`).join("")}
+  </body>
+</html>`;
     return c.html(`<!doctype html>${html}`);
   });
 
