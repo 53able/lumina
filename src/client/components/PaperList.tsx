@@ -12,10 +12,10 @@ const MIN_CARD_WIDTH = 300;
 const GRID_GAP = 20;
 
 /** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
-const ESTIMATED_ROW_HEIGHT = 200;
+const ESTIMATED_ROW_HEIGHT = 252;
 
 /** 展開行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
-const ESTIMATED_EXPANDED_ROW_HEIGHT = 480;
+const ESTIMATED_EXPANDED_ROW_HEIGHT = 800;
 
 /**
  * PaperList コンポーネントのProps
@@ -184,6 +184,7 @@ export const PaperList: FC<PaperListProps> = ({
                 className="absolute left-0 right-0"
                 style={{
                   top: `${start}px`,
+                  zIndex: isExpanded ? 10 : 1,
                 }}
               >
                 {isExpanded && rowItems[0] ? (

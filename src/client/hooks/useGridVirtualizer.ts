@@ -93,7 +93,24 @@ export const useGridVirtualizer = <T>({
   // ResizeObserverでコンテナ幅を監視
   useEffect(() => {
     const element = gridContainerRef.current;
-    if (!element) return;
+    if (!element) {
+      // refが設定されていない場合は、次のレンダリングサイクルで再試行
+      const timer = setTimeout(() => {
+        if (gridContainerRef.current) {
+          const width = gridContainerRef.current.clientWidth;
+          if (width > 0) {
+            setContainerWidth(width);
+          }
+        }
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+
+    // 初期幅を即座に設定（ハイドレーション直後の正しい幅を取得）
+    const initialWidth = element.clientWidth;
+    if (initialWidth > 0) {
+      setContainerWidth(initialWidth);
+    }
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -103,19 +120,38 @@ export const useGridVirtualizer = <T>({
     });
 
     observer.observe(element);
-    // 初期幅を設定
-    setContainerWidth(element.clientWidth);
 
     return () => observer.disconnect();
-  }, [gridContainerRef]);
+  }); // 依存配列なし = 毎レンダリング後に実行（refの変化を検知できる）
+
+  // SSRからのハイドレーション時に確実に幅を再計算
+  useEffect(() => {
+    // マウント直後に幅を強制的に取得（SSRとの差異を解消）
+    if (gridContainerRef.current) {
+      const width = gridContainerRef.current.clientWidth;
+      if (width > 0 && width !== containerWidth) {
+        setContainerWidth(width);
+      }
+    }
+  }, []); // マウント時のみ実行
 
   // 列数とアイテム幅を計算
-  // containerWidth が 0 の場合（テスト環境や初期レンダリング時）はフォールバック値を使用
+  // containerWidthが0の場合でも、gridContainerRefから直接幅を取得する
   const { columnCount, itemWidth } = useMemo(() => {
-    // フォールバック幅: containerWidthが0の場合は最小幅を使用して1列を保証
-    // これにより、ResizeObserverが発火する前のモバイルレイアウト崩れを防止
+    // containerWidthが0の場合は、gridContainerRefから直接幅を取得
+    let effectiveWidth = containerWidth;
+    if (effectiveWidth === 0 && gridContainerRef.current) {
+      effectiveWidth = gridContainerRef.current.clientWidth;
+    }
+
+    // それでも0の場合は、デスクトップサイズを仮定（SSR時のデフォルト）
+    // 一般的なデスクトップ幅（1200px）を使用して、マルチカラムレイアウトを実現
+    if (effectiveWidth === 0) {
+      effectiveWidth = 1200;
+    }
+
     // 小数点以下を切り捨てて精度問題を回避
-    const effectiveWidth = Math.floor(containerWidth > 0 ? containerWidth : minItemWidth);
+    effectiveWidth = Math.floor(effectiveWidth);
 
     // auto-fit 相当: コンテナ幅 / (最小幅 + ギャップ) で列数を計算
     // (containerWidth + columnGap) / (minItemWidth + columnGap) で正確に計算
@@ -126,7 +162,7 @@ export const useGridVirtualizer = <T>({
     const width = Math.floor((effectiveWidth - columnGap * (cols - 1)) / cols);
 
     return { columnCount: cols, itemWidth: Math.max(width, minItemWidth) };
-  }, [containerWidth, minItemWidth, columnGap]);
+  }, [containerWidth, minItemWidth, columnGap]); // containerWidthが更新されたときに再計算
 
   // アイテムを行に分割（展開アイテムは専用行）
   const rows = useMemo(() => {
@@ -174,12 +210,16 @@ export const useGridVirtualizer = <T>({
   );
 
   // スクロールコンテナが利用可能かチェック
+  // SSR時はfalse、クライアント側でマウント後にtrueになる
   const [scrollContainerReady, setScrollContainerReady] = useState(false);
 
   useEffect(() => {
     // マウント後にスクロールコンテナの存在をチェック
-    setScrollContainerReady(scrollContainerRef.current !== null);
-  }, [scrollContainerRef]);
+    // refの変更は依存配列では検知できないため、毎レンダリング後にチェック
+    if (scrollContainerRef.current !== null && !scrollContainerReady) {
+      setScrollContainerReady(true);
+    }
+  }); // 依存配列なし = 毎レンダリング後に実行
 
   // TanStack Virtual の virtualizer
   const virtualizer = useVirtualizer({
@@ -199,18 +239,32 @@ export const useGridVirtualizer = <T>({
   });
 
   // 仮想化された行の情報を構築
-  // スクロールコンテナが利用できない場合（テスト環境など）は全行をフォールバック表示
+  // スクロールコンテナが利用できない場合（SSR時など）は最初の数行のみ表示
   const virtualItems = virtualizer.getVirtualItems();
   const shouldFallback = !scrollContainerReady || virtualItems.length === 0;
 
   const virtualRows: VirtualRow<T>[] = shouldFallback
-    ? rows.map((row, index) => ({
-        index,
-        start: index * (estimatedRowHeight + rowGap),
-        size: row.isExpanded ? estimatedExpandedRowHeight : estimatedRowHeight,
-        items: row.items,
-        isExpanded: row.isExpanded,
-      }))
+    ? (() => {
+        // 展開行を見つける
+        const expandedRowIndex = rows.findIndex((row) => row.isExpanded);
+        // 最初の10行、または展開行が含まれる範囲まで
+        const endIndex = expandedRowIndex >= 0 ? Math.max(expandedRowIndex + 1, 10) : 10;
+
+        // 各行の位置を累積計算（展開行の高さを考慮）
+        let currentStart = 0;
+        return rows.slice(0, endIndex).map((row, index) => {
+          const size = row.isExpanded ? estimatedExpandedRowHeight : estimatedRowHeight;
+          const result = {
+            index,
+            start: currentStart,
+            size,
+            items: row.items,
+            isExpanded: row.isExpanded,
+          };
+          currentStart += size + rowGap;
+          return result;
+        });
+      })()
     : virtualItems.map((virtualItem) => {
         const row = rows[virtualItem.index];
         return {
@@ -224,9 +278,8 @@ export const useGridVirtualizer = <T>({
 
   // 全体の高さを計算
   const totalSize = shouldFallback
-    ? rows.reduce(
-        (sum, row) =>
-          sum + (row.isExpanded ? estimatedExpandedRowHeight : estimatedRowHeight) + rowGap,
+    ? virtualRows.reduce(
+        (sum, row) => sum + row.size + rowGap,
         -rowGap // 最後の行のギャップを引く
       )
     : virtualizer.getTotalSize();
