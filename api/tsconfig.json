@@ -1,5 +1,5 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "../tsconfig.json",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
@@ -8,12 +8,11 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["../src/*"]
     }
   },
-  "include": ["src/api/**/*.ts", "src/api/**/*.tsx", "src/shared/**/*.ts", "api/**/*.ts"],
-  "exclude": ["**/*.test.ts", "src/test/**"]
+  "include": ["**/*.ts", "../src/api/**/*.ts", "../src/api/**/*.tsx", "../src/shared/**/*.ts"],
+  "exclude": ["**/*.test.ts", "../src/test/**"]
 }
