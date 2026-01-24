@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { reactRenderer } from "@hono/react-renderer";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StaticRouter } from "react-router-dom/server";
+import { App } from "../client/App";
+import { InteractionProvider } from "../client/contexts/InteractionContext";
 import type { Env } from "./types/env";
 import { createAuthMiddleware } from "./middleware/auth";
 import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders";
@@ -10,6 +14,13 @@ import { healthApp } from "./routes/health";
 import { searchApp } from "./routes/search";
 import { summaryApp } from "./routes/summary";
 import { syncApp } from "./routes/sync";
+import { loadInitialData, type InitialData } from "./ssr/dataLoader";
+
+declare module "hono" {
+  interface ContextRenderer {
+    (children: React.ReactNode, props?: { initialData?: InitialData }): Promise<Response>;
+  }
+}
 
 /**
  * Hono アプリケーションの作成
@@ -25,7 +36,7 @@ export const createApp = () => {
   // SSR 用のレンダラー設定
   app.use(
     "*",
-    reactRenderer(({ children }, c) => {
+    reactRenderer(({ children, initialData }, c) => {
       const isProd = import.meta.env?.PROD || c.env?.NODE_ENV === "production";
       const assets = isProd
         ? {
@@ -36,6 +47,15 @@ export const createApp = () => {
             css: "/src/client/index.css",
             js: "/src/client/main.tsx",
           };
+
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 5 * 60 * 1000,
+            refetchOnWindowFocus: false,
+          },
+        },
+      });
 
       return (
         <html lang="ja">
@@ -54,9 +74,24 @@ export const createApp = () => {
             {isProd ? null : (
               <script type="module" src="/@vite/client" />
             )}
+            {initialData && (
+              <script
+                dangerouslySetInnerHTML={{
+                  __html: `window.__INITIAL_DATA__ = ${JSON.stringify(initialData)};`,
+                }}
+              />
+            )}
           </head>
           <body>
-            <div id="root">{children}</div>
+            <div id="root">
+              <StaticRouter location={c.req.url}>
+                <QueryClientProvider client={queryClient}>
+                  <InteractionProvider>
+                    <App />
+                  </InteractionProvider>
+                </QueryClientProvider>
+              </StaticRouter>
+            </div>
             <script type="module" src={assets.js} />
           </body>
         </html>
@@ -77,10 +112,20 @@ export const createApp = () => {
 
   app.route("/api/v1", apiV1);
 
-  // SSR ルート: API 以外のすべての GET リクエストで空の HTML (root div) を返し、クライアントサイドでマウントさせる
-  // 最小構成のため、まずはサーバー側での完全な React レンダリングは行わず、ハイドレーションの準備を整える
-  app.get("*", (c) => {
-    return c.render(<></>);
+  // SSR ルート
+  app.get("*", async (c) => {
+    const url = new URL(c.req.url);
+    const pathname = url.pathname;
+
+    // APIルートと静的アセットはスキップ
+    if (pathname.startsWith("/api/") || pathname.startsWith("/assets/")) {
+      return c.notFound();
+    }
+
+    // 初期データを取得
+    const initialData = await loadInitialData(app as any, c, pathname);
+
+    return c.render(<></>, { initialData });
   });
 
   return app;
