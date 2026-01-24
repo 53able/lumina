@@ -8,10 +8,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "jsx": "react-jsx",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/api/**/*.ts", "src/shared/**/*.ts", "api/**/*.ts"],
+  "include": ["src/api/**/*.ts", "src/shared/**/*.ts", "api/**/*.ts", "src/api/**/*.tsx"],
   "exclude": ["**/*.test.ts", "src/test/**"]
 }
