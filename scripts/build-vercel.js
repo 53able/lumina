@@ -60,12 +60,23 @@ cpSync(join(rootDir, "api/index.js"), join(outputDir, "functions/api.func/index.
 const funcConfig = {
   runtime: "nodejs20.x",
   handler: "index.js",
-  launcherType: "Nodejs",
+  memory: 1024,
+  maxDuration: 30,
 };
 
 writeFileSync(
   join(outputDir, "functions/api.func/.vc-config.json"),
   JSON.stringify(funcConfig, null, 2)
+);
+
+// 5. Function の package.json を作成（ESM サポート用）
+const funcPackageJson = {
+  type: "module",
+};
+
+writeFileSync(
+  join(outputDir, "functions/api.func/package.json"),
+  JSON.stringify(funcPackageJson, null, 2)
 );
 
 console.log("✅ Build Output created at .vercel/output/");
