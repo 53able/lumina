@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false --tsconfig tsconfig.api.json src/api/server.ts",
     "dev:vite": "vite",
-    "build": "vite build",
+    "build": "vite build && pnpm build:api",
+    "build:api": "tsup",
     "preview": "vite preview",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
@@ -73,6 +74,7 @@
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^27.4.0",
     "tailwindcss": "^4.1.18",
+    "tsup": "^8.5.1",
     "tsx": "^4.20.3",
     "typescript": "~5.9.3",
     "vite": "^7.3.0",

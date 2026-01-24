@@ -1,11 +1,6 @@
 {
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "functions": {
-    "api/index.ts": {
-      "includeFiles": "{src/api,src/shared}/**/*.{ts,tsx}"
-    }
-  },
   "headers": [
     {
       "source": "/(.*)",
@@ -31,8 +26,12 @@
       "destination": "/api"
     },
     {
+      "source": "/assets/:path*",
+      "destination": "/assets/:path*"
+    },
+    {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "/api"
     }
   ]
 }

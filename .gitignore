@@ -5,6 +5,7 @@ node_modules/
 # Build output
 dist/
 build/
+api/index.js
 
 # Environment (ローカル開発用)
 .env
