@@ -12,7 +12,7 @@
       "destination": "/api/index.ts"
     },
     {
-      "source": "/(?!assets|api|health)(.*)",
+      "source": "/((?!assets).*)",
       "destination": "/api/index.ts"
     }
   ],
