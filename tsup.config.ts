@@ -18,6 +18,12 @@ export default defineConfig({
   clean: false,
   // 型定義なし
   dts: false,
+  // 拡張子を .js に固定（ビルドスクリプトとの互換性のため）
+  outExtension() {
+    return {
+      js: ".js",
+    };
+  },
   // コード分割なし（単一ファイル）
   splitting: false,
   // すべての依存関係をバンドル（Vercel Functions用）

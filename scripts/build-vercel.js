@@ -54,7 +54,15 @@ cpSync(join(rootDir, "dist"), join(outputDir, "static"), { recursive: true });
 cpSync(join(rootDir, "public/lumina.svg"), join(outputDir, "static/lumina.svg"));
 
 // 3. Function をコピー
-cpSync(join(rootDir, "api/index.js"), join(outputDir, "functions/api.func/index.js"));
+const apiSource = existsSync(join(rootDir, "api/index.js"))
+	? join(rootDir, "api/index.js")
+	: join(rootDir, "api/index.cjs");
+
+if (!existsSync(apiSource)) {
+	throw new Error(`API bundle not found at ${apiSource}`);
+}
+
+cpSync(apiSource, join(outputDir, "functions/api.func/index.js"));
 
 // 4. Function の設定ファイルを作成（Node.js Functions）
 // react-dom/serverがNode.js APIに依存するため、Edge Runtimeは使用不可
