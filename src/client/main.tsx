@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import { Toaster } from "sonner";
+import type { InitialData } from "../api/ssr/dataLoader.js";
 import { App } from "./App";
+import { ClientOnlyToaster } from "./components/ClientOnlyToaster";
 import { InteractionProvider } from "./contexts/InteractionContext";
 import { luminaDb } from "./db/db";
 import { initializeInteractionStore } from "./stores/interactionStore";
-import { initializePaperStore } from "./stores/paperStore";
+import { initializePaperStore, usePaperStore } from "./stores/paperStore";
 import { initializeSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { initializeSummaryStore } from "./stores/summaryStore";
@@ -35,7 +36,42 @@ if (!rootElement) {
   throw new Error("Root element not found");
 }
 
-// アプリ起動前にIndexedDBを初期化 + settingsStoreの移行
+/**
+ * SSRから渡された初期データを取得
+ */
+const getInitialData = (): InitialData | undefined => {
+  // @ts-expect-error - window.__INITIAL_DATA__ はSSRで設定される
+  const data = window.__INITIAL_DATA__;
+  return data;
+};
+
+/**
+ * 初期データをIndexedDBに保存（SSRデータを優先）
+ */
+const hydrateInitialData = async (initialData: InitialData | undefined) => {
+  if (!initialData) {
+    return;
+  }
+
+  // 論文データをIndexedDBに保存
+  if (initialData.papers && initialData.papers.length > 0) {
+    await usePaperStore.getState().addPapers(initialData.papers);
+  }
+
+  // 個別論文データも保存（/papers/:id の場合）
+  if (initialData.paper) {
+    await usePaperStore.getState().addPaper(initialData.paper);
+  }
+
+  // サマリーデータはIndexedDBに保存しない（クライアント側で生成される）
+};
+
+// アプリ起動前にIndexedDBを初期化 + settingsStoreの移行 + 初期データのハイドレーション
+const initialData = getInitialData();
+
+// SSRされたHTMLがあるかどうかを判定（root要素に子要素がある場合）
+const hasSSRContent = rootElement.children.length > 0;
+
 Promise.all([
   initializePaperStore(luminaDb),
   initializeSummaryStore(luminaDb),
@@ -45,25 +81,31 @@ Promise.all([
   useSettingsStore
     .getState()
     .initializeStore(),
+  // SSRデータをIndexedDBに保存
+  hydrateInitialData(initialData),
 ]).then(() => {
-  createRoot(rootElement).render(
+  const app = (
     <StrictMode>
       <BrowserRouter>
         <QueryClientProvider client={queryClient}>
           <InteractionProvider>
             <App />
-            <Toaster
-              position="bottom-right"
-              richColors
-              closeButton
-              toastOptions={{
-                className: "font-sans",
-                duration: 4000,
-              }}
-            />
+            <ClientOnlyToaster />
           </InteractionProvider>
         </QueryClientProvider>
       </BrowserRouter>
     </StrictMode>
   );
+
+  // SSRされたHTMLがある場合はハイドレーション、ない場合は通常レンダリング
+  if (hasSSRContent) {
+    try {
+      hydrateRoot(rootElement, app);
+    } catch (error) {
+      throw error;
+    }
+  } else {
+    // SSRされていない場合（フォールバック）
+    createRoot(rootElement).render(app);
+  }
 });
