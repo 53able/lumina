@@ -3,7 +3,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{src/api,src/shared,src/client}/**/*.{ts,tsx}"
+      "includeFiles": "{src/api,src/shared}/**/*.{ts,tsx}"
     }
   },
   "headers": [
@@ -31,12 +31,8 @@
       "destination": "/api"
     },
     {
-      "source": "/assets/:path*",
-      "destination": "/assets/:path*"
-    },
-    {
       "source": "/(.*)",
-      "destination": "/api"
+      "destination": "/index.html"
     }
   ]
 }
