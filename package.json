@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build && vite build --mode ssr && cp dist/index.js api/app.js",
+    "build": "vite build && vite build --mode ssr && cp dist/index.js api/app.js && mkdir -p public && cp -r dist/assets public/",
     "vercel-build": "pnpm build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
