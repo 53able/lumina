@@ -14,8 +14,8 @@ export default defineConfig({
   platform: "node",
   // ソースマップなし（本番用）
   sourcemap: false,
-  // クリーンビルド
-  clean: true,
+  // クリーンビルドは無効（api/package.json を保持するため）
+  clean: false,
   // 型定義なし
   dts: false,
   // コード分割なし（単一ファイル）
