@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "api": "tsx src/api/server.ts",
+    "dev:api": "tsx watch src/api/server.ts",
     "build": "vite build",
     "vercel-build": "pnpm build",
     "preview": "vite preview",
