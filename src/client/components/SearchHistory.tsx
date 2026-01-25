@@ -83,9 +83,7 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
               className={`text-muted-foreground flex-shrink-0 ${compact ? "h-3 w-3" : "h-4 w-4"}`}
             />
             <div className="min-w-0">
-              <p className={`truncate ${compact ? "text-sm" : "font-medium"}`}>
-                {history.originalQuery}
-              </p>
+              <p className={`truncate ${compact ? "text-sm" : ""}`}>{history.originalQuery}</p>
               <p className={`text-muted-foreground ${compact ? "text-[10px]" : "text-xs"}`}>
                 {history.resultCount}件 ・{" "}
                 {formatDistanceToNow(history.createdAt, {

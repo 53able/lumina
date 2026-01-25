@@ -191,7 +191,10 @@ export const useSemanticSearch = ({
    * 検索履歴から再検索する際に使用（APIリクエストなし）
    */
   const searchWithSavedData = useCallback(
-    async (savedExpandedQuery: ExpandedQuery, savedQueryEmbedding: number[]): Promise<SearchResult[]> => {
+    async (
+      savedExpandedQuery: ExpandedQuery,
+      savedQueryEmbedding: number[]
+    ): Promise<SearchResult[]> => {
       setIsLoading(true);
       setError(null);
 

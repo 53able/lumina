@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { Bookmark, ExternalLink, Heart } from "lucide-react";
-import { memo, type FC, useCallback, useMemo, useState } from "react";
+import { type FC, memo, useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteraction } from "../contexts/InteractionContext";
@@ -102,7 +102,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
     [onClick, paper]
   );
 
-  // いいね/ブックマーク時の大胆なエフェクト用の状態
+  // いいね/ブックマーク時のアニメーション用の状態
   const [isLiking, setIsLiking] = useState(false);
   const [isBookmarking, setIsBookmarking] = useState(false);
 
@@ -178,7 +178,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
           </div>
           {whyRead && (
             <p
-              className="card-text-hover text-sm line-clamp-2 mt-1 font-medium"
+              className="card-text-hover text-sm line-clamp-2 mt-2"
               style={{ color: "hsl(var(--primary-light))", opacity: 0.9 }}
             >
               {whyRead}
@@ -189,7 +189,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
           </p>
         </CardHeader>
         <CardContent>
-          {/* カテゴリバッジ（ツールチップ付き） - 大胆なスタイリング */}
+          {/* カテゴリバッジ（ツールチップ付き） */}
           <div className="relative z-10 mb-3 flex flex-wrap gap-2">{categoryBadges}</div>
 
           {/* 公開日とアクションボタン */}
@@ -198,11 +198,11 @@ const PaperCardComponent: FC<PaperCardProps> = ({
               {format(paper.publishedAt, "yyyy-MM-dd")}
             </span>
 
-            <div className="card-actions-hover flex gap-1">
+            <div className="card-actions-hover flex gap-2">
               <Button
                 variant="ghost"
                 size="icon"
-                className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
+                className={`transition-all duration-300 hover:scale-125 active:scale-90 relative ${
                   isLiking ? "animate-pulse-glow" : ""
                 }`}
                 onClick={handleLikeClickWithEffect}
@@ -210,7 +210,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
                 data-liked={isLiked}
               >
                 <Heart
-                  className={`h-4 w-4 transition-all duration-300 ${
+                  className={`h-5 w-5 transition-all duration-300 ${
                     isLiked
                       ? "fill-current text-primary scale-125"
                       : isLiking
@@ -225,7 +225,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
               <Button
                 variant="ghost"
                 size="icon"
-                className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
+                className={`transition-all duration-300 hover:scale-125 active:scale-90 relative ${
                   isBookmarking ? "animate-pulse-glow" : ""
                 }`}
                 onClick={handleBookmarkClickWithEffect}
@@ -233,7 +233,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
                 data-bookmarked={isBookmarked}
               >
                 <Bookmark
-                  className={`h-4 w-4 transition-all duration-300 ${
+                  className={`h-5 w-5 transition-all duration-300 ${
                     isBookmarked
                       ? "fill-current text-primary scale-125"
                       : isBookmarking
@@ -250,12 +250,12 @@ const PaperCardComponent: FC<PaperCardProps> = ({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90"
+                    className="transition-all duration-300 hover:scale-125 active:scale-90"
                     asChild
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Link to={`/papers/${paper.id}`} aria-label="詳細ページを開く">
-                      <ExternalLink className="h-4 w-4" />
+                      <ExternalLink className="h-5 w-5" />
                     </Link>
                   </Button>
                 </TooltipTrigger>
