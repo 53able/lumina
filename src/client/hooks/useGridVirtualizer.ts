@@ -91,7 +91,6 @@ export const useGridVirtualizer = <T>({
   const [containerWidth, setContainerWidth] = useState(0);
 
   // ResizeObserverでコンテナ幅を監視
-  // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
   useEffect(() => {
     const element = gridContainerRef.current;
     if (!element) {
@@ -123,10 +122,10 @@ export const useGridVirtualizer = <T>({
     observer.observe(element);
 
     return () => observer.disconnect();
-  }, []); // マウント時のみ実行（ResizeObserverが自動的にサイズ変更を監視するため）
+    // refオブジェクト自体は安定しているため、マウント時のみ実行される
+  }, [gridContainerRef]); // マウント時のみ実行（ResizeObserverが自動的にサイズ変更を監視するため）
 
   // SSRからのハイドレーション時に確実に幅を再計算
-  // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentとcontainerWidthは意図的に依存配列から除外（マウント時のみ実行したいため）
   useEffect(() => {
     // マウント直後に幅を強制的に取得（SSRとの差異を解消）
     if (gridContainerRef.current) {
@@ -135,7 +134,8 @@ export const useGridVirtualizer = <T>({
         setContainerWidth(width);
       }
     }
-  }, []); // マウント時のみ実行
+    // refオブジェクト自体は安定しているため、containerWidthの変更時のみ再実行される
+  }, [gridContainerRef, containerWidth]); // containerWidthが変更されたときに再実行
 
   // 列数とアイテム幅を計算
   // containerWidthが0の場合でも、gridContainerRefから直接幅を取得する
@@ -164,7 +164,7 @@ export const useGridVirtualizer = <T>({
     const width = Math.floor((effectiveWidth - columnGap * (cols - 1)) / cols);
 
     return { columnCount: cols, itemWidth: Math.max(width, minItemWidth) };
-  }, [containerWidth, minItemWidth, columnGap, gridContainerRef.current]); // containerWidthが更新されたときに再計算
+  }, [containerWidth, minItemWidth, columnGap, gridContainerRef]); // containerWidthが更新されたときに再計算
 
   // アイテムを行に分割（展開アイテムは専用行）
   const rows = useMemo(() => {
@@ -223,13 +223,13 @@ export const useGridVirtualizer = <T>({
   // SSR時はfalse、クライアント側でマウント後にtrueになる
   const [scrollContainerReady, setScrollContainerReady] = useState(false);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
   useEffect(() => {
     // マウント後にスクロールコンテナの存在をチェック
     if (scrollContainerRef.current !== null && !scrollContainerReady) {
       setScrollContainerReady(true);
     }
-  }, [scrollContainerReady]); // scrollContainerReadyを依存配列に追加
+    // refオブジェクト自体は安定しているため、scrollContainerReadyの変更時のみ再実行される
+  }, [scrollContainerRef, scrollContainerReady]); // scrollContainerReadyを依存配列に追加
 
   // TanStack Virtual の virtualizer
   const virtualizer = useVirtualizer({

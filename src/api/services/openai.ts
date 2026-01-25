@@ -67,18 +67,30 @@ export interface ExplanationResult {
 
 /**
  * リクエストからOpenAI APIキーを取得する
+ *
  * 優先順位: 1. リクエストヘッダー (X-OpenAI-API-Key) 2. 環境変数 (OPENAI_API_KEY)
+ *
+ * @remarks
+ * 本番環境では環境変数を使用しない（セキュリティリスク）。
+ * 本番環境ではクライアント側のヘッダーからのAPIキーのみを受け入れる。
+ *
+ * @param c - Hono Context
+ * @returns OpenAI設定オブジェクト
+ * @throws APIキーが設定されていない場合
  */
 export const getOpenAIConfig = (c: Context<{ Bindings: Env }>): OpenAIConfig => {
   const headerKey = c.req.header("X-OpenAI-API-Key");
   const envKey = c.env?.OPENAI_API_KEY;
 
-  const apiKey = headerKey ?? envKey;
+  // 本番環境では環境変数を使用しない（セキュリティリスク）
+  const isProduction = c.env?.NODE_ENV === "production";
+  const apiKey = headerKey ?? (isProduction ? undefined : envKey);
 
   if (!apiKey) {
-    throw new Error(
-      "OpenAI API key is not configured. Set OPENAI_API_KEY environment variable or pass X-OpenAI-API-Key header."
-    );
+    const errorMessage = isProduction
+      ? "OpenAI API key is not configured. In production, you must pass X-OpenAI-API-Key header. Environment variables are not used for security reasons."
+      : "OpenAI API key is not configured. Set OPENAI_API_KEY environment variable or pass X-OpenAI-API-Key header.";
+    throw new Error(errorMessage);
   }
 
   return { apiKey };
