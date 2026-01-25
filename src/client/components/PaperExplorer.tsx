@@ -140,9 +140,9 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const hasSearched = searchQuery !== null;
 
   return (
-    <div className="space-y-4">
-      {/* Hero Search Section */}
-      <section className="space-y-3">
+    <div className="space-y-6">
+      {/* Hero Search Section - 大胆な余白 */}
+      <section className="space-y-4">
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold tracking-tight lg:text-2xl">
@@ -172,9 +172,9 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         {/* 検索ボックス */}
         <PaperSearch onSearch={handleSearch} isLoading={isLoading} />
 
-        {/* フィルター（論文がある場合のみ表示） */}
+        {/* フィルター（論文がある場合のみ表示） - 大胆な余白 */}
         {papers.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-4 pt-2">
             {/* いいね/ブックマークフィルター */}
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground/60 text-xs mr-1">表示:</span>
@@ -189,7 +189,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     className={cn(
                       "h-7 px-2.5 gap-1.5 transition-all",
                       filterMode === "liked"
-                        ? "bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 hover:text-rose-500"
+                        ? "bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary-light"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                     disabled={likedCount === 0}
@@ -215,7 +215,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     className={cn(
                       "h-7 px-2.5 gap-1.5 transition-all",
                       filterMode === "bookmarked"
-                        ? "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 hover:text-amber-500"
+                        ? "bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary-light"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                     disabled={bookmarkedCount === 0}
