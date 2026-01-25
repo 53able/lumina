@@ -15,7 +15,6 @@ import { createEmbedding } from "../services/openai";
 
 describe("Embedding API", () => {
   const app = createApp();
-  const authHeader = `Basic ${Buffer.from("admin:admin").toString("base64")}`;
   const openAIKeyHeader = "test-openai-api-key";
 
   beforeEach(() => {
@@ -38,7 +37,6 @@ describe("Embedding API", () => {
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           "X-OpenAI-API-Key": openAIKeyHeader,
         },
@@ -65,7 +63,6 @@ describe("Embedding API", () => {
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           "X-OpenAI-API-Key": openAIKeyHeader,
         },
@@ -86,7 +83,6 @@ describe("Embedding API", () => {
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           "X-OpenAI-API-Key": openAIKeyHeader,
         },
@@ -110,7 +106,6 @@ describe("Embedding API", () => {
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           "X-OpenAI-API-Key": openAIKeyHeader,
         },
@@ -131,7 +126,6 @@ describe("Embedding API", () => {
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           "X-OpenAI-API-Key": openAIKeyHeader,
         },
@@ -150,7 +144,6 @@ describe("Embedding API", () => {
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           // X-OpenAI-API-Key を省略
         },
@@ -168,24 +161,5 @@ describe("Embedding API", () => {
       expect(body.error).toContain("API key");
     });
 
-    it("異常系: 認証なしの場合は401エラー", async () => {
-      // Arrange
-      const request = new Request("http://localhost/api/v1/embedding", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-OpenAI-API-Key": openAIKeyHeader,
-        },
-        body: JSON.stringify({
-          text: "test",
-        }),
-      });
-
-      // Act
-      const response = await app.request(request);
-
-      // Assert
-      expect(response.status).toBe(401);
-    });
   });
 });

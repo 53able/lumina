@@ -13,6 +13,8 @@ arXiv の論文を **セマンティック検索** で探し、**AI が要約** 
 - 🎓 研究テーマに関連する論文を効率よく見つけたい
 - ⏱️ 論文をザッと理解したいけど、時間がない
 - 🔎 キーワード検索では見落とす「関連研究」を発見したい
+- 💾 オフラインでも論文を読みたい
+- 📱 スマホでも快適に論文を探索したい
 
 ---
 
@@ -25,22 +27,104 @@ arXiv の論文を **セマンティック検索** で探し、**AI が要約** 
 ```
 入力: "ディープラーニングで物体認識をする時、エッジデバイスで高速化するには？"
 ↓
+クエリ拡張（日本語→英語翻訳、類義語追加）
+↓
 OpenAI Embedding で意味を理解
+↓
+ローカルでベクトル検索（オフライン対応）
 ↓
 関連度の高い論文が見つかる
 ```
+
+**特徴**:
+- 日本語クエリを自動で英語に翻訳
+- 類義語を自動追加して検索精度を向上
+- 検索結果はローカルで保存され、オフラインでも再検索可能
 
 ### 2. AI による自動要約
 
 GPT-4.1-nano が論文をサッと要約。時間がない時の強い味方
 
+**生成される内容**:
+- **要約**: 論文の内容を事実ベースで要約
+- **キーポイント**: 重要なポイントを箇条書き
+- **説明文**: 読者ベースの説明（なぜこの論文を読むべきか）
+- **対象読者**: この論文が誰に向いているか
+- **読む理由**: 具体的に読むべき理由
+
+**言語対応**: 日本語・英語の両方に対応
+
 ### 3. カテゴリ別の探索
 
 Computer Science, Physics, Biology... 興味の分野を絞って探索
 
+**対応カテゴリ**:
+- Computer Science（AI、機械学習、コンピュータビジョンなど）
+- Statistics（機械学習、統計理論など）
+- Mathematics（代数、幾何、確率論など）
+- Physics（量子物理学、高エネルギー物理学など）
+
+設定画面で複数のカテゴリを選択可能。デフォルトは `cs.AI`, `cs.LG`, `cs.CL`, `stat.ML` です。
+
 ### 4. 検索履歴の管理
 
 過去の検索を保存して、いつでも参照可能
+
+**保存される情報**:
+- 元の検索クエリ
+- 拡張されたクエリ（英語翻訳版）
+- 検索結果の件数
+- 検索日時
+
+**機能**:
+- 履歴からワンクリックで再検索（APIリクエストなしで高速）
+- 履歴の削除
+- 最新10件をサイドバーに表示（デスクトップ）
+
+### 5. いいね・ブックマーク機能
+
+気になる論文をマークして、後で見返せる
+
+- **いいね**: 興味深い論文に「いいね」を付ける
+- **ブックマーク**: 後で読む論文をブックマーク
+- **フィルタリング**: いいね済み・ブックマーク済みで絞り込み
+
+すべてのインタラクションは IndexedDB に保存され、ブラウザを閉じても保持されます。
+
+### 6. arXiv 論文の自動同期
+
+最新の論文を自動で取得。手動同期も可能
+
+**同期機能**:
+- 初回起動時に自動同期（論文が0件の場合）
+- 24時間以上経過した場合の自動同期（設定で有効化可能）
+- 手動同期ボタンでいつでも同期
+- ページング対応（「もっと読み込む」で追加取得）
+
+**同期設定**:
+- 同期期間を選択（7日、30日、90日、180日、1年）
+- 対象カテゴリを選択
+- 自動同期の有効/無効を切り替え
+
+### 7. オフライン対応
+
+IndexedDB でローカルにデータを保存。オフラインでも快適に使える
+
+**保存されるデータ**:
+- 論文データ（メタデータ + Embedding ベクトル）
+- 論文要約（複数言語対応）
+- 検索履歴（再検索用の Embedding も保存）
+- ユーザーインタラクション（いいね・ブックマーク）
+
+一度同期した論文は、インターネットに接続していなくても検索・閲覧できます。
+
+### 8. レスポンシブデザイン
+
+デスクトップ・タブレット・スマホ、すべてのデバイスで快適に
+
+- **デスクトップ**: マスターディテールパターン（リスト + 詳細パネル）
+- **モバイル**: Sheet で詳細を表示
+- **バーチャルスクロール**: 大量の論文も快適にスクロール
 
 ---
 
@@ -55,10 +139,6 @@ cp .env.example .env
 ```
 
 ```.env
-# Basic認証（API保護）
-BASIC_AUTH_USERNAME=admin
-BASIC_AUTH_PASSWORD=admin
-
 # OpenAI API Key（https://platform.openai.com/api-keys で取得）
 OPENAI_API_KEY=your_openai_api_key_here
 ```
@@ -83,7 +163,7 @@ pnpm dev
 pnpm api
 ```
 
-ブラウザで `http://localhost:5173` を開く → 完成！🎉
+ブラウザで `http://localhost:5173` を開く → 完成！
 
 ---
 
@@ -98,6 +178,8 @@ pnpm api
 | Tailwind CSS v4 | スタイリング |
 | Zustand | クライアント状態管理 |
 | TanStack Query | サーバー状態管理 |
+| Dexie (IndexedDB) | ローカルデータベース |
+| React Router | ルーティング |
 | Vite | ビルドツール |
 
 ### バックエンド
@@ -123,10 +205,17 @@ pnpm api
 
 - ✅ arXiv から最新論文を自動同期
 - ✅ セマンティック検索（意味で探す）
-- ✅ AI 要約生成
-- ✅ カテゴリフィルタ
-- ✅ 検索履歴管理
-- ✅ モバイル対応（Responsive Design）
+- ✅ クエリ拡張（日本語→英語翻訳、類義語追加）
+- ✅ AI 要約生成（要約・説明文・対象読者・読む理由）
+- ✅ 多言語対応（日本語・英語）
+- ✅ カテゴリフィルタ（100以上のarXivカテゴリ）
+- ✅ 検索履歴管理（再検索用のEmbeddingも保存）
+- ✅ いいね・ブックマーク機能
+- ✅ オフライン対応（IndexedDB）
+- ✅ 自動同期（24時間経過で自動更新）
+- ✅ レスポンシブデザイン（デスクトップ・モバイル対応）
+- ✅ APIキー暗号化（localStorageに安全に保存）
+- ✅ バーチャルスクロール（大量データも快適）
 
 ---
 
@@ -137,8 +226,7 @@ pnpm api
 | エンドポイント | 説明 |
 |---|---|
 | `http://localhost:5173` | フロントエンド |
-| `http://localhost:3000/api/ui` | Swagger UI |
-| `http://localhost:3000/api/doc` | OpenAPI JSON |
+| `http://localhost:3000/api/v1/*` | API エンドポイント |
 
 ### 本番環境（Vercel）
 
@@ -146,6 +234,16 @@ pnpm api
 https://<your-domain>/
 https://<your-domain>/api/v1/*
 ```
+
+### 主要なエンドポイント
+
+- `POST /api/v1/search` - セマンティック検索（クエリ拡張 + Embedding生成）
+- `POST /api/v1/summary/:id` - 論文要約生成
+- `POST /api/v1/sync` - arXiv論文同期
+- `POST /api/v1/embedding` - Embedding生成
+- `GET /api/v1/categories` - カテゴリ一覧取得
+
+**セキュリティ**: 本番環境では Vercel Password Protection を使用してデプロイメント全体を保護することを推奨します。
 
 ---
 
@@ -156,13 +254,13 @@ https://<your-domain>/api/v1/*
 pnpm install
 
 # 開発
-pnpm dev          # フロント
-pnpm api          # バック
+pnpm dev          # フロントエンド（Vite HMR）
+pnpm api          # バックエンド（Hono サーバー）
 
 # 品質チェック
 pnpm typecheck    # 型チェック
-pnpm lint         # Lint
-pnpm test         # テスト
+pnpm lint         # Lint + Format
+pnpm test         # テスト実行
 
 # ビルド
 pnpm build        # 本番ビルド
@@ -184,6 +282,13 @@ vercel deploy
 
 環境変数は Vercel Dashboard > Settings > Environment Variables で設定してください。
 
+**必要な環境変数**:
+- `OPENAI_API_KEY` - OpenAI API キー
+
+**デプロイメント保護**:
+- Vercel Password Protection を使用してデプロイメント全体を保護することを推奨します（Enterprise プラン、または Pro プラン + Advanced Deployment Protection アドオン）
+- Vercel Dashboard > Settings > Deployment Protection から設定可能
+
 ---
 
 ## 開発ガイド
@@ -202,6 +307,17 @@ vercel deploy
 pnpm typecheck && pnpm lint && pnpm test && pnpm build
 ```
 
+### データ永続化
+
+- **IndexedDB**: 論文、要約、検索履歴、インタラクション
+- **localStorage**: 設定（APIキー、カテゴリ選択など）
+
+### セキュリティ
+
+- APIキーは暗号化して保存（Web Crypto API使用）
+- セキュリティヘッダーを設定
+- 本番環境では Vercel Password Protection を使用してデプロイメント全体を保護することを推奨
+
 ---
 
 ## トラブルシューティング
@@ -210,16 +326,57 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build
 
 - `.env` ファイルが作成されているか確認
 - API Key は https://platform.openai.com/api-keys で取得可能
-
-### Basic 認証エラー
-
-- デフォルト: `username=admin`, `password=admin`
-- 本番環境では必ず変更してください
+- 設定画面でAPIキーが正しく設定されているか確認
 
 ### Vite Port 競合
 
 ```bash
 pnpm dev -- --port 5174
+```
+
+### IndexedDB のデータをクリアしたい
+
+ブラウザの開発者ツール > Application > IndexedDB > LuminaDB から削除できます。
+
+---
+
+## アーキテクチャ
+
+### データフロー
+
+```
+ユーザー検索
+  ↓
+クエリ拡張（日本語→英語、類義語追加）
+  ↓
+Embedding生成（OpenAI API）
+  ↓
+ローカルベクトル検索（IndexedDB）
+  ↓
+検索結果表示
+```
+
+### 状態管理
+
+- **Zustand**: クライアント状態（論文、要約、検索履歴、インタラクション、設定）
+- **TanStack Query**: サーバー状態（同期、検索、要約生成）
+- **IndexedDB**: データ永続化
+
+### コンポーネント構造
+
+```
+App
+├── HomePage
+│   ├── Header（ロゴ、同期ボタン、設定ボタン）
+│   ├── Sidebar（検索履歴）
+│   └── PaperExplorer
+│       ├── PaperSearch（検索ボックス）
+│       ├── CategoryFilter（カテゴリフィルタ）
+│       └── PaperList（論文リスト）
+│           └── PaperCard（論文カード）
+└── PaperPage（論文詳細ページ）
+    └── PaperDetail
+        └── PaperSummary（要約表示）
 ```
 
 ---

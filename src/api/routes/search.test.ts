@@ -16,7 +16,6 @@ import { createEmbedding, expandQuery } from "../services/openai";
 
 describe("検索API", () => {
   const app = createApp();
-  const authHeader = `Basic ${Buffer.from("admin:admin").toString("base64")}`;
   const openAIKeyHeader = "test-openai-api-key";
 
   beforeEach(() => {
@@ -47,7 +46,6 @@ describe("検索API", () => {
       const request = new Request("http://localhost/api/v1/search", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           // X-OpenAI-API-Key を省略
         },
@@ -77,7 +75,6 @@ describe("検索API", () => {
       const request = new Request("http://localhost/api/v1/search", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           "X-OpenAI-API-Key": openAIKeyHeader,
         },
@@ -106,7 +103,6 @@ describe("検索API", () => {
       const request = new Request("http://localhost/api/v1/search", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -127,7 +123,6 @@ describe("検索API", () => {
       const request = new Request("http://localhost/api/v1/search", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -149,7 +144,6 @@ describe("検索API", () => {
       const request = new Request("http://localhost/api/v1/search", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -173,7 +167,6 @@ describe("検索API", () => {
       const request = new Request("http://localhost/api/v1/search", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -193,7 +186,6 @@ describe("検索API", () => {
       const request = new Request("http://localhost/api/v1/search", {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -209,23 +201,5 @@ describe("検索API", () => {
       expect(response.status).toBe(400);
     });
 
-    it("異常系: 認証なしの場合は401エラー", async () => {
-      // Arrange
-      const request = new Request("http://localhost/api/v1/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: "test",
-        }),
-      });
-
-      // Act
-      const response = await app.request(request);
-
-      // Assert
-      expect(response.status).toBe(401);
-    });
   });
 });

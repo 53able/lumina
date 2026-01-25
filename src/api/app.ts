@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
-import { createAuthMiddleware } from "./middleware/auth";
 import { createRateLimitMiddleware } from "./middleware/rateLimit";
 import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders";
 import { categoriesApp } from "./routes/categories";
@@ -18,7 +17,6 @@ import type { Env } from "./types/env";
  * これにより、フロントエンドの hc<AppType> で各ルートの入出力型が自動推論される。
  */
 export const createApp = () => {
-  const authMiddleware = createAuthMiddleware();
   const securityHeadersMiddleware = createSecurityHeadersMiddleware();
   const rateLimitMiddleware = createRateLimitMiddleware();
 
@@ -28,7 +26,6 @@ export const createApp = () => {
     .use("*", securityHeadersMiddleware)
     .use("/api/v1/*", rateLimitMiddleware)
     .route("/", healthApp)
-    .use("/api/v1/*", authMiddleware)
     .route("/api/v1", categoriesApp)
     .route("/api/v1", embeddingApp)
     .route("/api/v1", searchApp)
