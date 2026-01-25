@@ -1,15 +1,14 @@
 import { handle } from "hono/vercel";
-// @ts-ignore
-import app from "./app.js";
+import { createApp } from "../src/api/app.js";
 
-export const config = {
-  runtime: "edge",
-};
+const app = createApp();
 
+// Vercel Functions 用エクスポート
 export const GET = handle(app);
 export const POST = handle(app);
 export const PUT = handle(app);
 export const DELETE = handle(app);
 export const PATCH = handle(app);
 
-export type { AppType } from "../src/api/app.tsx";
+// 型エクスポート（RPCクライアント用）
+export type { AppType } from "../src/api/app.js";
