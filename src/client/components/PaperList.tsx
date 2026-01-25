@@ -8,7 +8,7 @@ import { Card } from "./ui/card";
 /** カードの最小幅（px） */
 const MIN_CARD_WIDTH = 300;
 
-/** グリッドのギャップ（px） - 大胆な余白 */
+/** グリッドのギャップ（px） */
 const GRID_GAP = 32;
 
 /** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
@@ -68,7 +68,7 @@ const EmptyMessage: FC = () => (
         <Search className="h-8 w-8 text-muted-foreground/50" />
       </div>
       <div className="space-y-1">
-        <p className="text-lg font-medium text-muted-foreground">論文が見つかりません</p>
+        <p className="text-lg text-muted-foreground">論文が見つかりません</p>
         <p className="text-sm text-muted-foreground/70">検索条件を変更してお試しください</p>
       </div>
     </div>
@@ -145,7 +145,7 @@ export const PaperList: FC<PaperListProps> = ({
     <div className="space-y-4">
       {showCount && (
         <p className="text-sm text-muted-foreground/70">
-          <span className="font-medium text-foreground">{papers.length}</span>件の論文
+          <span className="font-bold text-foreground">{papers.length}</span>件の論文
         </p>
       )}
 

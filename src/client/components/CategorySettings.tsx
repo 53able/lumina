@@ -73,7 +73,7 @@ export const CategorySettings: FC = () => {
       <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
         {Object.entries(CATEGORY_GROUPS).map(([groupName, categories]) => (
           <div key={groupName} className="space-y-2">
-            <h4 className="text-xs font-semibold text-muted-foreground/70 uppercase tracking-wider">
+            <h4 className="text-xs font-bold text-muted-foreground/70 uppercase tracking-wider">
               {groupName}
             </h4>
             <div className="flex flex-wrap gap-1.5">
