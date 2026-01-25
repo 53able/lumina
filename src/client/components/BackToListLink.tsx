@@ -16,10 +16,13 @@ interface BackToListLinkProps {
  *
  * 論文詳細ページから一覧ページへ戻るためのナビゲーションリンク。
  * DRY原則に基づき共通化。
+ *
+ * フィルター状態をクリアして一覧に戻るため、URLパラメータを削除する。
+ * これにより、いいね0件の論文でも一覧に戻れるようになる。
  */
 export const BackToListLink: FC<BackToListLinkProps> = ({ className }) => (
   <Link
-    to="/"
+    to={{ pathname: "/", search: "" }}
     className={cn(
       "inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors",
       className

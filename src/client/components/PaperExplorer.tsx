@@ -172,8 +172,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         {/* 検索ボックス */}
         <PaperSearch onSearch={handleSearch} isLoading={isLoading} />
 
-        {/* フィルター（論文がある場合のみ表示） - 大胆な余白 */}
-        {papers.length > 0 && (
+        {/* フィルター（論文がある場合、またはフィルターが有効な場合に表示） - 大胆な余白 */}
+        {(initialPapers.length > 0 || filterMode !== "all" || selectedCategories.size > 0) && (
           <div className="flex flex-wrap items-center gap-4 pt-2">
             {/* いいね/ブックマークフィルター */}
             <div className="flex items-center gap-1.5">
@@ -192,7 +192,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                         ? "bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary-light"
                         : "text-muted-foreground hover:text-foreground"
                     )}
-                    disabled={likedCount === 0}
+                    // フィルターが既に有効な場合は解除できるようにする（disabledを解除）
+                    disabled={likedCount === 0 && filterMode !== "liked"}
                   >
                     <Heart
                       className={cn("h-3.5 w-3.5", filterMode === "liked" && "fill-current")}
@@ -218,7 +219,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                         ? "bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary-light"
                         : "text-muted-foreground hover:text-foreground"
                     )}
-                    disabled={bookmarkedCount === 0}
+                    // フィルターが既に有効な場合は解除できるようにする（disabledを解除）
+                    disabled={bookmarkedCount === 0 && filterMode !== "bookmarked"}
                   >
                     <Bookmark
                       className={cn("h-3.5 w-3.5", filterMode === "bookmarked" && "fill-current")}
