@@ -382,7 +382,7 @@ const HomePage: FC = () => {
       <div className="flex min-h-0 relative">
         {/* 視線誘導の基準線（ペルソナ5原則） - 大胆に強化 */}
         <div 
-          className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 pointer-events-none z-10"
+          className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 pointer-events-none z-0"
           style={{
             background: "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
             boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
@@ -391,7 +391,7 @@ const HomePage: FC = () => {
         />
 
         {/* Sidebar - 検索履歴 - 大胆な余白 */}
-        <aside className="hidden lg:flex w-64 flex-col border-r-2 border-primary/20 bg-sidebar/50">
+        <aside className="hidden lg:flex w-64 flex-col border-r-2 border-primary/20 bg-sidebar/50 relative z-10">
           <div className="px-6 pt-6 pb-4">
             <h3 className="text-sm font-bold uppercase tracking-wider text-primary-light" style={{ opacity: 1 }}>
               検索履歴
@@ -408,7 +408,7 @@ const HomePage: FC = () => {
         </aside>
 
         {/* Main Content - 論文リスト - 大胆な余白 */}
-        <main className="flex-1 overflow-y-auto min-w-0">
+        <main className="flex-1 overflow-y-auto min-w-0 relative z-10">
           <div className="px-6 py-8 lg:px-12 lg:py-10">
             {/* 拡張クエリ情報の表示 - 明度による階層化（ペルソナ5原則） - 大胆なスタイリング */}
             {expandedQuery && (
