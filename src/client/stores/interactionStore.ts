@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import type { LuminaDB } from "../db/db";
 import type { InteractionType, UserInteraction } from "../../shared/schemas/index";
 import { now } from "../../shared/utils/dateTime";
+import type { LuminaDB } from "../db/db";
 
 /**
  * interactionStore の状態型

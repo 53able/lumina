@@ -154,9 +154,11 @@ describe("useSemanticSearch", () => {
 
       // 類似度が高い順にソートされていることを確認
       for (let i = 1; i < result.current.results.length; i++) {
-        const prev = result.current.results[i - 1]!;
-        const curr = result.current.results[i]!;
-        expect(prev.score).toBeGreaterThanOrEqual(curr.score);
+        const prev = result.current.results[i - 1];
+        const curr = result.current.results[i];
+        if (prev && curr) {
+          expect(prev.score).toBeGreaterThanOrEqual(curr.score);
+        }
       }
     });
 
@@ -169,8 +171,8 @@ describe("useSemanticSearch", () => {
 
       expect(result.current.results[0]).toHaveProperty("paper");
       expect(result.current.results[0]).toHaveProperty("score");
-      expect(result.current.results[0]!.paper).toHaveProperty("id");
-      expect(result.current.results[0]!.paper).toHaveProperty("title");
+      expect(result.current.results[0]?.paper).toHaveProperty("id");
+      expect(result.current.results[0]?.paper).toHaveProperty("title");
     });
 
     it("拡張クエリが取得できる", async () => {

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
+import type { PaperSummary } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
 import { useSummaryStore } from "../stores/summaryStore";
-import type { PaperSummary } from "../../shared/schemas/index";
 
 /**
  * usePaperSummary のオプション

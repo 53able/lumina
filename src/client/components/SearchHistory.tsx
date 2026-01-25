@@ -2,8 +2,8 @@ import { formatDistanceToNow } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Clock, Search, X } from "lucide-react";
 import type { FC } from "react";
-import { Button } from "./ui/button";
 import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
+import { Button } from "./ui/button";
 
 /**
  * SearchHistory コンポーネントのProps

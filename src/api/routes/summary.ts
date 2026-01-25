@@ -1,9 +1,9 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import type { Env } from "../types/env";
 import { z } from "zod";
 import { now } from "../../shared/utils/dateTime";
 import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai";
+import type { Env } from "../types/env";
 
 /**
  * 生成対象の種類

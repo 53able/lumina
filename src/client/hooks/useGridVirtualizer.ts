@@ -133,7 +133,7 @@ export const useGridVirtualizer = <T>({
         setContainerWidth(width);
       }
     }
-  }, []); // マウント時のみ実行
+  }, [containerWidth, gridContainerRef.current]); // マウント時のみ実行
 
   // 列数とアイテム幅を計算
   // containerWidthが0の場合でも、gridContainerRefから直接幅を取得する
@@ -162,7 +162,7 @@ export const useGridVirtualizer = <T>({
     const width = Math.floor((effectiveWidth - columnGap * (cols - 1)) / cols);
 
     return { columnCount: cols, itemWidth: Math.max(width, minItemWidth) };
-  }, [containerWidth, minItemWidth, columnGap]); // containerWidthが更新されたときに再計算
+  }, [containerWidth, minItemWidth, columnGap, gridContainerRef.current]); // containerWidthが更新されたときに再計算
 
   // アイテムを行に分割（展開アイテムは専用行）
   const rows = useMemo(() => {

@@ -1,9 +1,9 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import type { Env } from "../types/env";
 import { EmbeddingRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
 import { createEmbedding, getOpenAIConfig } from "../services/openai";
+import type { Env } from "../types/env";
 
 /**
  * Embedding API アプリケーション

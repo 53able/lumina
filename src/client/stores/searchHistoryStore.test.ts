@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLuminaDb, type LuminaDB } from "../db/db";
 import type { SearchHistory } from "../../shared/schemas/index";
 import { now, parseISO } from "../../shared/utils/dateTime";
+import { createLuminaDb, type LuminaDB } from "../db/db";
 
 /**
  * searchHistoryStore テスト
@@ -72,7 +72,7 @@ describe("searchHistoryStore", () => {
 
       // Assert
       expect(state.histories).toHaveLength(1);
-      expect(state.histories[0]!.originalQuery).toBe("強化学習");
+      expect(state.histories[0]?.originalQuery).toBe("強化学習");
     });
   });
 
@@ -91,7 +91,7 @@ describe("searchHistoryStore", () => {
       // Assert - Store
       const state = useSearchHistoryStore.getState();
       expect(state.histories).toHaveLength(1);
-      expect(state.histories[0]!.originalQuery).toBe("強化学習");
+      expect(state.histories[0]?.originalQuery).toBe("強化学習");
 
       // Assert - IndexedDB永続化
       const dbHistory = await mockDb.searchHistories.get("test-id-1");
@@ -121,8 +121,8 @@ describe("searchHistoryStore", () => {
 
       // Assert - 新しい方が先に来る
       const state = useSearchHistoryStore.getState();
-      expect(state.histories[0]!.originalQuery).toBe("新しい検索");
-      expect(state.histories[1]!.originalQuery).toBe("古い検索");
+      expect(state.histories[0]?.originalQuery).toBe("新しい検索");
+      expect(state.histories[1]?.originalQuery).toBe("古い検索");
     });
   });
 
@@ -166,7 +166,7 @@ describe("searchHistoryStore", () => {
 
       // Assert
       expect(recent).toHaveLength(3);
-      expect(recent[0]!.originalQuery).toBe("検索4"); // 最新
+      expect(recent[0]?.originalQuery).toBe("検索4"); // 最新
     });
   });
 

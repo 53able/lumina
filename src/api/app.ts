@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
-import type { Env } from "./types/env";
 import { createAuthMiddleware } from "./middleware/auth";
 import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders";
 import { categoriesApp } from "./routes/categories";
@@ -9,6 +8,7 @@ import { healthApp } from "./routes/health";
 import { searchApp } from "./routes/search";
 import { summaryApp } from "./routes/summary";
 import { syncApp } from "./routes/sync";
+import type { Env } from "./types/env";
 
 /**
  * Hono アプリケーションの作成

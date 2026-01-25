@@ -1,11 +1,11 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import type { Env } from "../types/env";
 import type { Paper } from "../../shared/schemas/index";
 import { SyncRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
 import { fetchArxivPapers } from "../services/arxivFetcher";
 import { createEmbedding, getOpenAIConfig, type OpenAIConfig } from "../services/openai";
+import type { Env } from "../types/env";
 
 /**
  * 論文にEmbeddingを生成して付与する

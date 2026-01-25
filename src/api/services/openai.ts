@@ -1,8 +1,8 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, generateText } from "ai";
 import type { Context } from "hono";
-import type { Env } from "../types/env";
 import { z } from "zod";
+import type { Env } from "../types/env";
 
 /**
  * OpenAI API設定

@@ -1,5 +1,10 @@
 import Dexie, { type EntityTable } from "dexie";
-import type { Paper, PaperSummary, SearchHistory, UserInteraction } from "../../shared/schemas/index";
+import type {
+  Paper,
+  PaperSummary,
+  SearchHistory,
+  UserInteraction,
+} from "../../shared/schemas/index";
 
 /**
  * Lumina IndexedDB スキーマ定義

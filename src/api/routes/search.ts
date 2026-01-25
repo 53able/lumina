@@ -1,9 +1,9 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import type { Env } from "../types/env";
 import { type ExpandedQuery, SearchRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
 import { createEmbedding, expandQuery, getOpenAIConfig } from "../services/openai";
+import type { Env } from "../types/env";
 
 /**
  * スタブ用のクエリ拡張を生成（APIキーがない場合のフォールバック）

@@ -2,13 +2,13 @@ import { format } from "date-fns";
 import { Bookmark, ExternalLink, Heart } from "lucide-react";
 import type { FC } from "react";
 import { Link } from "react-router-dom";
+import type { Paper } from "../../shared/schemas/index";
+import { useInteraction } from "../contexts/InteractionContext";
+import { getCategoryDescription } from "../lib/categoryDescriptions";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { useInteraction } from "../contexts/InteractionContext";
-import { getCategoryDescription } from "../lib/categoryDescriptions";
-import type { Paper } from "../../shared/schemas/index";
 
 /**
  * PaperCard コンポーネントのProps

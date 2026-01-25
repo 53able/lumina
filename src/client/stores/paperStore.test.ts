@@ -1,7 +1,7 @@
 import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLuminaDb, type LuminaDB } from "../db/db";
 import type { Paper } from "../../shared/schemas/index";
+import { createLuminaDb, type LuminaDB } from "../db/db";
 
 /**
  * paperStore テスト
@@ -67,7 +67,7 @@ describe("paperStore", () => {
 
       // Assert
       expect(state.papers).toHaveLength(1);
-      expect(state.papers[0]!.id).toBe("2401.00001");
+      expect(state.papers[0]?.id).toBe("2401.00001");
     });
   });
 
@@ -84,7 +84,7 @@ describe("paperStore", () => {
       // Assert - Store
       const state = usePaperStore.getState();
       expect(state.papers).toHaveLength(1);
-      expect(state.papers[0]!.id).toBe("2401.00001");
+      expect(state.papers[0]?.id).toBe("2401.00001");
 
       // Assert - IndexedDB永続化
       const dbPaper = await mockDb.papers.get("2401.00001");
@@ -127,7 +127,7 @@ describe("paperStore", () => {
       // Assert
       const state = usePaperStore.getState();
       expect(state.papers).toHaveLength(1);
-      expect(state.papers[0]!.title).toBe("Updated Title");
+      expect(state.papers[0]?.title).toBe("Updated Title");
     });
   });
 

@@ -7,9 +7,9 @@
  */
 
 import { hc } from "hono/client";
+import type { AppType } from "@/api/app";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { SearchRequest } from "@/shared/schemas/index";
-import type { AppType } from "@/api/app";
 
 /**
  * Basic認証のデフォルト認証情報

@@ -11,9 +11,12 @@ import { createApp } from "./app.js";
 const app = createApp();
 const port = 3000;
 
-serve({
-  fetch: app.fetch,
-  port,
-}, (info) => {
-  console.log(`🚀 API Server is running on http://localhost:${info.port}`);
-});
+serve(
+  {
+    fetch: app.fetch,
+    port,
+  },
+  (info) => {
+    console.log(`🚀 API Server is running on http://localhost:${info.port}`);
+  }
+);

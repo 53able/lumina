@@ -2,6 +2,11 @@ import { Settings, Sparkles } from "lucide-react";
 import { type FC, useCallback, useEffect, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
+import type {
+  Paper,
+  PaperSummary,
+  SearchHistory as SearchHistoryType,
+} from "../shared/schemas/index";
 import { PaperDetail } from "./components/PaperDetail";
 import { PaperExplorer } from "./components/PaperExplorer";
 import { SearchHistory } from "./components/SearchHistory";
@@ -25,7 +30,6 @@ import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useSummaryStore } from "./stores/summaryStore";
-import type { Paper, PaperSummary, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
 
 /**
  * Lumina アプリケーションのルートコンポーネント

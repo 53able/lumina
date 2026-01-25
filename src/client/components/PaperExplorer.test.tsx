@@ -123,7 +123,7 @@ describe("PaperExplorer", () => {
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
 
       // クリーンアップ: Promiseを解決して完了を待つ
-      resolveSearch!(mockPapers);
+      resolveSearch?.(mockPapers);
       await waitFor(() => {
         expect(screen.queryByTestId("paper-list-loading")).not.toBeInTheDocument();
       });
@@ -179,7 +179,9 @@ describe("PaperExplorer", () => {
       const user = userEvent.setup({ delay: null });
       const likeButtons = screen.getAllByRole("button", { name: /いいね/i });
       expect(likeButtons[0]).toBeDefined();
-      await user.click(likeButtons[0]!);
+      if (likeButtons[0]) {
+        await user.click(likeButtons[0]);
+      }
 
       expect(mockToggleLike).toHaveBeenCalledWith("2401.00001");
     });
@@ -190,7 +192,9 @@ describe("PaperExplorer", () => {
       const user = userEvent.setup({ delay: null });
       const bookmarkButtons = screen.getAllByRole("button", { name: /ブックマーク/i });
       expect(bookmarkButtons[0]).toBeDefined();
-      await user.click(bookmarkButtons[0]!);
+      if (bookmarkButtons[0]) {
+        await user.click(bookmarkButtons[0]);
+      }
 
       expect(mockToggleBookmark).toHaveBeenCalledWith("2401.00001");
     });
@@ -205,7 +209,9 @@ describe("PaperExplorer", () => {
       const user = userEvent.setup({ delay: null });
       const articles = screen.getAllByRole("article");
       expect(articles[0]).toBeDefined();
-      await user.click(articles[0]!);
+      if (articles[0]) {
+        await user.click(articles[0]);
+      }
 
       expect(mockOnPaperClick).toHaveBeenCalledWith(mockPapers[0]);
     });
