@@ -46,18 +46,25 @@ export const PaperSearch: FC<PaperSearchProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full gap-2">
-      <Input
-        type="search"
-        role="searchbox"
-        placeholder="論文を検索..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
+    <form onSubmit={handleSubmit} className="flex w-full gap-3 relative">
+      <div className="flex-1 relative glow-effect">
+        <Input
+          type="search"
+          role="searchbox"
+          placeholder="論文を検索..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          disabled={isLoading}
+          className="w-full"
+        />
+      </div>
+      <Button
+        type="submit"
         disabled={isLoading}
-        className="flex-1"
-      />
-      <Button type="submit" disabled={isLoading}>
-        <Search className="mr-2 h-4 w-4" />
+        size="lg"
+        className="group px-6 py-3 h-12 font-bold text-base shadow-lg hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-110 hover:rotate-1 active:scale-95 active:rotate-[-1deg] glow-effect"
+      >
+        <Search className="mr-2 h-5 w-5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-125" />
         検索
       </Button>
     </form>

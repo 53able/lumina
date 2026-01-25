@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { Bookmark, ExternalLink, Heart } from "lucide-react";
-import type { FC } from "react";
+import { memo, type FC, useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteraction } from "../contexts/InteractionContext";
@@ -33,7 +33,7 @@ interface PaperCardProps {
  * - 論文タイトル、著者、カテゴリ、公開日の表示
  * - いいね/ブックマークボタン
  */
-export const PaperCard: FC<PaperCardProps> = ({
+const PaperCardComponent: FC<PaperCardProps> = ({
   paper,
   onClick,
   whyRead,
@@ -43,121 +43,244 @@ export const PaperCard: FC<PaperCardProps> = ({
   // Context経由でいいね/ブックマーク状態を取得
   const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
 
-  const handleCardClick = () => {
-    onClick?.(paper);
-  };
+  // アニメーション用の状態
+  const [isClicking, setIsClicking] = useState(false);
+  const [ripplePosition, setRipplePosition] = useState<{ x: number; y: number } | null>(null);
 
-  const handleLikeClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    toggleLike();
-  };
-
-  const handleBookmarkClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    toggleBookmark();
-  };
-
-  // 著者の表示（3人以上の場合は省略）
-  const authorsDisplay =
-    paper.authors.length > 3
+  // 著者の表示（3人以上の場合は省略）をメモ化
+  const authorsDisplay = useMemo(() => {
+    return paper.authors.length > 3
       ? `${paper.authors.slice(0, 3).join(", ")} et al.`
       : paper.authors.join(", ");
+  }, [paper.authors]);
+
+  // カテゴリバッジのJSXをメモ化
+  const categoryBadges = useMemo(() => {
+    return paper.categories.map((category) => {
+      const description = getCategoryDescription(category);
+      return description ? (
+        <Tooltip key={category}>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="secondary"
+              className="relative z-10 cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 hover:border-primary/50 hover:scale-105 transition-all duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {category}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs z-50">
+            <p>{description}</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <Badge
+          key={category}
+          variant="secondary"
+          className="relative z-10 font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
+        >
+          {category}
+        </Badge>
+      );
+    });
+  }, [paper.categories]);
+
+  // カードクリックハンドラーをメモ化
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setRipplePosition({ x, y });
+      setIsClicking(true);
+      setTimeout(() => {
+        setIsClicking(false);
+        setRipplePosition(null);
+      }, 600);
+      onClick?.(paper);
+    },
+    [onClick, paper]
+  );
+
+  // いいね/ブックマーク時の大胆なエフェクト用の状態
+  const [isLiking, setIsLiking] = useState(false);
+  const [isBookmarking, setIsBookmarking] = useState(false);
+
+  // いいねクリックハンドラーをメモ化
+  const handleLikeClickWithEffect = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsLiking(true);
+      setTimeout(() => setIsLiking(false), 600);
+      toggleLike();
+    },
+    [toggleLike]
+  );
+
+  // ブックマーククリックハンドラーをメモ化
+  const handleBookmarkClickWithEffect = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsBookmarking(true);
+      setTimeout(() => setIsBookmarking(false), 600);
+      toggleBookmark();
+    },
+    [toggleBookmark]
+  );
 
   return (
     <Card
       role="article"
-      className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-        isExpanded ? "ring-2 ring-primary/50 shadow-lg bg-card/90" : ""
-      }`}
+      className={`cursor-pointer card-3d card-glow card-accent-line transition-all duration-200 relative ${
+        isExpanded
+          ? "card-expanded-border shadow-2xl bg-card/90 rotate-0"
+          : "hover:shadow-xl hover:shadow-primary/20"
+      } ${isClicking ? "scale-105 animate-button-press" : ""}`}
       onClick={handleCardClick}
       data-expanded={isExpanded}
+      style={{
+        willChange: "transform, box-shadow",
+        backgroundColor: "hsl(var(--card))",
+      }}
     >
-      <CardHeader className="pb-2">
-        <div className="flex items-start gap-2">
-          {index !== undefined && (
-            <span className="shrink-0 inline-flex items-center justify-center h-6 min-w-6 px-1.5 rounded-full bg-muted text-xs font-mono font-medium text-muted-foreground">
-              #{index + 1}
-            </span>
-          )}
-          <CardTitle className="line-clamp-2 text-lg">{paper.title}</CardTitle>
-        </div>
-        {whyRead && (
-          <p className="text-sm text-primary/80 line-clamp-2 mt-1 font-medium">{whyRead}</p>
+      {/* リップルエフェクト用のオーバーレイ（角丸を維持しつつリップルを制限） */}
+      <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+        {ripplePosition && (
+          <span
+            className="animate-ripple absolute rounded-full bg-primary/30"
+            style={{
+              left: `${ripplePosition.x}px`,
+              top: `${ripplePosition.y}px`,
+              width: "20px",
+              height: "20px",
+              transform: "translate(-50%, -50%)",
+            }}
+          />
         )}
-        <p className="text-sm text-muted-foreground">{authorsDisplay}</p>
-      </CardHeader>
-      <CardContent>
-        {/* カテゴリバッジ（ツールチップ付き） */}
-        <div className="mb-3 flex flex-wrap gap-1">
-          {paper.categories.map((category) => {
-            const description = getCategoryDescription(category);
-            return description ? (
-              <Tooltip key={category}>
-                <TooltipTrigger asChild>
-                  <Badge variant="secondary" className="cursor-help">
-                    {category}
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <p>{description}</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Badge key={category} variant="secondary">
-                {category}
-              </Badge>
-            );
-          })}
-        </div>
-
-        {/* 公開日とアクションボタン */}
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            {format(paper.publishedAt, "yyyy-MM-dd")}
-          </span>
-
-          <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={handleLikeClick}
-              aria-label="いいね"
-              data-liked={isLiked}
-            >
-              <Heart className={`h-4 w-4 ${isLiked ? "fill-current text-red-500" : ""}`} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={handleBookmarkClick}
-              aria-label="ブックマーク"
-              data-bookmarked={isBookmarked}
-            >
-              <Bookmark
-                className={`h-4 w-4 ${isBookmarked ? "fill-current text-yellow-500" : ""}`}
-              />
-            </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  asChild
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Link to={`/papers/${paper.id}`} aria-label="詳細ページを開く">
-                    <ExternalLink className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>詳細ページを開く</TooltipContent>
-            </Tooltip>
+      </div>
+      <div className="card-3d-inner">
+        <CardHeader className="pb-2">
+          <div className="flex items-start gap-2">
+            {index !== undefined && (
+              <span
+                className="shrink-0 inline-flex items-center justify-center h-8 min-w-8 px-2 rounded-md bg-primary/20 text-primary font-mono font-bold text-sm text-dense"
+                style={{
+                  transform: "rotate(-2deg)",
+                  boxShadow: "0 2px 8px hsl(var(--primary) / 0.3)",
+                }}
+              >
+                #{index + 1}
+              </span>
+            )}
+            <CardTitle className="card-title-hover line-clamp-2 text-lg font-bold text-tight-bold">
+              {paper.title}
+            </CardTitle>
           </div>
-        </div>
-      </CardContent>
+          {whyRead && (
+            <p
+              className="card-text-hover text-sm line-clamp-2 mt-1 font-medium"
+              style={{ color: "hsl(var(--primary-light))", opacity: 0.9 }}
+            >
+              {whyRead}
+            </p>
+          )}
+          <p className="card-text-hover text-sm text-foreground" style={{ opacity: 0.8 }}>
+            {authorsDisplay}
+          </p>
+        </CardHeader>
+        <CardContent>
+          {/* カテゴリバッジ（ツールチップ付き） - 大胆なスタイリング */}
+          <div className="relative z-10 mb-3 flex flex-wrap gap-2">{categoryBadges}</div>
+
+          {/* 公開日とアクションボタン */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              {format(paper.publishedAt, "yyyy-MM-dd")}
+            </span>
+
+            <div className="card-actions-hover flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
+                  isLiking ? "animate-pulse-glow" : ""
+                }`}
+                onClick={handleLikeClickWithEffect}
+                aria-label="いいね"
+                data-liked={isLiked}
+              >
+                <Heart
+                  className={`h-4 w-4 transition-all duration-300 ${
+                    isLiked
+                      ? "fill-current text-primary scale-125"
+                      : isLiking
+                        ? "scale-150 text-primary"
+                        : ""
+                  }`}
+                  style={{
+                    transform: isLiking ? "scale(1.5) rotate(15deg)" : undefined,
+                  }}
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
+                  isBookmarking ? "animate-pulse-glow" : ""
+                }`}
+                onClick={handleBookmarkClickWithEffect}
+                aria-label="ブックマーク"
+                data-bookmarked={isBookmarked}
+              >
+                <Bookmark
+                  className={`h-4 w-4 transition-all duration-300 ${
+                    isBookmarked
+                      ? "fill-current text-primary scale-125"
+                      : isBookmarking
+                        ? "scale-150 text-primary"
+                        : ""
+                  }`}
+                  style={{
+                    transform: isBookmarking ? "scale(1.5) rotate(-15deg)" : undefined,
+                  }}
+                />
+              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90"
+                    asChild
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Link to={`/papers/${paper.id}`} aria-label="詳細ページを開く">
+                      <ExternalLink className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>詳細ページを開く</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        </CardContent>
+      </div>
     </Card>
   );
 };
+
+/**
+ * PaperCard - メモ化された論文カードコンポーネント
+ *
+ * React.memoでラップし、propsが変更された場合のみ再レンダリング
+ */
+export const PaperCard = memo(PaperCardComponent, (prevProps, nextProps) => {
+  // カスタム比較関数: 必要なpropsのみを比較
+  return (
+    prevProps.paper.id === nextProps.paper.id &&
+    prevProps.isExpanded === nextProps.isExpanded &&
+    prevProps.whyRead === nextProps.whyRead &&
+    prevProps.index === nextProps.index &&
+    prevProps.onClick === nextProps.onClick
+  );
+});

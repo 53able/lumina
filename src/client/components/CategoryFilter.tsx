@@ -60,9 +60,9 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
                 <Badge
                   variant={isSelected ? "default" : "outline"}
                   className={cn(
-                    "cursor-pointer transition-all hover:scale-105",
+                    "cursor-pointer transition-all",
                     isSelected
-                      ? "bg-primary/90 hover:bg-primary"
+                      ? "bg-primary/90 hover:bg-primary animate-badge-select"
                       : "hover:bg-accent text-muted-foreground hover:text-foreground"
                   )}
                 >

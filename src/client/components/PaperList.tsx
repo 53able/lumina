@@ -8,8 +8,8 @@ import { Card } from "./ui/card";
 /** カードの最小幅（px） */
 const MIN_CARD_WIDTH = 300;
 
-/** グリッドのギャップ（px） */
-const GRID_GAP = 20;
+/** グリッドのギャップ（px） - 大胆な余白 */
+const GRID_GAP = 32;
 
 /** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
 const ESTIMATED_ROW_HEIGHT = 252;
@@ -200,6 +200,10 @@ export const PaperList: FC<PaperListProps> = ({
                         onClick={onPaperClick}
                         whyRead={whyReadMap.get(getPaperId(rowItems[0]))}
                         isExpanded={true}
+                        index={(() => {
+                          const foundIndex = papers.findIndex((p) => p.id === rowItems[0].id);
+                          return foundIndex >= 0 ? foundIndex : undefined;
+                        })()}
                       />
                     </div>
                     {/* 右側: 詳細パネル（コンテンツに合わせた高さ） */}
@@ -220,14 +224,24 @@ export const PaperList: FC<PaperListProps> = ({
                     }}
                   >
                     {rowItems.map((paper, colIndex) => (
-                      <PaperCard
+                      <div
                         key={getPaperId(paper)}
-                        paper={paper}
-                        onClick={onPaperClick}
-                        whyRead={whyReadMap.get(getPaperId(paper))}
-                        isExpanded={false}
-                        index={index * columnCount + colIndex}
-                      />
+                        className="animate-card-stagger"
+                        style={{
+                          animationDelay: `${(index * columnCount + colIndex) * 0.05}s`,
+                          overflow: "visible",
+                          /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
+                          padding: "12px",
+                        }}
+                      >
+                        <PaperCard
+                          paper={paper}
+                          onClick={onPaperClick}
+                          whyRead={whyReadMap.get(getPaperId(paper))}
+                          isExpanded={false}
+                          index={index * columnCount + colIndex}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}
@@ -240,9 +254,9 @@ export const PaperList: FC<PaperListProps> = ({
       {/* 無限スクロール用のローダー / 全件表示完了メッセージ */}
       <div className="flex justify-center py-6" data-testid="paper-list-loader">
         {isSyncing ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>古い論文を取得中...</span>
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-loading-bold text-primary" />
+            <span className="font-bold">古い論文を取得中...</span>
           </div>
         ) : (
           // onRequestSync がない = 追加読み込み不可（検索/フィルタ中）の場合のみ表示
@@ -250,8 +264,8 @@ export const PaperList: FC<PaperListProps> = ({
           !onRequestSync &&
           papers.length > 50 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground/60">
-              <CheckCircle2 className="h-4 w-4" />
-              <span>すべての論文を表示しました</span>
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              <span className="font-bold">すべての論文を表示しました</span>
             </div>
           )
         )}

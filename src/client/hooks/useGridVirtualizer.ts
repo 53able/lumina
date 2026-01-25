@@ -122,7 +122,8 @@ export const useGridVirtualizer = <T>({
     observer.observe(element);
 
     return () => observer.disconnect();
-  }); // 依存配列なし = 毎レンダリング後に実行（refの変化を検知できる）
+    // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
+  }, []); // マウント時のみ実行（ResizeObserverが自動的にサイズ変更を監視するため）
 
   // SSRからのハイドレーション時に確実に幅を再計算
   useEffect(() => {
@@ -133,7 +134,8 @@ export const useGridVirtualizer = <T>({
         setContainerWidth(width);
       }
     }
-  }, [containerWidth, gridContainerRef.current]); // マウント時のみ実行
+    // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentとcontainerWidthは意図的に依存配列から除外（マウント時のみ実行したいため）
+  }, []); // マウント時のみ実行
 
   // 列数とアイテム幅を計算
   // containerWidthが0の場合でも、gridContainerRefから直接幅を取得する
@@ -209,17 +211,25 @@ export const useGridVirtualizer = <T>({
     [rows, estimatedRowHeight, estimatedExpandedRowHeight]
   );
 
+  // 行のキーを事前計算してキャッシュ（getItemKeyの計算負荷を削減）
+  const rowKeys = useMemo(() => {
+    return rows.map((row, index) => {
+      const itemIds = row.items.map(getItemId).join("-");
+      return `row-${index}-${row.isExpanded ? "expanded" : "normal"}-${itemIds}`;
+    });
+  }, [rows, getItemId]);
+
   // スクロールコンテナが利用可能かチェック
   // SSR時はfalse、クライアント側でマウント後にtrueになる
   const [scrollContainerReady, setScrollContainerReady] = useState(false);
 
   useEffect(() => {
     // マウント後にスクロールコンテナの存在をチェック
-    // refの変更は依存配列では検知できないため、毎レンダリング後にチェック
     if (scrollContainerRef.current !== null && !scrollContainerReady) {
       setScrollContainerReady(true);
     }
-  }); // 依存配列なし = 毎レンダリング後に実行
+    // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
+  }, [scrollContainerReady]); // scrollContainerReadyを依存配列に追加
 
   // TanStack Virtual の virtualizer
   const virtualizer = useVirtualizer({
@@ -228,14 +238,8 @@ export const useGridVirtualizer = <T>({
     estimateSize,
     overscan,
     gap: rowGap, // 行間のギャップを設定
-    // 行の高さが変わったときに再計算
-    getItemKey: (index: number) => {
-      const row = rows[index];
-      if (!row) return `row-${index}`;
-      // 展開状態と含まれるアイテムIDをキーに
-      const itemIds = row.items.map(getItemId).join("-");
-      return `row-${index}-${row.isExpanded ? "expanded" : "normal"}-${itemIds}`;
-    },
+    // キャッシュされたキーを返す
+    getItemKey: (index: number) => rowKeys[index] ?? `row-${index}`,
   });
 
   // 仮想化された行の情報を構築

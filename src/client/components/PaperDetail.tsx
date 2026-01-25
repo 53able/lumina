@@ -62,7 +62,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
       {/* ヘッダー */}
       <header>
         {/* タイトル */}
-        <h2 className="text-xl font-semibold leading-tight">{paper.title}</h2>
+        <h2 className="text-xl font-semibold leading-tight text-tight-bold">{paper.title}</h2>
 
         {/* 著者（全員表示） */}
         <p className="mt-2 text-sm text-muted-foreground">{paper.authors.join(", ")}</p>
@@ -131,7 +131,11 @@ export const PaperDetail: FC<PaperDetailProps> = ({
               aria-label="いいね"
               data-liked={isLiked}
             >
-              <Heart className={`h-5 w-5 ${isLiked ? "fill-current text-red-500" : ""}`} />
+              <Heart
+                className={`h-5 w-5 transition-all duration-300 ${
+                  isLiked ? "fill-current text-primary scale-125" : "hover:text-primary"
+                }`}
+              />
             </Button>
             <Button
               variant="ghost"
@@ -141,7 +145,9 @@ export const PaperDetail: FC<PaperDetailProps> = ({
               data-bookmarked={isBookmarked}
             >
               <Bookmark
-                className={`h-5 w-5 ${isBookmarked ? "fill-current text-yellow-500" : ""}`}
+                className={`h-5 w-5 transition-all duration-300 ${
+                  isBookmarked ? "fill-current text-primary scale-125" : "hover:text-primary"
+                }`}
               />
             </Button>
           </div>

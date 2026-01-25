@@ -7,11 +7,10 @@ import type { Env } from "../types/env";
 
 /**
  * 生成対象の種類
- * - summary: 要約のみ
  * - explanation: 説明文のみ（既存の要約がある場合）
  * - both: 要約と説明文の両方
  */
-const GenerateTargetSchema = z.enum(["summary", "explanation", "both"]);
+const GenerateTargetSchema = z.enum(["explanation", "both"]);
 
 /**
  * 要約リクエストのスキーマ
@@ -21,8 +20,8 @@ const SummaryRequestSchema = z.object({
   language: z.enum(["ja", "en"]),
   /** 論文のアブストラクト（クライアント側から渡される） */
   abstract: z.string().min(1).optional(),
-  /** 生成対象（デフォルト: summary のみ） */
-  generateTarget: GenerateTargetSchema.optional().default("summary"),
+  /** 生成対象（デフォルト: both） */
+  generateTarget: GenerateTargetSchema.optional().default("both"),
   /** @deprecated includeExplanation は generateTarget に置き換え */
   includeExplanation: z.boolean().optional(),
 });
@@ -58,7 +57,7 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
     const { language, abstract, generateTarget, includeExplanation } = c.req.valid("json");
 
     // 後方互換性: includeExplanation が true なら generateTarget を "both" に
-    const target = includeExplanation === true ? "both" : (generateTarget ?? "summary");
+    const target = includeExplanation === true ? "both" : (generateTarget ?? "both");
 
     // abstractがない場合はスタブを返す
     if (!abstract) {
@@ -75,7 +74,7 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
       const config = getOpenAIConfig(c);
 
       // 生成対象に応じて処理を分岐
-      const shouldGenerateSummary = target === "summary" || target === "both";
+      const shouldGenerateSummary = target === "both";
       const shouldGenerateExplanation = target === "explanation" || target === "both";
 
       // 要約生成（対象の場合のみ）

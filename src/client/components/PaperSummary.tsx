@@ -13,11 +13,10 @@ type ContentMode = "summary" | "explanation";
 
 /**
  * 生成対象の種類
- * - summary: 要約のみ
  * - explanation: 説明文のみ（既存の要約がある場合に使用）
  * - both: 要約と説明文の両方
  */
-export type GenerateTarget = "summary" | "explanation" | "both";
+export type GenerateTarget = "explanation" | "both";
 
 /**
  * PaperSummary コンポーネントのProps
@@ -98,7 +97,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /**
    * 生成ハンドラー
-   * @param target - 生成対象（summary: 要約のみ, explanation: 説明文のみ, both: 両方）
+   * @param target - 生成対象（explanation: 説明文のみ, both: 要約と説明文の両方）
    */
   const handleGenerate = (target: GenerateTarget) => {
     onGenerate?.(paperId, selectedLanguage, target);
@@ -136,21 +135,10 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       {/* 要約なしの状態 */}
       {!isLoading && !summary && (
         <div className="flex flex-col items-center justify-center py-6 gap-3">
-          <div className="flex gap-2">
-            <Button
-              onClick={() => handleGenerate("summary")}
-              disabled={isLoading}
-              variant="outline"
-              className="gap-2"
-            >
-              <BookOpen className="h-4 w-4" />
-              要約のみ
-            </Button>
-            <Button onClick={() => handleGenerate("both")} disabled={isLoading} className="gap-2">
-              <Sparkles className="h-4 w-4" />
-              要約 + 説明文
-            </Button>
-          </div>
+          <Button onClick={() => handleGenerate("both")} disabled={isLoading} className="gap-2">
+            <Sparkles className="h-4 w-4" />
+            要約 + 説明文
+          </Button>
           <p className="text-xs text-muted-foreground text-center">
             要約: 論文の内容を簡潔にまとめます
             <br />
