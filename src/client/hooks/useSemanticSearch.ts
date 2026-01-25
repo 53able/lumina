@@ -20,7 +20,7 @@ interface UseSemanticSearchOptions {
   papers: Paper[];
   /** 取得件数 */
   limit?: number;
-  /** 類似度スコアの閾値（これ以下の結果は除外、デフォルト: 0.5） */
+  /** 類似度スコアの閾値（これ以下の結果は除外、デフォルト: 0.4） */
   scoreThreshold?: number;
 }
 
@@ -95,7 +95,7 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
  * @returns 検索状態と操作関数
  */
 /** 類似度スコアのデフォルト閾値 */
-const DEFAULT_SCORE_THRESHOLD = 0.5;
+const DEFAULT_SCORE_THRESHOLD = 0.4;
 
 export const useSemanticSearch = ({
   papers,
