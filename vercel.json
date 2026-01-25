@@ -3,6 +3,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
+      "runtime": "edge",
       "includeFiles": "{src/api,src/shared}/**/*.ts"
     }
   },
