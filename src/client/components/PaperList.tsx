@@ -15,7 +15,7 @@ const GRID_GAP = 20;
 const ESTIMATED_ROW_HEIGHT = 252;
 
 /** 展開行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
-const ESTIMATED_EXPANDED_ROW_HEIGHT = 800;
+const ESTIMATED_EXPANDED_ROW_HEIGHT = 400;
 
 /**
  * PaperList コンポーネントのProps
