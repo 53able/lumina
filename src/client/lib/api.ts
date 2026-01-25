@@ -12,11 +12,6 @@ import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { SearchRequest } from "@/shared/schemas/index";
 
 /**
- * Basic認証のデフォルト認証情報
- */
-const DEFAULT_CREDENTIALS = btoa("admin:admin");
-
-/**
  * APIクライアントのベースURL
  * - 開発: Viteプロキシ経由で相対パス
  * - 本番: Vercel同一ドメインで相対パス
@@ -29,11 +24,7 @@ const getBaseUrl = () => {
 /**
  * Hono RPC クライアント
  */
-const client = hc<AppType>(getBaseUrl(), {
-  headers: {
-    Authorization: `Basic ${DEFAULT_CREDENTIALS}`,
-  },
-});
+const client = hc<AppType>(getBaseUrl());
 
 /**
  * APIリクエストのオプション

@@ -7,14 +7,14 @@ vi.mock("../services/openai", async (importOriginal) => {
   return {
     ...original,
     generateSummary: vi.fn(),
+    generateExplanation: vi.fn(),
   };
 });
 
-import { generateSummary } from "../services/openai";
+import { generateSummary, generateExplanation } from "../services/openai";
 
 describe("要約API", () => {
   const app = createApp();
-  const authHeader = `Basic ${Buffer.from("admin:admin").toString("base64")}`;
   const openAIKeyHeader = "test-openai-api-key";
 
   beforeEach(() => {
@@ -24,6 +24,13 @@ describe("要約API", () => {
     vi.mocked(generateSummary).mockResolvedValue({
       summary: "これは深層学習に関する論文の要約です。",
       keyPoints: ["キーポイント1", "キーポイント2", "キーポイント3"],
+    });
+
+    // generateExplanationのモック
+    vi.mocked(generateExplanation).mockResolvedValue({
+      explanation: "深層学習に関する説明文です。",
+      targetAudience: "機械学習研究者",
+      whyRead: "最新の深層学習手法を理解できる",
     });
   });
 
@@ -38,7 +45,6 @@ describe("要約API", () => {
       const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -69,7 +75,6 @@ describe("要約API", () => {
       const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           "X-OpenAI-API-Key": openAIKeyHeader,
         },
@@ -97,7 +102,6 @@ describe("要約API", () => {
       const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -120,7 +124,6 @@ describe("要約API", () => {
       const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -142,7 +145,6 @@ describe("要約API", () => {
       const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -163,7 +165,6 @@ describe("要約API", () => {
       const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
         method: "POST",
         headers: {
-          Authorization: authHeader,
           "Content-Type": "application/json",
           // X-OpenAI-API-Key を省略
         },
@@ -182,24 +183,5 @@ describe("要約API", () => {
       expect(body.error).toContain("API key");
     });
 
-    it("異常系: 認証なしの場合は401エラー", async () => {
-      // Arrange
-      const paperId = "2401.12345";
-      const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          language: "ja",
-        }),
-      });
-
-      // Act
-      const response = await app.request(request);
-
-      // Assert
-      expect(response.status).toBe(401);
-    });
   });
 });

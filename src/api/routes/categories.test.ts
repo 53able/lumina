@@ -10,9 +10,7 @@ describe("カテゴリ情報取得API", () => {
       // Arrange
       const request = new Request("http://localhost/api/v1/categories", {
         method: "GET",
-        headers: {
-          Authorization: `Basic ${Buffer.from("admin:admin").toString("base64")}`,
-        },
+        headers: {},
       });
 
       // Act
@@ -31,9 +29,7 @@ describe("カテゴリ情報取得API", () => {
       // Arrange
       const request = new Request("http://localhost/api/v1/categories", {
         method: "GET",
-        headers: {
-          Authorization: `Basic ${Buffer.from("admin:admin").toString("base64")}`,
-        },
+        headers: {},
       });
 
       // Act
@@ -53,9 +49,7 @@ describe("カテゴリ情報取得API", () => {
       const expectedDefaults = ["cs.AI", "cs.LG", "cs.CL", "stat.ML"];
       const request = new Request("http://localhost/api/v1/categories", {
         method: "GET",
-        headers: {
-          Authorization: `Basic ${Buffer.from("admin:admin").toString("base64")}`,
-        },
+        headers: {},
       });
 
       // Act
@@ -70,9 +64,7 @@ describe("カテゴリ情報取得API", () => {
       // Arrange
       const request = new Request("http://localhost/api/v1/categories", {
         method: "GET",
-        headers: {
-          Authorization: `Basic ${Buffer.from("admin:admin").toString("base64")}`,
-        },
+        headers: {},
       });
 
       // Act
@@ -86,17 +78,5 @@ describe("カテゴリ情報取得API", () => {
       expect(csCategories.length).toBeGreaterThan(0);
     });
 
-    it("異常系: 認証なしの場合は401エラーを返す", async () => {
-      // Arrange
-      const request = new Request("http://localhost/api/v1/categories", {
-        method: "GET",
-      });
-
-      // Act
-      const response = await app.request(request);
-
-      // Assert
-      expect(response.status).toBe(401);
-    });
   });
 });
