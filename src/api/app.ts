@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
+import type { Env } from "./types/env";
 import { createAuthMiddleware } from "./middleware/auth";
 import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders";
 import { categoriesApp } from "./routes/categories";
@@ -20,7 +21,7 @@ export const createApp = () => {
   const securityHeadersMiddleware = createSecurityHeadersMiddleware();
 
   // チェーン形式で構築することで、すべてのルート情報が型に含まれる
-  return new Hono()
+  return new Hono<{ Bindings: Env }>()
     .use("*", logger())
     .use("*", securityHeadersMiddleware)
     .route("/", healthApp)
