@@ -338,6 +338,16 @@ const HomePage: FC = () => {
                 </span>
               </h1>
               <span
+                className="text-xs font-mono font-bold uppercase tracking-wider"
+                style={{
+                  color: "hsl(var(--primary-dark))",
+                  opacity: 0.8,
+                  letterSpacing: "0.15em",
+                }}
+              >
+                BETA
+              </span>
+              <span
                 className="hidden sm:inline text-sm font-mono text-rotate-slight font-bold"
                 style={{ opacity: 0.7 }}
               >
