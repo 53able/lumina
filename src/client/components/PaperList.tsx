@@ -200,6 +200,10 @@ export const PaperList: FC<PaperListProps> = ({
                         onClick={onPaperClick}
                         whyRead={whyReadMap.get(getPaperId(rowItems[0]))}
                         isExpanded={true}
+                        index={(() => {
+                          const foundIndex = papers.findIndex((p) => p.id === rowItems[0].id);
+                          return foundIndex >= 0 ? foundIndex : undefined;
+                        })()}
                       />
                     </div>
                     {/* 右側: 詳細パネル（コンテンツに合わせた高さ） */}
@@ -225,6 +229,9 @@ export const PaperList: FC<PaperListProps> = ({
                         className="animate-card-stagger"
                         style={{
                           animationDelay: `${(index * columnCount + colIndex) * 0.05}s`,
+                          overflow: "visible",
+                          /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
+                          padding: "12px",
                         }}
                       >
                         <PaperCard

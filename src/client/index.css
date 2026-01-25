@@ -15,7 +15,7 @@
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
 
-  /* 微調整可能なパラメータ（ペルソナ5原則 - 開発プロセス） */
+  /* 微調整可能なパラメータ */
   /* 1px単位で調整可能 */
   --spacing-unit: 1px;
   --hover-scale: 1.05; /* hover時のスケール */
@@ -37,7 +37,7 @@
   --color-popover-foreground: hsl(var(--popover-foreground));
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
-  /* 明度による階層化（ペルソナ5原則） */
+  /* 明度による階層化 */
   --color-primary-light: hsl(var(--primary-light));
   --color-primary-dark: hsl(var(--primary-dark));
   --color-secondary: hsl(var(--secondary));
@@ -82,10 +82,10 @@
     --popover: 222 47% 8%;
     --popover-foreground: 210 40% 98%;
 
-    /* Aurora Cyan Primary - メインカラー統一（ペルソナ5原則） */
+    /* Aurora Cyan Primary - メインカラー統一 */
     --primary: 185 75% 55%;
     --primary-foreground: 222 47% 6%;
-    /* 明度による階層化（ペルソナ5原則） */
+    /* 明度による階層化 */
     --primary-light: 185 75% 70%; /* 重要度の高い情報用 */
     --primary-dark: 185 75% 40%; /* 重要度の低い情報用 */
 
@@ -99,7 +99,7 @@
     --accent: 185 75% 65%; /* primaryより少し明るく */
     --accent-foreground: 222 47% 6%;
 
-    /* destructiveをメインカラーの暗いバリエーションに統一（ペルソナ5原則） */
+    /* destructiveをメインカラーの暗いバリエーションに統一 */
     --destructive: 185 75% 40%; /* primary-darkと同じ */
     --destructive-foreground: 210 40% 98%;
 
@@ -135,10 +135,10 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    /* Aurora Cyan Primary - メインカラー統一（ペルソナ5原則） */
+    /* Aurora Cyan Primary - メインカラー統一 */
     --primary: 185 75% 40%;
     --primary-foreground: 0 0% 100%;
-    /* 明度による階層化（ペルソナ5原則） */
+    /* 明度による階層化 */
     --primary-light: 185 75% 55%; /* 重要度の高い情報用 */
     --primary-dark: 185 75% 30%; /* 重要度の低い情報用 */
 
@@ -152,7 +152,7 @@
     --accent: 185 75% 50%; /* primaryより少し明るく */
     --accent-foreground: 0 0% 100%;
 
-    /* destructiveをメインカラーの暗いバリエーションに統一（ペルソナ5原則） */
+    /* destructiveをメインカラーの暗いバリエーションに統一 */
     --destructive: 185 75% 30%; /* primary-darkと同じ */
     --destructive-foreground: 0 0% 100%;
 
@@ -187,7 +187,7 @@
     @apply bg-background text-foreground antialiased;
   }
 
-  /* タイポグラフィ - 極端な文字詰めと異種フォントの混合（ペルソナ5原則 - 大胆化） */
+  /* タイポグラフィ - 極端な文字詰めと異種フォントの混合 */
   h1, h2, h3, h4, h5, h6 {
     letter-spacing: -0.08em; /* より極端な文字詰め */
     font-weight: 700;
@@ -218,7 +218,7 @@
     display: inline-block;
   }
 
-  /* 異種フォント混合クラス（ペルソナ5原則） */
+  /* 異種フォント混合クラス */
   .font-mix-serif {
     font-family: "Times New Roman", "YuMincho", "Hiragino Mincho ProN", serif;
   }
@@ -250,9 +250,67 @@
     line-height: 1;
     font-weight: 800;
   }
+
+  /* カードホバー時のテキスト強調 - 可読性を最優先 */
+  .card-3d:hover .card-title-hover {
+    /* テキストの色は明示的に設定し、コントラストを維持 */
+    color: hsl(var(--foreground)) !important;
+    text-shadow: 0 0 8px hsl(var(--primary) / 0.2);
+    transform: scale(1.01);
+    transition: color 0.2s ease-out, transform 0.2s ease-out, text-shadow 0.2s ease-out;
+  }
+
+  .card-3d:hover .card-text-hover {
+    /* 不透明度を維持または向上させて可読性を確保 */
+    opacity: 1 !important;
+    color: hsl(var(--foreground)) !important;
+    transition: opacity 0.2s ease-out, color 0.2s ease-out;
+  }
+
+  /* whyReadテキストもホバー時に可読性を確保 */
+  .card-3d:hover .card-text-hover[style*="primary-light"] {
+    color: hsl(var(--primary-light)) !important;
+    opacity: 1 !important;
+    text-shadow: 0 0 4px hsl(var(--primary) / 0.3);
+  }
+
+  /* カードホバー時のアイコン群アニメーション */
+  .card-3d:hover .card-actions-hover {
+    transform: translateY(-2px);
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .card-3d:hover .card-actions-hover > * {
+    animation: iconBounce 0.6s ease-out;
+    animation-fill-mode: both;
+  }
+
+  .card-3d:hover .card-actions-hover > *:nth-child(1) {
+    animation-delay: 0.05s;
+  }
+
+  .card-3d:hover .card-actions-hover > *:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+
+  .card-3d:hover .card-actions-hover > *:nth-child(3) {
+    animation-delay: 0.15s;
+  }
 }
 
-/* Custom animations - 微調整可能なパラメータ（ペルソナ5原則） */
+@keyframes iconBounce {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Custom animations - 微調整可能なパラメータ */
 @keyframes float {
   0%, 100% {
     transform: translateY(0);
@@ -271,7 +329,7 @@
   }
 }
 
-/* 大胆なモーションアニメーション（ペルソナ5原則） */
+/* 大胆なモーションアニメーション */
 @keyframes cardEnter {
   0% {
     opacity: 0;
@@ -350,7 +408,7 @@
   }
 }
 
-/* ボタンクリック時の大胆なアニメーション（ペルソナ5原則） */
+/* ボタンクリック時の大胆なアニメーション */
 @keyframes buttonPress {
   0% {
     transform: scale(1) rotate(0deg);
@@ -363,18 +421,6 @@
   }
 }
 
-/* カードフリップ効果（ペルソナ5原則） */
-@keyframes cardFlip {
-  0% {
-    transform: perspective(1000px) rotateY(0deg) scale(1);
-  }
-  50% {
-    transform: perspective(1000px) rotateY(5deg) scale(1.02);
-  }
-  100% {
-    transform: perspective(1000px) rotateY(0deg) scale(1);
-  }
-}
 
 /* 入力欄フォーカス時の大胆なエフェクト */
 @keyframes inputFocus {
@@ -453,9 +499,6 @@
   animation: buttonPress 0.3s ease-out;
 }
 
-.animate-card-flip {
-  animation: cardFlip 0.6s ease-in-out;
-}
 
 .animate-input-focus {
   animation: inputFocus 0.4s ease-out;
@@ -469,7 +512,7 @@
   animation: badgeSelect 0.3s ease-out;
 }
 
-/* Background gradient for hero sections - メインカラー統一（ペルソナ5原則） */
+/* Background gradient for hero sections - メインカラー統一 */
 .bg-gradient-lumina {
   background: radial-gradient(
     ellipse at top,
@@ -483,7 +526,7 @@
   );
 }
 
-/* 大胆な背景グラデーションとパターン（ペルソナ5原則） */
+/* 大胆な背景グラデーションとパターン */
 .bg-gradient-bold {
   background: 
     radial-gradient(
@@ -572,26 +615,56 @@
   opacity: 1;
 }
 
-/* カードの3D効果（ペルソナ5原則 - 大胆なデザイン） */
+/* カードのホバー効果 - 大胆なデザイン */
 .card-3d {
-  perspective: 1000px;
-  transform-style: preserve-3d;
+  /* 背景色を固定してホバー時も可読性を維持 */
+  background-color: hsl(var(--card)) !important;
+}
+
+.card-3d:hover {
+  /* ホバー時も背景色を維持（テキストの可読性を確保） */
+  background-color: hsl(var(--card)) !important;
 }
 
 .card-3d-inner {
-  transform: rotateX(0deg) rotateY(0deg);
-  transition: transform 0.3s ease-out, box-shadow 0.3s ease-out;
+  transform-origin: center center;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease-out;
+  /* 背景色を固定してホバー時も可読性を維持 */
+  background-color: hsl(var(--card));
 }
 
 .card-3d:hover .card-3d-inner {
-  transform: translateY(-8px) rotateX(2deg) rotateY(-1deg);
+  /* 3D回転を削除して文字が確実に読めるように（機能要件優先） */
+  transform: translateY(-12px) scale(1.02);
+  transform-origin: center center;
   box-shadow: 
-    0 20px 40px -10px hsl(var(--primary) / 0.3),
-    0 10px 20px -5px hsl(var(--primary) / 0.2),
-    0 0 0 1px hsl(var(--primary) / 0.1);
+    0 25px 50px -12px hsl(var(--primary) / 0.4),
+    0 15px 30px -8px hsl(var(--primary) / 0.3),
+    0 0 0 2px hsl(var(--primary) / 0.2);
+  /* ホバー時も背景色を維持（テキストの可読性を確保） */
+  background-color: hsl(var(--card));
 }
 
-/* カードのグロー効果 */
+/* カードホバー時もテキストの可読性を維持 */
+.card-3d:hover .card-3d-inner * {
+  position: relative;
+  z-index: 1;
+}
+
+/* テキストの色を明示的に設定（ホバー時も可読性を確保） */
+.card-3d .card-3d-inner [data-slot="card-title"],
+.card-3d .card-3d-inner [data-slot="card-header"],
+.card-3d .card-3d-inner [data-slot="card-content"] {
+  color: hsl(var(--card-foreground));
+}
+
+.card-3d:hover .card-3d-inner [data-slot="card-title"],
+.card-3d:hover .card-3d-inner [data-slot="card-header"],
+.card-3d:hover .card-3d-inner [data-slot="card-content"] {
+  color: hsl(var(--card-foreground));
+}
+
+/* カードのグロー効果 - 外側のみ（テキストの可読性を維持） */
 .card-glow {
   position: relative;
 }
@@ -599,13 +672,19 @@
 .card-glow::before {
   content: '';
   position: absolute;
-  inset: -2px;
+  inset: -12px;
   border-radius: inherit;
-  background: linear-gradient(135deg, hsl(var(--primary) / 0.5), transparent);
+  background: radial-gradient(
+    ellipse at center,
+    hsl(var(--primary) / 0.25) 0%,
+    hsl(var(--primary) / 0.1) 30%,
+    transparent 60%
+  );
   opacity: 0;
-  transition: opacity 0.3s ease-out;
-  z-index: -1;
-  filter: blur(8px);
+  transition: opacity 0.2s ease-out;
+  z-index: -2;
+  filter: blur(20px);
+  pointer-events: none;
 }
 
 .card-glow:hover::before {
@@ -631,6 +710,14 @@
     hsl(var(--primary-dark))
   );
   border-radius: 0 4px 4px 0;
+  transition: width 0.2s ease-out, box-shadow 0.2s ease-out;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.card-accent-line:hover::after {
+  width: 6px;
+  box-shadow: 0 0 12px hsl(var(--primary) / 0.8);
 }
 
 /* 展開時のカードのグラデーションボーダー */

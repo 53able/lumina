@@ -63,12 +63,13 @@ const PaperCardComponent: FC<PaperCardProps> = ({
           <TooltipTrigger asChild>
             <Badge
               variant="secondary"
-              className="cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 transition-all duration-200"
+              className="relative z-10 cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 hover:border-primary/50 hover:scale-105 transition-all duration-200"
+              onClick={(e) => e.stopPropagation()}
             >
               {category}
             </Badge>
           </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs">
+          <TooltipContent side="top" className="max-w-xs z-50">
             <p>{description}</p>
           </TooltipContent>
         </Tooltip>
@@ -76,7 +77,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
         <Badge
           key={category}
           variant="secondary"
-          className="font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
+          className="relative z-10 font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
         >
           {category}
         </Badge>
@@ -130,16 +131,16 @@ const PaperCardComponent: FC<PaperCardProps> = ({
   return (
     <Card
       role="article"
-      className={`cursor-pointer card-3d card-glow card-accent-line transition-all duration-300 relative ${
+      className={`cursor-pointer card-3d card-glow card-accent-line transition-all duration-200 relative ${
         isExpanded
           ? "card-expanded-border shadow-2xl bg-card/90 rotate-0"
-          : "hover:shadow-xl hover:shadow-primary/20 rotate-[-0.5deg] hover:animate-card-flip"
+          : "hover:shadow-xl hover:shadow-primary/20"
       } ${isClicking ? "scale-105 animate-button-press" : ""}`}
       onClick={handleCardClick}
       data-expanded={isExpanded}
       style={{
-        transformStyle: "preserve-3d",
         willChange: "transform, box-shadow",
+        backgroundColor: "hsl(var(--card))",
       }}
     >
       {/* リップルエフェクト用のオーバーレイ（角丸を維持しつつリップルを制限） */}
@@ -171,25 +172,25 @@ const PaperCardComponent: FC<PaperCardProps> = ({
                 #{index + 1}
               </span>
             )}
-            <CardTitle className="line-clamp-2 text-lg font-bold text-tight-bold">
+            <CardTitle className="card-title-hover line-clamp-2 text-lg font-bold text-tight-bold">
               {paper.title}
             </CardTitle>
           </div>
           {whyRead && (
             <p
-              className="text-sm line-clamp-2 mt-1 font-medium"
-              style={{ color: "hsl(var(--primary-light))" }}
+              className="card-text-hover text-sm line-clamp-2 mt-1 font-medium"
+              style={{ color: "hsl(var(--primary-light))", opacity: 0.9 }}
             >
               {whyRead}
             </p>
           )}
-          <p className="text-sm" style={{ opacity: 0.7 }}>
+          <p className="card-text-hover text-sm text-foreground" style={{ opacity: 0.8 }}>
             {authorsDisplay}
           </p>
         </CardHeader>
         <CardContent>
           {/* カテゴリバッジ（ツールチップ付き） - 大胆なスタイリング */}
-          <div className="mb-3 flex flex-wrap gap-2">{categoryBadges}</div>
+          <div className="relative z-10 mb-3 flex flex-wrap gap-2">{categoryBadges}</div>
 
           {/* 公開日とアクションボタン */}
           <div className="flex items-center justify-between">
@@ -197,7 +198,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
               {format(paper.publishedAt, "yyyy-MM-dd")}
             </span>
 
-            <div className="flex gap-1">
+            <div className="card-actions-hover flex gap-1">
               <Button
                 variant="ghost"
                 size="icon"
@@ -249,7 +250,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8"
+                    className="h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90"
                     asChild
                     onClick={(e) => e.stopPropagation()}
                   >
