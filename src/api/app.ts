@@ -26,11 +26,11 @@ export const createApp = () => {
     .use("*", securityHeadersMiddleware)
     .route("/", healthApp)
     .use("/api/v1/*", authMiddleware)
-    .route("/", categoriesApp)
-    .route("/", embeddingApp)
-    .route("/", searchApp)
-    .route("/", summaryApp)
-    .route("/", syncApp);
+    .route("/api/v1", categoriesApp)
+    .route("/api/v1", embeddingApp)
+    .route("/api/v1", searchApp)
+    .route("/api/v1", summaryApp)
+    .route("/api/v1", syncApp);
 };
 
 export type AppType = ReturnType<typeof createApp>;
