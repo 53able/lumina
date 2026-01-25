@@ -43,7 +43,7 @@ export const PaperCard: FC<PaperCardProps> = ({
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
-  
+
   // アニメーション用の状態
   const [isClicking, setIsClicking] = useState(false);
   const [ripplePosition, setRipplePosition] = useState<{ x: number; y: number } | null>(null);
@@ -61,27 +61,17 @@ export const PaperCard: FC<PaperCardProps> = ({
     onClick?.(paper);
   };
 
-  const handleLikeClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    toggleLike();
-  };
-
-  const handleBookmarkClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    toggleBookmark();
-  };
-  
   // いいね/ブックマーク時の大胆なエフェクト用の状態
   const [isLiking, setIsLiking] = useState(false);
   const [isBookmarking, setIsBookmarking] = useState(false);
-  
+
   const handleLikeClickWithEffect = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsLiking(true);
     setTimeout(() => setIsLiking(false), 600);
     toggleLike();
   };
-  
+
   const handleBookmarkClickWithEffect = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsBookmarking(true);
@@ -98,9 +88,9 @@ export const PaperCard: FC<PaperCardProps> = ({
   return (
     <Card
       role="article"
-      className={`cursor-pointer card-3d card-glow card-accent-line transition-all duration-300 relative overflow-hidden ${
-        isExpanded 
-          ? "card-expanded-border shadow-2xl bg-card/90 rotate-0" 
+      className={`cursor-pointer card-3d card-glow card-accent-line transition-all duration-300 relative ${
+        isExpanded
+          ? "card-expanded-border shadow-2xl bg-card/90 rotate-0"
           : "hover:shadow-xl hover:shadow-primary/20 rotate-[-0.5deg] hover:animate-card-flip"
       } ${isClicking ? "scale-105 animate-button-press" : ""}`}
       onClick={handleCardClick}
@@ -110,145 +100,154 @@ export const PaperCard: FC<PaperCardProps> = ({
         willChange: "transform, box-shadow",
       }}
     >
-      {/* リップルエフェクト */}
-      {ripplePosition && (
-        <span
-          className="animate-ripple absolute rounded-full bg-primary/30 pointer-events-none"
-          style={{
-            left: `${ripplePosition.x}px`,
-            top: `${ripplePosition.y}px`,
-            width: "20px",
-            height: "20px",
-            transform: "translate(-50%, -50%)",
-          }}
-        />
-      )}
-      <div className="card-3d-inner">
-      <CardHeader className="pb-2">
-        <div className="flex items-start gap-2">
-          {index !== undefined && (
-            <span 
-              className="shrink-0 inline-flex items-center justify-center h-8 min-w-8 px-2 rounded-md bg-primary/20 text-primary font-mono font-bold text-sm text-dense"
-              style={{
-                transform: "rotate(-2deg)",
-                boxShadow: "0 2px 8px hsl(var(--primary) / 0.3)",
-              }}
-            >
-              #{index + 1}
-            </span>
-          )}
-          <CardTitle className="line-clamp-2 text-lg font-bold text-tight-bold">{paper.title}</CardTitle>
-        </div>
-        {whyRead && (
-          <p className="text-sm line-clamp-2 mt-1 font-medium" style={{ color: "hsl(var(--primary-light))" }}>
-            {whyRead}
-          </p>
+      {/* リップルエフェクト用のオーバーレイ（角丸を維持しつつリップルを制限） */}
+      <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+        {ripplePosition && (
+          <span
+            className="animate-ripple absolute rounded-full bg-primary/30"
+            style={{
+              left: `${ripplePosition.x}px`,
+              top: `${ripplePosition.y}px`,
+              width: "20px",
+              height: "20px",
+              transform: "translate(-50%, -50%)",
+            }}
+          />
         )}
-        <p className="text-sm" style={{ opacity: 0.7 }}>{authorsDisplay}</p>
-      </CardHeader>
-      <CardContent>
-        {/* カテゴリバッジ（ツールチップ付き） - 大胆なスタイリング */}
-        <div className="mb-3 flex flex-wrap gap-2">
-          {paper.categories.map((category) => {
-            const description = getCategoryDescription(category);
-            return description ? (
-              <Tooltip key={category}>
-                <TooltipTrigger asChild>
-                  <Badge 
-                    variant="secondary" 
-                    className="cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 transition-all duration-200"
-                  >
-                    {category}
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <p>{description}</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Badge 
-                key={category} 
-                variant="secondary"
-                className="font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
+      </div>
+      <div className="card-3d-inner">
+        <CardHeader className="pb-2">
+          <div className="flex items-start gap-2">
+            {index !== undefined && (
+              <span
+                className="shrink-0 inline-flex items-center justify-center h-8 min-w-8 px-2 rounded-md bg-primary/20 text-primary font-mono font-bold text-sm text-dense"
+                style={{
+                  transform: "rotate(-2deg)",
+                  boxShadow: "0 2px 8px hsl(var(--primary) / 0.3)",
+                }}
               >
-                {category}
-              </Badge>
-            );
-          })}
-        </div>
-
-        {/* 公開日とアクションボタン */}
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            {format(paper.publishedAt, "yyyy-MM-dd")}
-          </span>
-
-          <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
-                isLiking ? "animate-pulse-glow" : ""
-              }`}
-              onClick={handleLikeClickWithEffect}
-              aria-label="いいね"
-              data-liked={isLiked}
-            >
-              <Heart
-                className={`h-4 w-4 transition-all duration-300 ${
-                  isLiked 
-                    ? "fill-current text-primary scale-125" 
-                    : isLiking
-                    ? "scale-150 text-primary"
-                    : ""
-                }`}
-                style={{
-                  transform: isLiking ? "scale(1.5) rotate(15deg)" : undefined,
-                }}
-              />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
-                isBookmarking ? "animate-pulse-glow" : ""
-              }`}
-              onClick={handleBookmarkClickWithEffect}
-              aria-label="ブックマーク"
-              data-bookmarked={isBookmarked}
-            >
-              <Bookmark
-                className={`h-4 w-4 transition-all duration-300 ${
-                  isBookmarked 
-                    ? "fill-current text-primary scale-125" 
-                    : isBookmarking
-                    ? "scale-150 text-primary"
-                    : ""
-                }`}
-                style={{
-                  transform: isBookmarking ? "scale(1.5) rotate(-15deg)" : undefined,
-                }}
-              />
-            </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  asChild
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Link to={`/papers/${paper.id}`} aria-label="詳細ページを開く">
-                    <ExternalLink className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>詳細ページを開く</TooltipContent>
-            </Tooltip>
+                #{index + 1}
+              </span>
+            )}
+            <CardTitle className="line-clamp-2 text-lg font-bold text-tight-bold">
+              {paper.title}
+            </CardTitle>
           </div>
-        </div>
-      </CardContent>
+          {whyRead && (
+            <p
+              className="text-sm line-clamp-2 mt-1 font-medium"
+              style={{ color: "hsl(var(--primary-light))" }}
+            >
+              {whyRead}
+            </p>
+          )}
+          <p className="text-sm" style={{ opacity: 0.7 }}>
+            {authorsDisplay}
+          </p>
+        </CardHeader>
+        <CardContent>
+          {/* カテゴリバッジ（ツールチップ付き） - 大胆なスタイリング */}
+          <div className="mb-3 flex flex-wrap gap-2">
+            {paper.categories.map((category) => {
+              const description = getCategoryDescription(category);
+              return description ? (
+                <Tooltip key={category}>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="secondary"
+                      className="cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 transition-all duration-200"
+                    >
+                      {category}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p>{description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Badge
+                  key={category}
+                  variant="secondary"
+                  className="font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
+                >
+                  {category}
+                </Badge>
+              );
+            })}
+          </div>
+
+          {/* 公開日とアクションボタン */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              {format(paper.publishedAt, "yyyy-MM-dd")}
+            </span>
+
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
+                  isLiking ? "animate-pulse-glow" : ""
+                }`}
+                onClick={handleLikeClickWithEffect}
+                aria-label="いいね"
+                data-liked={isLiked}
+              >
+                <Heart
+                  className={`h-4 w-4 transition-all duration-300 ${
+                    isLiked
+                      ? "fill-current text-primary scale-125"
+                      : isLiking
+                        ? "scale-150 text-primary"
+                        : ""
+                  }`}
+                  style={{
+                    transform: isLiking ? "scale(1.5) rotate(15deg)" : undefined,
+                  }}
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-8 w-8 transition-all duration-300 hover:scale-125 active:scale-90 relative ${
+                  isBookmarking ? "animate-pulse-glow" : ""
+                }`}
+                onClick={handleBookmarkClickWithEffect}
+                aria-label="ブックマーク"
+                data-bookmarked={isBookmarked}
+              >
+                <Bookmark
+                  className={`h-4 w-4 transition-all duration-300 ${
+                    isBookmarked
+                      ? "fill-current text-primary scale-125"
+                      : isBookmarking
+                        ? "scale-150 text-primary"
+                        : ""
+                  }`}
+                  style={{
+                    transform: isBookmarking ? "scale(1.5) rotate(-15deg)" : undefined,
+                  }}
+                />
+              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    asChild
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Link to={`/papers/${paper.id}`} aria-label="詳細ページを開く">
+                      <ExternalLink className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>詳細ページを開く</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        </CardContent>
       </div>
     </Card>
   );
