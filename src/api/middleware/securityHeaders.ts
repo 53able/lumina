@@ -31,7 +31,7 @@ const getSecurityHeaders = (isProd: boolean): Readonly<Record<string, string>> =
  */
 export const createSecurityHeadersMiddleware = (): MiddlewareHandler<{ Bindings: Env }> => {
   return async (c, next) => {
-    const isProd = c.env?.NODE_ENV === "production" || import.meta.env?.PROD;
+    const isProd = (c.env?.NODE_ENV === "production") || (import.meta.env?.PROD === true);
     const securityHeaders = getSecurityHeaders(!!isProd);
 
     await next();

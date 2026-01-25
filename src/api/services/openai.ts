@@ -71,7 +71,7 @@ export interface ExplanationResult {
  */
 export const getOpenAIConfig = (c: Context<{ Bindings: Env }>): OpenAIConfig => {
   const headerKey = c.req.header("X-OpenAI-API-Key");
-  const envKey = c.env.OPENAI_API_KEY;
+  const envKey = c.env?.OPENAI_API_KEY;
 
   const apiKey = headerKey ?? envKey;
 

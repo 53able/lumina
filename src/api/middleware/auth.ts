@@ -6,8 +6,8 @@ import type { Env } from "../types/env";
  */
 export const createAuthMiddleware = (): MiddlewareHandler<{ Bindings: Env }> => {
   return async (c, next) => {
-    const expectedUsername = c.env.BASIC_AUTH_USERNAME ?? "admin";
-    const expectedPassword = c.env.BASIC_AUTH_PASSWORD ?? "admin";
+    const expectedUsername = c.env?.BASIC_AUTH_USERNAME ?? "admin";
+    const expectedPassword = c.env?.BASIC_AUTH_PASSWORD ?? "admin";
 
     const authHeader = c.req.header("Authorization");
 
