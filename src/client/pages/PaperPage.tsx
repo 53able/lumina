@@ -50,7 +50,7 @@ export const PaperPage: FC = () => {
               <FileQuestion className="h-12 w-12 text-muted-foreground" />
             </div>
             <div className="text-center space-y-2">
-              <h1 className="text-2xl font-semibold">論文が見つかりません</h1>
+              <h1 className="text-2xl font-bold">論文が見つかりません</h1>
               <p className="text-muted-foreground">
                 ID: <code className="text-xs bg-muted px-2 py-1 rounded">{id}</code>
               </p>

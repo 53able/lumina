@@ -62,7 +62,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
       {/* ヘッダー */}
       <header>
         {/* タイトル */}
-        <h2 className="text-xl font-semibold leading-tight text-tight-bold">{paper.title}</h2>
+        <h2 className="text-xl font-bold leading-tight text-tight-bold">{paper.title}</h2>
 
         {/* 著者（全員表示） */}
         <p className="mt-2 text-sm text-muted-foreground">{paper.authors.join(", ")}</p>
@@ -81,7 +81,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
       <div className="space-y-4">
         {/* アブストラクト */}
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-muted-foreground">Abstract</h3>
+          <h3 className="mb-2 text-sm font-bold text-muted-foreground">Abstract</h3>
           <p className="text-sm leading-relaxed">{paper.abstract}</p>
         </div>
 

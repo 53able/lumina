@@ -107,7 +107,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     <div className="space-y-4">
       {/* セクションタイトルと言語切替 */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+        <h3 className="text-sm font-bold text-muted-foreground flex items-center gap-2">
           <Sparkles className="h-4 w-4" />
           AI分析
         </h3>
@@ -173,7 +173,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
               {summary.keyPoints.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-medium text-muted-foreground mb-2">キーポイント</h4>
+                  <h4 className="text-xs text-muted-foreground mb-2">キーポイント</h4>
                   <ul className="space-y-1">
                     {summary.keyPoints.map((point) => (
                       <li key={point} className="text-sm flex items-start gap-2">
@@ -214,7 +214,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
                   <Users className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                   <div>
-                    <h4 className="text-xs font-medium text-muted-foreground mb-1">対象読者</h4>
+                    <h4 className="text-xs text-muted-foreground mb-1">対象読者</h4>
                     <p className="text-sm">{summary.targetAudience}</p>
                   </div>
                 </div>
@@ -225,9 +225,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 <div className="flex items-start gap-2 p-3 bg-primary/5 rounded-lg border border-primary/10">
                   <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                   <div>
-                    <h4 className="text-xs font-medium text-muted-foreground mb-1">
-                      読むと得られるもの
-                    </h4>
+                    <h4 className="text-xs text-muted-foreground mb-1">読むと得られるもの</h4>
                     <p className="text-sm">{summary.whyRead}</p>
                   </div>
                 </div>

@@ -2,11 +2,7 @@ import { Settings, Sparkles } from "lucide-react";
 import { type FC, useCallback, useEffect, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
-import type {
-  Paper,
-  PaperSummary,
-  SearchHistory as SearchHistoryType,
-} from "../shared/schemas/index";
+import type { Paper, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
 import { PaperDetail } from "./components/PaperDetail";
 import { PaperExplorer } from "./components/PaperExplorer";
 import { SearchHistory } from "./components/SearchHistory";
@@ -22,9 +18,9 @@ import {
 } from "./components/ui/sheet.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
 import { useMediaQuery } from "./hooks/useMediaQuery";
+import { usePaperSummary } from "./hooks/usePaperSummary";
 import { useSemanticSearch } from "./hooks/useSemanticSearch";
 import { useSyncPapers } from "./hooks/useSyncPapers";
-import { getDecryptedApiKey, summaryApi } from "./lib/api";
 import { PaperPage } from "./pages/PaperPage";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
@@ -79,11 +75,28 @@ const HomePage: FC = () => {
 
   // 論文詳細の状態（デスクトップ: 詳細パネル、モバイル: Sheet）
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
-  const [summaryLanguage, setSummaryLanguage] = useState<"ja" | "en">("ja");
-  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
 
-  // サマリーストア
-  const { getSummaryByPaperIdAndLanguage, addSummary, summaries } = useSummaryStore();
+  // サマリー管理（カスタムフックに責務を委譲）
+  const {
+    summary: currentSummary,
+    summaryLanguage,
+    setSummaryLanguage,
+    isLoading: isSummaryLoading,
+    generateSummary,
+  } = usePaperSummary({
+    paperId: selectedPaper?.id ?? "",
+    abstract: selectedPaper?.abstract ?? "",
+    onError: (err) => {
+      console.error("Summary generation error:", err);
+      const message = err instanceof Error ? err.message : "要約の生成に失敗しました";
+      toast.error("要約生成エラー", {
+        description: message,
+      });
+    },
+  });
+
+  // サマリーストア（whyReadMap生成用、展開中の論文のサマリー取得用）
+  const { summaries, getSummaryByPaperIdAndLanguage } = useSummaryStore();
 
   // whyReadMap を生成（論文ID → whyRead のマップ）
   // summaryLanguage に合わせた言語の whyRead を取得
@@ -142,82 +155,23 @@ const HomePage: FC = () => {
     setSelectedPaper(null);
   }, []);
 
-  // 現在選択中の論文のサマリー
-  const currentSummary: PaperSummary | undefined = selectedPaper
-    ? getSummaryByPaperIdAndLanguage(selectedPaper.id, summaryLanguage)
-    : undefined;
-
-  // サマリー生成ハンドラー
-  // target: "explanation" = 説明文のみ, "both" = 要約と説明文の両方
+  // サマリー生成ハンドラー（PaperDetailのインターフェースに合わせたラッパー）
   const handleGenerateSummary = useCallback(
-    async (paperId: string, language: "ja" | "en", target: "explanation" | "both" = "both") => {
-      if (!selectedPaper) return;
-
-      setIsSummaryLoading(true);
-      try {
-        // API key を復号化して取得
-        const decryptedApiKey = await getDecryptedApiKey();
-
-        const newData = await summaryApi(
-          paperId,
-          { language, abstract: selectedPaper.abstract, generateTarget: target },
-          { apiKey: decryptedApiKey }
-        );
-
-        // APIレスポンスの日付を正規化（JSON では string として返る）
-        // Hono RPC の型推論では Date だが、実際の JSON では string
-        const normalizedData: PaperSummary = {
-          paperId: newData.paperId,
-          summary: newData.summary,
-          keyPoints: newData.keyPoints,
-          language: newData.language,
-          // JSON では常に ISO 文字列として返るので、Date に変換
-          createdAt: new Date(newData.createdAt as unknown as string),
-          // オプショナルフィールド（型安全にアクセス）
-          explanation:
-            "explanation" in newData && typeof newData.explanation === "string"
-              ? newData.explanation
-              : undefined,
-          targetAudience:
-            "targetAudience" in newData && typeof newData.targetAudience === "string"
-              ? newData.targetAudience
-              : undefined,
-          whyRead:
-            "whyRead" in newData && typeof newData.whyRead === "string"
-              ? newData.whyRead
-              : undefined,
-        };
-
-        // 説明文のみ生成の場合、既存の要約を維持してマージ
-        const existingSummary = getSummaryByPaperIdAndLanguage(paperId, language);
-        const mergedSummary: PaperSummary =
-          target === "explanation" && existingSummary
-            ? {
-                ...existingSummary,
-                explanation: normalizedData.explanation,
-                targetAudience: normalizedData.targetAudience,
-                whyRead: normalizedData.whyRead,
-              }
-            : normalizedData;
-
-        await addSummary(mergedSummary);
-      } catch (error) {
-        console.error("Summary generation error:", error);
-        const message = error instanceof Error ? error.message : "要約の生成に失敗しました";
-        toast.error("要約生成エラー", {
-          description: message,
-        });
-      } finally {
-        setIsSummaryLoading(false);
-      }
+    async (_paperId: string, language: "ja" | "en", target: "explanation" | "both" = "both") => {
+      // usePaperSummaryのgenerateSummaryはlanguageがオプショナルなので、明示的に渡す
+      // paperIdはusePaperSummaryの初期化時に設定されているため、ここでは使用しない
+      await generateSummary(language, target);
     },
-    [selectedPaper, addSummary, getSummaryByPaperIdAndLanguage]
+    [generateSummary]
   );
 
   // サマリー言語切替
-  const handleSummaryLanguageChange = useCallback((language: "ja" | "en") => {
-    setSummaryLanguage(language);
-  }, []);
+  const handleSummaryLanguageChange = useCallback(
+    (language: "ja" | "en") => {
+      setSummaryLanguage(language);
+    },
+    [setSummaryLanguage]
+  );
 
   // 同期処理（React Query useQuery + 5分キャッシュ）
   const {
@@ -318,7 +272,7 @@ const HomePage: FC = () => {
             {/* モバイルでは何も表示しない、デスクトップでも空 */}
           </div>
 
-          {/* 中央: ロゴ・タイトル - 大胆なエフェクト */}
+          {/* 中央: ロゴ・タイトル - グローエフェクト */}
           <div className="flex items-center gap-3 glow-effect justify-center">
             <div className="relative">
               <Sparkles
@@ -402,19 +356,18 @@ const HomePage: FC = () => {
 
       {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
       <div className="flex min-h-0 relative">
-        {/* 視線誘導の基準線 - 大胆に強化 */}
-        <div
-          className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 pointer-events-none z-0"
-          style={{
-            background:
-              "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
-            boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
-            filter: "blur(1px)",
-          }}
-        />
-
-        {/* Sidebar - 検索履歴 - 大胆な余白 */}
-        <aside className="hidden lg:flex w-64 flex-col border-r-2 border-primary/20 bg-sidebar/50 relative z-10">
+        {/* Sidebar - 検索履歴 */}
+        <aside className="hidden lg:flex w-64 flex-col bg-sidebar/50 relative z-10">
+          {/* 視線誘導の基準線 - サイドバーとメインコンテンツの境界 */}
+          <div
+            className="absolute right-0 top-0 bottom-0 w-[3px] pointer-events-none z-20"
+            style={{
+              background:
+                "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
+              boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
+              filter: "blur(1px)",
+            }}
+          />
           <div className="px-6 pt-6 pb-4">
             <h3
               className="text-sm font-bold uppercase tracking-wider text-primary-light"
@@ -433,12 +386,12 @@ const HomePage: FC = () => {
           </div>
         </aside>
 
-        {/* Main Content - 論文リスト - 大胆な余白 */}
+        {/* Main Content - 論文リスト */}
         <main className="flex-1 overflow-y-auto min-w-0 relative z-10">
           <div className="px-6 py-8 lg:px-12 lg:py-10">
-            {/* 拡張クエリ情報の表示 - 明度による階層化 - 大胆なスタイリング */}
+            {/* 拡張クエリ情報の表示 - ロジック駆動: 関連要素は近くに */}
             {expandedQuery && (
-              <div className="mb-10 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
+              <div className="mb-4 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
                 <p className="text-sm" style={{ opacity: 1 }}>
                   <span className="font-bold text-primary-light" style={{ opacity: 1 }}>
                     検索クエリ:
@@ -487,7 +440,7 @@ const HomePage: FC = () => {
               }
             />
 
-            {/* ローディング中の検索結果表示 - 大胆なアニメーション */}
+            {/* ローディング中の検索結果表示 */}
             {isLoading && results.length === 0 && (
               <div className="mt-12 grid place-items-center">
                 <div className="flex flex-col items-center gap-3">

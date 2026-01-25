@@ -187,24 +187,25 @@
     @apply bg-background text-foreground antialiased;
   }
 
-  /* タイポグラフィ - 極端な文字詰めと異種フォントの混合 */
+  /* タイポグラフィ - ロジック駆動UIデザイン: フォントウェイト400/700のみ、適切な文字間隔 */
   h1, h2, h3, h4, h5, h6 {
-    letter-spacing: -0.08em; /* より極端な文字詰め */
-    font-weight: 700;
-    line-height: 1.1; /* 行間を詰める */
-  }
-
-  /* 本文の文字詰め */
-  p, span, div {
-    letter-spacing: -0.05em; /* より大胆な文字詰め */
+    font-weight: 700; /* ボールドのみ */
+    letter-spacing: -0.03em; /* 大きなテキストの適切な文字詰め（-0.02emから-0.05emの範囲） */
     line-height: 1.2;
   }
 
-  /* コード・数値は等幅フォントで区別 */
+  /* 本文: レギュラー（400）、文字間隔はデフォルト */
+  p, span, div {
+    font-weight: 400; /* レギュラー */
+    letter-spacing: 0; /* 過度な文字詰めを避ける */
+    line-height: 1.5;
+  }
+
+  /* コード・数値: ボールド（700）のみ */
   code, pre, .font-mono {
+    font-weight: 700; /* ボールドのみ */
     letter-spacing: 0;
     font-family: var(--font-mono);
-    font-weight: 600; /* より太く */
   }
   
   /* 斜めのテキスト用クラス */
@@ -234,8 +235,9 @@
 
   /* より大胆な文字詰め */
   .text-tight-bold {
-    letter-spacing: -0.08em;
-    line-height: 1.1;
+    letter-spacing: -0.03em; /* 適切な文字詰め */
+    line-height: 1.2;
+    font-weight: 700; /* ボールドのみ */
   }
 
   /* 長体（縦に縮める） */
@@ -246,9 +248,9 @@
 
   /* 文字の密度を高める */
   .text-dense {
-    letter-spacing: -0.1em;
-    line-height: 1;
-    font-weight: 800;
+    letter-spacing: -0.05em; /* 過度な文字詰めを避ける */
+    line-height: 1.2;
+    font-weight: 700; /* ボールドのみ */
   }
 
   /* カードホバー時のテキスト強調 - 可読性を最優先 */
