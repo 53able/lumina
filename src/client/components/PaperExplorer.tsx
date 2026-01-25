@@ -140,10 +140,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const hasSearched = searchQuery !== null;
 
   return (
-    <div className="space-y-6">
-      {/* Hero Search Section - 大胆な余白 */}
+    <div className="space-y-8">
+      {/* Hero Search Section - ロジック駆動: 関連要素は近くに、無関係な要素は離す */}
       <section className="space-y-4">
-        <div className="space-y-0.5">
+        <div className="space-y-2">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold tracking-tight lg:text-2xl">
               <span className="bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
@@ -157,7 +157,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 onClick={handleClear}
                 className="h-7 px-2 text-muted-foreground hover:text-foreground"
               >
-                <X className="mr-1 h-3.5 w-3.5" />
+                <X className="mr-2 h-4 w-4" />
                 クリア
               </Button>
             )}
@@ -172,11 +172,11 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         {/* 検索ボックス */}
         <PaperSearch onSearch={handleSearch} isLoading={isLoading} />
 
-        {/* フィルター（論文がある場合、またはフィルターが有効な場合に表示） - 大胆な余白 */}
+        {/* フィルター（論文がある場合、またはフィルターが有効な場合に表示） */}
         {(initialPapers.length > 0 || filterMode !== "all" || selectedCategories.size > 0) && (
           <div className="flex flex-wrap items-center gap-4 pt-2">
             {/* いいね/ブックマークフィルター */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <span className="text-muted-foreground/60 text-xs mr-1">表示:</span>
 
               {/* いいねフィルター */}
@@ -195,9 +195,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     // フィルターが既に有効な場合は解除できるようにする（disabledを解除）
                     disabled={likedCount === 0 && filterMode !== "liked"}
                   >
-                    <Heart
-                      className={cn("h-3.5 w-3.5", filterMode === "liked" && "fill-current")}
-                    />
+                    <Heart className={cn("h-4 w-4", filterMode === "liked" && "fill-current")} />
                     <span className="text-xs">{likedCount}</span>
                   </Button>
                 </TooltipTrigger>
@@ -223,7 +221,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     disabled={bookmarkedCount === 0 && filterMode !== "bookmarked"}
                   >
                     <Bookmark
-                      className={cn("h-3.5 w-3.5", filterMode === "bookmarked" && "fill-current")}
+                      className={cn("h-4 w-4", filterMode === "bookmarked" && "fill-current")}
                     />
                     <span className="text-xs">{bookmarkedCount}</span>
                   </Button>

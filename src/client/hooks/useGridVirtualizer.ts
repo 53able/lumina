@@ -91,6 +91,7 @@ export const useGridVirtualizer = <T>({
   const [containerWidth, setContainerWidth] = useState(0);
 
   // ResizeObserverでコンテナ幅を監視
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
   useEffect(() => {
     const element = gridContainerRef.current;
     if (!element) {
@@ -122,10 +123,10 @@ export const useGridVirtualizer = <T>({
     observer.observe(element);
 
     return () => observer.disconnect();
-    // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
   }, []); // マウント時のみ実行（ResizeObserverが自動的にサイズ変更を監視するため）
 
   // SSRからのハイドレーション時に確実に幅を再計算
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentとcontainerWidthは意図的に依存配列から除外（マウント時のみ実行したいため）
   useEffect(() => {
     // マウント直後に幅を強制的に取得（SSRとの差異を解消）
     if (gridContainerRef.current) {
@@ -134,7 +135,6 @@ export const useGridVirtualizer = <T>({
         setContainerWidth(width);
       }
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentとcontainerWidthは意図的に依存配列から除外（マウント時のみ実行したいため）
   }, []); // マウント時のみ実行
 
   // 列数とアイテム幅を計算
@@ -223,12 +223,12 @@ export const useGridVirtualizer = <T>({
   // SSR時はfalse、クライアント側でマウント後にtrueになる
   const [scrollContainerReady, setScrollContainerReady] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
   useEffect(() => {
     // マウント後にスクロールコンテナの存在をチェック
     if (scrollContainerRef.current !== null && !scrollContainerReady) {
       setScrollContainerReady(true);
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: ref.currentは変更されても再レンダリングをトリガーしないため、依存配列に含めない
   }, [scrollContainerReady]); // scrollContainerReadyを依存配列に追加
 
   // TanStack Virtual の virtualizer
