@@ -1,5 +1,5 @@
-import { rateLimiter } from "hono-rate-limiter";
 import type { MiddlewareHandler } from "hono";
+import { rateLimiter } from "hono-rate-limiter";
 import type { Env } from "../types/env";
 
 /**

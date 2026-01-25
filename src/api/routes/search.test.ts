@@ -200,6 +200,5 @@ describe("検索API", () => {
       // Assert
       expect(response.status).toBe(400);
     });
-
   });
 });

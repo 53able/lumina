@@ -211,6 +211,5 @@ describe("同期API", () => {
       // Assert
       expect(response.status).toBe(400);
     });
-
   });
 });
