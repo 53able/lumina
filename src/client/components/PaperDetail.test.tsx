@@ -187,8 +187,7 @@ describe("PaperDetail", () => {
       const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
-      // 「要約のみ」と「要約 + 説明文」の2つのボタンが表示される
-      expect(screen.getByRole("button", { name: /要約のみ/i })).toBeInTheDocument();
+      // 「要約 + 説明文」ボタンが表示される
       expect(screen.getByRole("button", { name: /要約 \+ 説明文/i })).toBeInTheDocument();
     });
 

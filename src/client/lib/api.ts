@@ -147,11 +147,10 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
 
 /**
  * 生成対象の種類
- * - summary: 要約のみ
  * - explanation: 説明文のみ（既存の要約がある場合に使用）
  * - both: 要約と説明文の両方
  */
-export type GenerateTarget = "summary" | "explanation" | "both";
+export type GenerateTarget = "explanation" | "both";
 
 /**
  * 要約APIの入力型
@@ -159,7 +158,7 @@ export type GenerateTarget = "summary" | "explanation" | "both";
 type SummaryApiInput = {
   language: "ja" | "en";
   abstract?: string;
-  /** 生成対象（デフォルト: summary） */
+  /** 生成対象（デフォルト: both） */
   generateTarget?: GenerateTarget;
 };
 

@@ -30,7 +30,7 @@ interface UsePaperSummaryReturn {
   /**
    * 要約を生成する
    * @param language - 言語（省略時は summaryLanguage を使用）
-   * @param target - 生成対象（デフォルト: "summary"）
+   * @param target - 生成対象（デフォルト: "both"）
    */
   generateSummary: (language?: "ja" | "en", target?: GenerateTarget) => Promise<void>;
 }
@@ -74,11 +74,11 @@ const normalizeSummaryResponse = (data: Awaited<ReturnType<typeof summaryApi>>):
  *     onError: (err) => toast.error(err.message),
  *   });
  *
- * // 要約生成
- * await generateSummary("summary");
+ * // 要約と説明文を生成
+ * await generateSummary(undefined, "both");
  *
  * // 説明文のみ追加生成
- * await generateSummary("explanation");
+ * await generateSummary(undefined, "explanation");
  * ```
  */
 export const usePaperSummary = ({
@@ -95,7 +95,7 @@ export const usePaperSummary = ({
   const summary = getSummaryByPaperIdAndLanguage(paperId, summaryLanguage);
 
   const generateSummary = useCallback(
-    async (languageOverride?: "ja" | "en", target: GenerateTarget = "summary") => {
+    async (languageOverride?: "ja" | "en", target: GenerateTarget = "both") => {
       const language = languageOverride ?? summaryLanguage;
       setIsLoading(true);
 

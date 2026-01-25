@@ -42,8 +42,7 @@ describe("PaperSummary", () => {
     it("正常系: 要約がない場合は生成ボタンを表示する", () => {
       render(<PaperSummary paperId="2401.00001" />);
 
-      // 「要約のみ」と「要約 + 説明文」の2つのボタンが表示される
-      expect(screen.getByRole("button", { name: /要約のみ/i })).toBeInTheDocument();
+      // 「要約 + 説明文」ボタンが表示される
       expect(screen.getByRole("button", { name: /要約 \+ 説明文/i })).toBeInTheDocument();
     });
 

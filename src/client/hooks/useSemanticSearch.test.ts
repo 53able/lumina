@@ -93,6 +93,7 @@ describe("useSemanticSearch", () => {
       expect(result.current.results).toEqual([]);
       expect(result.current.error).toBeNull();
       expect(result.current.expandedQuery).toBeNull();
+      expect(result.current.queryEmbedding).toBeNull();
     });
   });
 
@@ -183,6 +184,47 @@ describe("useSemanticSearch", () => {
       });
 
       expect(result.current.expandedQuery).toEqual(mockSearchResponse.expandedQuery);
+    });
+
+    it("queryEmbeddingが取得できる", async () => {
+      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+
+      expect(result.current.queryEmbedding).toEqual(mockSearchResponse.queryEmbedding);
+    });
+  });
+
+  describe("保存済みデータでの検索", () => {
+    it("searchWithSavedDataでAPIリクエストなしで検索できる", async () => {
+      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+
+      await act(async () => {
+        await result.current.searchWithSavedData(
+          mockSearchResponse.expandedQuery,
+          mockSearchResponse.queryEmbedding
+        );
+      });
+
+      // fetchが呼ばれていないことを確認
+      expect(mockFetch).not.toHaveBeenCalled();
+
+      // 検索結果が取得できていることを確認
+      expect(result.current.results.length).toBeGreaterThan(0);
+      expect(result.current.expandedQuery).toEqual(mockSearchResponse.expandedQuery);
+      expect(result.current.queryEmbedding).toEqual(mockSearchResponse.queryEmbedding);
+    });
+
+    it("searchWithSavedDataで空のqueryEmbeddingの場合は結果が空になる", async () => {
+      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+
+      await act(async () => {
+        await result.current.searchWithSavedData(mockSearchResponse.expandedQuery, []);
+      });
+
+      expect(result.current.results).toEqual([]);
     });
   });
 
@@ -279,6 +321,7 @@ describe("useSemanticSearch", () => {
 
       expect(result.current.results).toEqual([]);
       expect(result.current.expandedQuery).toBeNull();
+      expect(result.current.queryEmbedding).toBeNull();
       expect(result.current.error).toBeNull();
     });
   });

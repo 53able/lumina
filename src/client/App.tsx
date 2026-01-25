@@ -61,9 +61,11 @@ const HomePage: FC = () => {
     useSettingsStore();
   const {
     search,
+    searchWithSavedData,
     results,
     isLoading,
     expandedQuery,
+    queryEmbedding,
     reset: clearSearch,
   } = useSemanticSearch({
     papers,
@@ -100,12 +102,13 @@ const HomePage: FC = () => {
 
   // 検索成功時に履歴を追加
   useEffect(() => {
-    // expandedQueryがあり、検索クエリが記録されている場合のみ
-    if (expandedQuery && lastSearchQueryRef.current) {
+    // expandedQueryとqueryEmbeddingがあり、検索クエリが記録されている場合のみ
+    if (expandedQuery && queryEmbedding && lastSearchQueryRef.current) {
       const history = {
         id: crypto.randomUUID(),
         originalQuery: lastSearchQueryRef.current,
         expandedQuery,
+        queryEmbedding,
         resultCount: results.length,
         createdAt: new Date(),
       };
@@ -113,7 +116,7 @@ const HomePage: FC = () => {
       // 追加後にリセット（重複防止）
       lastSearchQueryRef.current = null;
     }
-  }, [expandedQuery, results.length, addHistory]);
+  }, [expandedQuery, queryEmbedding, results.length, addHistory]);
 
   // 検索ハンドラー
   const handleSearch = useCallback(
@@ -145,12 +148,12 @@ const HomePage: FC = () => {
     : undefined;
 
   // サマリー生成ハンドラー
-  // target: "summary" = 要約のみ, "explanation" = 説明文のみ, "both" = 両方
+  // target: "explanation" = 説明文のみ, "both" = 要約と説明文の両方
   const handleGenerateSummary = useCallback(
     async (
       paperId: string,
       language: "ja" | "en",
-      target: "summary" | "explanation" | "both" = "summary"
+      target: "explanation" | "both" = "both"
     ) => {
       if (!selectedPaper) return;
 
@@ -278,11 +281,18 @@ const HomePage: FC = () => {
   // 検索履歴から再検索
   const handleReSearch = useCallback(
     (history: SearchHistoryType) => {
-      // 履歴追加用にクエリを記録（既存履歴が更新される）
-      lastSearchQueryRef.current = history.originalQuery;
-      search(history.originalQuery);
+      // 履歴にqueryEmbeddingが保存されている場合は、保存済みデータを使用（APIリクエストなし）
+      if (history.queryEmbedding && history.queryEmbedding.length > 0) {
+        // 履歴追加用にクエリを記録（既存履歴が更新される）
+        lastSearchQueryRef.current = history.originalQuery;
+        searchWithSavedData(history.expandedQuery, history.queryEmbedding);
+      } else {
+        // queryEmbeddingがない場合は通常の検索を実行（APIリクエストあり）
+        lastSearchQueryRef.current = history.originalQuery;
+        search(history.originalQuery);
+      }
     },
-    [search]
+    [search, searchWithSavedData]
   );
 
   // 検索履歴を削除
@@ -386,7 +396,7 @@ const HomePage: FC = () => {
 
       {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
       <div className="flex min-h-0 relative">
-        {/* 視線誘導の基準線（ペルソナ5原則） - 大胆に強化 */}
+        {/* 視線誘導の基準線 - 大胆に強化 */}
         <div
           className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 pointer-events-none z-0"
           style={{
@@ -420,7 +430,7 @@ const HomePage: FC = () => {
         {/* Main Content - 論文リスト - 大胆な余白 */}
         <main className="flex-1 overflow-y-auto min-w-0 relative z-10">
           <div className="px-6 py-8 lg:px-12 lg:py-10">
-            {/* 拡張クエリ情報の表示 - 明度による階層化（ペルソナ5原則） - 大胆なスタイリング */}
+            {/* 拡張クエリ情報の表示 - 明度による階層化 - 大胆なスタイリング */}
             {expandedQuery && (
               <div className="mb-10 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
                 <p className="text-sm" style={{ opacity: 1 }}>
