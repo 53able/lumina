@@ -1,7 +1,6 @@
 import { format } from "date-fns";
 import { Bookmark, ExternalLink, Heart } from "lucide-react";
-import type { FC } from "react";
-import { useState } from "react";
+import { memo, type FC, useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteraction } from "../contexts/InteractionContext";
@@ -34,7 +33,7 @@ interface PaperCardProps {
  * - 論文タイトル、著者、カテゴリ、公開日の表示
  * - いいね/ブックマークボタン
  */
-export const PaperCard: FC<PaperCardProps> = ({
+const PaperCardComponent: FC<PaperCardProps> = ({
   paper,
   onClick,
   whyRead,
@@ -48,42 +47,85 @@ export const PaperCard: FC<PaperCardProps> = ({
   const [isClicking, setIsClicking] = useState(false);
   const [ripplePosition, setRipplePosition] = useState<{ x: number; y: number } | null>(null);
 
-  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setRipplePosition({ x, y });
-    setIsClicking(true);
-    setTimeout(() => {
-      setIsClicking(false);
-      setRipplePosition(null);
-    }, 600);
-    onClick?.(paper);
-  };
+  // 著者の表示（3人以上の場合は省略）をメモ化
+  const authorsDisplay = useMemo(() => {
+    return paper.authors.length > 3
+      ? `${paper.authors.slice(0, 3).join(", ")} et al.`
+      : paper.authors.join(", ");
+  }, [paper.authors]);
+
+  // カテゴリバッジのJSXをメモ化
+  const categoryBadges = useMemo(() => {
+    return paper.categories.map((category) => {
+      const description = getCategoryDescription(category);
+      return description ? (
+        <Tooltip key={category}>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="secondary"
+              className="cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 transition-all duration-200"
+            >
+              {category}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs">
+            <p>{description}</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <Badge
+          key={category}
+          variant="secondary"
+          className="font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
+        >
+          {category}
+        </Badge>
+      );
+    });
+  }, [paper.categories]);
+
+  // カードクリックハンドラーをメモ化
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setRipplePosition({ x, y });
+      setIsClicking(true);
+      setTimeout(() => {
+        setIsClicking(false);
+        setRipplePosition(null);
+      }, 600);
+      onClick?.(paper);
+    },
+    [onClick, paper]
+  );
 
   // いいね/ブックマーク時の大胆なエフェクト用の状態
   const [isLiking, setIsLiking] = useState(false);
   const [isBookmarking, setIsBookmarking] = useState(false);
 
-  const handleLikeClickWithEffect = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsLiking(true);
-    setTimeout(() => setIsLiking(false), 600);
-    toggleLike();
-  };
+  // いいねクリックハンドラーをメモ化
+  const handleLikeClickWithEffect = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsLiking(true);
+      setTimeout(() => setIsLiking(false), 600);
+      toggleLike();
+    },
+    [toggleLike]
+  );
 
-  const handleBookmarkClickWithEffect = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsBookmarking(true);
-    setTimeout(() => setIsBookmarking(false), 600);
-    toggleBookmark();
-  };
-
-  // 著者の表示（3人以上の場合は省略）
-  const authorsDisplay =
-    paper.authors.length > 3
-      ? `${paper.authors.slice(0, 3).join(", ")} et al.`
-      : paper.authors.join(", ");
+  // ブックマーククリックハンドラーをメモ化
+  const handleBookmarkClickWithEffect = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsBookmarking(true);
+      setTimeout(() => setIsBookmarking(false), 600);
+      toggleBookmark();
+    },
+    [toggleBookmark]
+  );
 
   return (
     <Card
@@ -147,34 +189,7 @@ export const PaperCard: FC<PaperCardProps> = ({
         </CardHeader>
         <CardContent>
           {/* カテゴリバッジ（ツールチップ付き） - 大胆なスタイリング */}
-          <div className="mb-3 flex flex-wrap gap-2">
-            {paper.categories.map((category) => {
-              const description = getCategoryDescription(category);
-              return description ? (
-                <Tooltip key={category}>
-                  <TooltipTrigger asChild>
-                    <Badge
-                      variant="secondary"
-                      className="cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 transition-all duration-200"
-                    >
-                      {category}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs">
-                    <p>{description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <Badge
-                  key={category}
-                  variant="secondary"
-                  className="font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
-                >
-                  {category}
-                </Badge>
-              );
-            })}
-          </div>
+          <div className="mb-3 flex flex-wrap gap-2">{categoryBadges}</div>
 
           {/* 公開日とアクションボタン */}
           <div className="flex items-center justify-between">
@@ -252,3 +267,19 @@ export const PaperCard: FC<PaperCardProps> = ({
     </Card>
   );
 };
+
+/**
+ * PaperCard - メモ化された論文カードコンポーネント
+ *
+ * React.memoでラップし、propsが変更された場合のみ再レンダリング
+ */
+export const PaperCard = memo(PaperCardComponent, (prevProps, nextProps) => {
+  // カスタム比較関数: 必要なpropsのみを比較
+  return (
+    prevProps.paper.id === nextProps.paper.id &&
+    prevProps.isExpanded === nextProps.isExpanded &&
+    prevProps.whyRead === nextProps.whyRead &&
+    prevProps.index === nextProps.index &&
+    prevProps.onClick === nextProps.onClick
+  );
+});
