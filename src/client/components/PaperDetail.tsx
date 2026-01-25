@@ -131,11 +131,11 @@ export const PaperDetail: FC<PaperDetailProps> = ({
               aria-label="いいね"
               data-liked={isLiked}
             >
-              <Heart className={`h-5 w-5 transition-all duration-300 ${
-                isLiked 
-                  ? "fill-current text-primary scale-125" 
-                  : "hover:text-primary"
-              }`} />
+              <Heart
+                className={`h-5 w-5 transition-all duration-300 ${
+                  isLiked ? "fill-current text-primary scale-125" : "hover:text-primary"
+                }`}
+              />
             </Button>
             <Button
               variant="ghost"
@@ -146,9 +146,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             >
               <Bookmark
                 className={`h-5 w-5 transition-all duration-300 ${
-                  isBookmarked 
-                    ? "fill-current text-primary scale-125" 
-                    : "hover:text-primary"
+                  isBookmarked ? "fill-current text-primary scale-125" : "hover:text-primary"
                 }`}
               />
             </Button>

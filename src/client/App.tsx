@@ -315,7 +315,10 @@ const HomePage: FC = () => {
           {/* 中央: ロゴ・タイトル - 大胆なエフェクト */}
           <div className="flex items-center gap-3 glow-effect justify-center">
             <div className="relative">
-              <Sparkles className="h-8 w-8 text-primary animate-glow" style={{ filter: "drop-shadow(0 0 8px hsl(var(--primary) / 0.6))" }} />
+              <Sparkles
+                className="h-8 w-8 text-primary animate-glow"
+                style={{ filter: "drop-shadow(0 0 8px hsl(var(--primary) / 0.6))" }}
+              />
               <div className="absolute inset-0 blur-xl bg-primary/30 rounded-full animate-pulse-glow" />
             </div>
             <div className="flex items-baseline gap-3">
@@ -324,7 +327,10 @@ const HomePage: FC = () => {
                   Lumina
                 </span>
               </h1>
-              <span className="hidden sm:inline text-sm font-mono text-rotate-slight font-bold" style={{ opacity: 0.7 }}>
+              <span
+                className="hidden sm:inline text-sm font-mono text-rotate-slight font-bold"
+                style={{ opacity: 0.7 }}
+              >
                 arXiv論文セマンティック検索
               </span>
             </div>
@@ -381,10 +387,11 @@ const HomePage: FC = () => {
       {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
       <div className="flex min-h-0 relative">
         {/* 視線誘導の基準線（ペルソナ5原則） - 大胆に強化 */}
-        <div 
+        <div
           className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 pointer-events-none z-0"
           style={{
-            background: "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
+            background:
+              "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
             boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
             filter: "blur(1px)",
           }}
@@ -393,7 +400,10 @@ const HomePage: FC = () => {
         {/* Sidebar - 検索履歴 - 大胆な余白 */}
         <aside className="hidden lg:flex w-64 flex-col border-r-2 border-primary/20 bg-sidebar/50 relative z-10">
           <div className="px-6 pt-6 pb-4">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-primary-light" style={{ opacity: 1 }}>
+            <h3
+              className="text-sm font-bold uppercase tracking-wider text-primary-light"
+              style={{ opacity: 1 }}
+            >
               検索履歴
             </h3>
           </div>
@@ -414,7 +424,9 @@ const HomePage: FC = () => {
             {expandedQuery && (
               <div className="mb-10 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
                 <p className="text-sm" style={{ opacity: 1 }}>
-                  <span className="font-bold text-primary-light" style={{ opacity: 1 }}>検索クエリ:</span>{" "}
+                  <span className="font-bold text-primary-light" style={{ opacity: 1 }}>
+                    検索クエリ:
+                  </span>{" "}
                   <span style={{ opacity: 0.95 }}>{expandedQuery.original}</span>
                   {expandedQuery.original !== expandedQuery.english && (
                     <span className="ml-2 text-primary font-bold" style={{ opacity: 1 }}>
