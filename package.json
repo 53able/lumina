@@ -9,11 +9,11 @@
   },
   "scripts": {
     "dev": "vite",
+    "api": "tsx src/api/server.ts",
     "build": "vite build",
     "vercel-build": "pnpm build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
     "lint": "biome check --write .",
     "lint:check": "biome check .",
     "test": "vitest run",
