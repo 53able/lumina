@@ -11,7 +11,7 @@ vi.mock("../services/openai", async (importOriginal) => {
   };
 });
 
-import { generateSummary, generateExplanation } from "../services/openai";
+import { generateExplanation, generateSummary } from "../services/openai";
 
 describe("要約API", () => {
   const app = createApp();
@@ -182,6 +182,5 @@ describe("要約API", () => {
       const body = await response.json();
       expect(body.error).toContain("API key");
     });
-
   });
 });

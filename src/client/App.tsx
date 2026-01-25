@@ -150,11 +150,7 @@ const HomePage: FC = () => {
   // サマリー生成ハンドラー
   // target: "explanation" = 説明文のみ, "both" = 要約と説明文の両方
   const handleGenerateSummary = useCallback(
-    async (
-      paperId: string,
-      language: "ja" | "en",
-      target: "explanation" | "both" = "both"
-    ) => {
+    async (paperId: string, language: "ja" | "en", target: "explanation" | "both" = "both") => {
       if (!selectedPaper) return;
 
       setIsSummaryLoading(true);

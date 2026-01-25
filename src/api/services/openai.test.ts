@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "hono";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types/env";
 import {
   createEmbedding,
@@ -347,9 +347,7 @@ describe("OpenAIサービス", () => {
       });
 
       // Act & Assert
-      expect(() => getOpenAIConfig(mockContext)).toThrow(
-        "OpenAI API key is not configured"
-      );
+      expect(() => getOpenAIConfig(mockContext)).toThrow("OpenAI API key is not configured");
     });
 
     it("異常系: 開発環境でヘッダーも環境変数もない場合はエラー", () => {
@@ -359,9 +357,7 @@ describe("OpenAIサービス", () => {
       });
 
       // Act & Assert
-      expect(() => getOpenAIConfig(mockContext)).toThrow(
-        "OpenAI API key is not configured"
-      );
+      expect(() => getOpenAIConfig(mockContext)).toThrow("OpenAI API key is not configured");
     });
 
     it("異常系: 本番環境でヘッダーも環境変数もない場合はエラー", () => {
@@ -371,9 +367,7 @@ describe("OpenAIサービス", () => {
       });
 
       // Act & Assert
-      expect(() => getOpenAIConfig(mockContext)).toThrow(
-        "OpenAI API key is not configured"
-      );
+      expect(() => getOpenAIConfig(mockContext)).toThrow("OpenAI API key is not configured");
     });
   });
 });

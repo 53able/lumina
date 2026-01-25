@@ -77,6 +77,5 @@ describe("カテゴリ情報取得API", () => {
       );
       expect(csCategories.length).toBeGreaterThan(0);
     });
-
   });
 });

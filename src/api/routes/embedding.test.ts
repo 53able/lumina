@@ -160,6 +160,5 @@ describe("Embedding API", () => {
       const body = await response.json();
       expect(body.error).toContain("API key");
     });
-
   });
 });

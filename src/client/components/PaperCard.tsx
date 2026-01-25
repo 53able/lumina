@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { Bookmark, ExternalLink, Heart } from "lucide-react";
-import { memo, type FC, useCallback, useMemo, useState } from "react";
+import { type FC, memo, useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteraction } from "../contexts/InteractionContext";
