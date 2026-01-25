@@ -7,10 +7,11 @@ vi.mock("../services/openai", async (importOriginal) => {
   return {
     ...original,
     generateSummary: vi.fn(),
+    generateExplanation: vi.fn(),
   };
 });
 
-import { generateSummary } from "../services/openai";
+import { generateSummary, generateExplanation } from "../services/openai";
 
 describe("要約API", () => {
   const app = createApp();
@@ -24,6 +25,13 @@ describe("要約API", () => {
     vi.mocked(generateSummary).mockResolvedValue({
       summary: "これは深層学習に関する論文の要約です。",
       keyPoints: ["キーポイント1", "キーポイント2", "キーポイント3"],
+    });
+
+    // generateExplanationのモック
+    vi.mocked(generateExplanation).mockResolvedValue({
+      explanation: "深層学習に関する説明文です。",
+      targetAudience: "機械学習研究者",
+      whyRead: "最新の深層学習手法を理解できる",
     });
   });
 
