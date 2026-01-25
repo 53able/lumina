@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Context } from "hono";
+import type { Env } from "../types/env";
 import {
   createEmbedding,
   expandQuery,
   generateExplanation,
   generateSummary,
+  getOpenAIConfig,
   type OpenAIConfig,
 } from "./openai.js";
 
@@ -251,6 +254,126 @@ describe("OpenAIサービス", () => {
       const callArgs = vi.mocked(generateText).mock.calls[0][0];
       // 認知負荷最適化のためのキーワードがプロンプトに含まれることを確認
       expect(callArgs.system).toMatch(/cognitive|reader|audience|problem/i);
+    });
+  });
+
+  describe("getOpenAIConfig", () => {
+    /**
+     * Hono Contextのモックを作成するヘルパー関数
+     */
+    const createMockContext = (options: {
+      headerKey?: string;
+      envKey?: string;
+      nodeEnv?: string;
+    }): Context<{ Bindings: Env }> => {
+      const { headerKey, envKey, nodeEnv } = options;
+      return {
+        req: {
+          header: vi.fn((name: string) => {
+            if (name === "X-OpenAI-API-Key") {
+              return headerKey;
+            }
+            return undefined;
+          }),
+        },
+        env: {
+          OPENAI_API_KEY: envKey,
+          NODE_ENV: nodeEnv,
+        } as Env,
+      } as unknown as Context<{ Bindings: Env }>;
+    };
+
+    it("正常系: 開発環境でヘッダーからAPIキーを取得できる", () => {
+      // Arrange
+      const mockContext = createMockContext({
+        headerKey: "header-api-key",
+        nodeEnv: "development",
+      });
+
+      // Act
+      const result = getOpenAIConfig(mockContext);
+
+      // Assert
+      expect(result.apiKey).toBe("header-api-key");
+    });
+
+    it("正常系: 開発環境で環境変数からAPIキーを取得できる（ヘッダーなし）", () => {
+      // Arrange
+      const mockContext = createMockContext({
+        envKey: "env-api-key",
+        nodeEnv: "development",
+      });
+
+      // Act
+      const result = getOpenAIConfig(mockContext);
+
+      // Assert
+      expect(result.apiKey).toBe("env-api-key");
+    });
+
+    it("正常系: 開発環境で環境変数からAPIキーを取得できる（NODE_ENV未設定）", () => {
+      // Arrange
+      const mockContext = createMockContext({
+        envKey: "env-api-key",
+      });
+
+      // Act
+      const result = getOpenAIConfig(mockContext);
+
+      // Assert
+      expect(result.apiKey).toBe("env-api-key");
+    });
+
+    it("正常系: 本番環境でヘッダーからAPIキーを取得できる", () => {
+      // Arrange
+      const mockContext = createMockContext({
+        headerKey: "header-api-key",
+        envKey: "env-api-key",
+        nodeEnv: "production",
+      });
+
+      // Act
+      const result = getOpenAIConfig(mockContext);
+
+      // Assert
+      expect(result.apiKey).toBe("header-api-key");
+    });
+
+    it("正常系: 本番環境で環境変数を使用しない（ヘッダーのみ）", () => {
+      // Arrange
+      const mockContext = createMockContext({
+        envKey: "env-api-key",
+        nodeEnv: "production",
+      });
+
+      // Act & Assert
+      expect(() => getOpenAIConfig(mockContext)).toThrow(
+        "OpenAI API key is not configured"
+      );
+    });
+
+    it("異常系: 開発環境でヘッダーも環境変数もない場合はエラー", () => {
+      // Arrange
+      const mockContext = createMockContext({
+        nodeEnv: "development",
+      });
+
+      // Act & Assert
+      expect(() => getOpenAIConfig(mockContext)).toThrow(
+        "OpenAI API key is not configured"
+      );
+    });
+
+    it("異常系: 本番環境でヘッダーも環境変数もない場合はエラー", () => {
+      // Arrange
+      const mockContext = createMockContext({
+        nodeEnv: "production",
+      });
+
+      // Act & Assert
+      expect(() => getOpenAIConfig(mockContext)).toThrow(
+        "OpenAI API key is not configured"
+      );
     });
   });
 });
