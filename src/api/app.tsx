@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { reactRenderer } from "@hono/react-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StaticRouter } from "react-router-dom/server";
+import { StaticRouter } from "react-router";
 import { App } from "../client/App";
 import { InteractionProvider } from "../client/contexts/InteractionContext";
 import type { Env } from "./types/env";
@@ -18,7 +18,7 @@ import { loadInitialData, type InitialData } from "./ssr/dataLoader";
 
 declare module "hono" {
   interface ContextRenderer {
-    (children: React.ReactNode, props?: { initialData?: InitialData }): Promise<Response>;
+    (children: React.ReactNode, props?: { initialData?: InitialData; pathname?: string }): Promise<Response>;
   }
 }
 
@@ -36,7 +36,8 @@ export const createApp = () => {
   // SSR 用のレンダラー設定
   app.use(
     "*",
-    reactRenderer(({ children, initialData }, c) => {
+    reactRenderer(({ children, c, ...props }) => {
+      const { initialData, pathname } = props as { initialData?: InitialData; pathname?: string };
       const isProd = import.meta.env?.PROD || c.env?.NODE_ENV === "production";
       const assets = isProd
         ? {
@@ -57,8 +58,7 @@ export const createApp = () => {
         },
       });
 
-      const url = new URL(c.req.url);
-      const pathname = url.pathname;
+      const currentPathname = pathname ?? new URL(c.req.url).pathname;
 
       return (
         <html lang="ja">
@@ -87,7 +87,7 @@ export const createApp = () => {
           </head>
           <body>
             <div id="root">
-              <StaticRouter location={pathname}>
+              <StaticRouter location={currentPathname}>
                 <QueryClientProvider client={queryClient}>
                   <InteractionProvider>
                     <App />
@@ -128,7 +128,7 @@ export const createApp = () => {
     // 初期データを取得
     const initialData = await loadInitialData(app as any, c, pathname);
 
-    return c.render(<></>, { initialData });
+    return c.render(<></>, { initialData, pathname });
   });
 
   return app;
