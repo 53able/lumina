@@ -2,12 +2,8 @@
   "version": 2,
   "installCommand": "pnpm install",
   "buildCommand": "pnpm build",
-  "rewrites": [
-    {
-      "source": "/((?!assets|api|health|favicon|.*\\.(ico|png|svg|jpg|jpeg|gif|webp|woff|woff2|ttf|eot)).*)",
-      "destination": "/api/index.ts"
-    }
-  ],
+  "cleanUrls": true,
+  "trailingSlash": false,
   "headers": [
     {
       "source": "/assets/(.*)",
