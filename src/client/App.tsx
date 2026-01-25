@@ -303,33 +303,35 @@ const HomePage: FC = () => {
   const displayPapers = isSearchActive ? searchResultPapers : papers;
 
   return (
-    <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-lumina">
+    <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-bold bg-particles">
       {/* Header - 全幅レイアウト、ロゴ中央・ボタン右端 */}
       <header className="sticky top-0 z-50 border-b border-border/40 bg-background/95 backdrop-blur-md supports-backdrop-filter:bg-background/60">
-        <div className="relative flex items-center justify-between px-6 py-4">
-          {/* 左スペーサー（ボタン群と同じ幅を確保してロゴを中央に） */}
-          <div className="w-24 sm:w-32" />
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center px-6 py-4 gap-4">
+          {/* 左側: 空（バランス用） */}
+          <div className="flex items-center justify-start">
+            {/* モバイルでは何も表示しない、デスクトップでも空 */}
+          </div>
 
-          {/* 中央: ロゴ・タイトル（絶対配置で完全中央） */}
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
+          {/* 中央: ロゴ・タイトル - 大胆なエフェクト */}
+          <div className="flex items-center gap-3 glow-effect justify-center">
             <div className="relative">
-              <Sparkles className="h-8 w-8 text-primary animate-glow" />
-              <div className="absolute inset-0 blur-xl bg-primary/30 rounded-full" />
+              <Sparkles className="h-8 w-8 text-primary animate-glow" style={{ filter: "drop-shadow(0 0 8px hsl(var(--primary) / 0.6))" }} />
+              <div className="absolute inset-0 blur-xl bg-primary/30 rounded-full animate-pulse-glow" />
             </div>
             <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">
-                <span className="bg-linear-to-r from-primary via-primary/80 to-accent bg-clip-text text-transparent">
+              <h1 className="text-2xl font-bold">
+                <span className="bg-linear-to-r from-primary via-primary/80 to-primary-light bg-clip-text text-transparent">
                   Lumina
                 </span>
               </h1>
-              <span className="hidden sm:inline text-sm text-muted-foreground/80">
+              <span className="hidden sm:inline text-sm font-mono text-rotate-slight font-bold" style={{ opacity: 0.7 }}>
                 arXiv論文セマンティック検索
               </span>
             </div>
           </div>
 
           {/* 右側: 同期・設定ボタン（画面右端） */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 justify-end">
             <SyncButton isSyncing={isSyncing} onSync={syncPapers} />
             <Tooltip>
               <TooltipTrigger asChild>
@@ -377,15 +379,25 @@ const HomePage: FC = () => {
       </Sheet>
 
       {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
-      <div className="flex min-h-0">
-        {/* Sidebar - 検索履歴 */}
-        <aside className="hidden lg:flex w-56 flex-col border-r border-border/40 bg-sidebar/50">
-          <div className="px-4 pt-4 pb-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+      <div className="flex min-h-0 relative">
+        {/* 視線誘導の基準線（ペルソナ5原則） - 大胆に強化 */}
+        <div 
+          className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 pointer-events-none z-10"
+          style={{
+            background: "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
+            boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
+            filter: "blur(1px)",
+          }}
+        />
+
+        {/* Sidebar - 検索履歴 - 大胆な余白 */}
+        <aside className="hidden lg:flex w-64 flex-col border-r-2 border-primary/20 bg-sidebar/50">
+          <div className="px-6 pt-6 pb-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-primary-light" style={{ opacity: 1 }}>
               検索履歴
             </h3>
           </div>
-          <div className="flex-1 overflow-y-auto px-2 pb-4">
+          <div className="flex-1 overflow-y-auto px-4 pb-6">
             <SearchHistory
               histories={recentHistories}
               onReSearch={handleReSearch}
@@ -395,21 +407,23 @@ const HomePage: FC = () => {
           </div>
         </aside>
 
-        {/* Main Content - 論文リスト */}
+        {/* Main Content - 論文リスト - 大胆な余白 */}
         <main className="flex-1 overflow-y-auto min-w-0">
-          <div className="px-3 py-4 lg:px-4 lg:py-5">
-            {/* 拡張クエリ情報の表示 */}
+          <div className="px-6 py-8 lg:px-12 lg:py-10">
+            {/* 拡張クエリ情報の表示 - 明度による階層化（ペルソナ5原則） - 大胆なスタイリング */}
             {expandedQuery && (
-              <div className="mb-8 rounded-xl bg-muted/30 border border-border/30 p-4 backdrop-blur-sm">
-                <p className="text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground/80">検索クエリ:</span>{" "}
-                  {expandedQuery.original}
+              <div className="mb-10 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
+                <p className="text-sm" style={{ opacity: 1 }}>
+                  <span className="font-bold text-primary-light" style={{ opacity: 1 }}>検索クエリ:</span>{" "}
+                  <span style={{ opacity: 0.95 }}>{expandedQuery.original}</span>
                   {expandedQuery.original !== expandedQuery.english && (
-                    <span className="ml-2 text-primary font-medium">→ {expandedQuery.english}</span>
+                    <span className="ml-2 text-primary font-bold" style={{ opacity: 1 }}>
+                      → {expandedQuery.english}
+                    </span>
                   )}
                 </p>
                 {expandedQuery.synonyms.length > 0 && (
-                  <p className="text-xs text-muted-foreground/60 mt-2">
+                  <p className="text-xs mt-2" style={{ opacity: 0.7 }}>
                     関連語: {expandedQuery.synonyms.join(", ")}
                   </p>
                 )}
@@ -445,12 +459,12 @@ const HomePage: FC = () => {
               }
             />
 
-            {/* ローディング中の検索結果表示 */}
+            {/* ローディング中の検索結果表示 - 大胆なアニメーション */}
             {isLoading && results.length === 0 && (
               <div className="mt-12 grid place-items-center">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  <p className="text-sm text-muted-foreground">検索中...</p>
+                  <div className="h-12 w-12 animate-loading-bold rounded-full border-4 border-primary border-t-transparent" />
+                  <p className="text-sm text-muted-foreground font-bold">検索中...</p>
                 </div>
               </div>
             )}
