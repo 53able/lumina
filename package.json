@@ -13,7 +13,7 @@
     "build": "vite build",
     "vercel-build": "pnpm build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "lint": "biome check --write .",
     "lint:check": "biome check .",
     "test": "vitest run",

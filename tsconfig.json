@@ -25,5 +25,5 @@
     "src/shared/**/*.ts",
     "api/**/*.ts"
   ],
-  "exclude": ["**/*.test.ts", "src/test/**"]
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test/**"]
 }
