@@ -223,26 +223,32 @@ export const PaperList: FC<PaperListProps> = ({
                       gap: `${GRID_GAP}px`,
                     }}
                   >
-                    {rowItems.map((paper, colIndex) => (
-                      <div
-                        key={getPaperId(paper)}
-                        className="animate-card-stagger"
-                        style={{
-                          animationDelay: `${(index * columnCount + colIndex) * 0.05}s`,
-                          overflow: "visible",
-                          /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
-                          padding: "12px",
-                        }}
-                      >
-                        <PaperCard
-                          paper={paper}
-                          onClick={onPaperClick}
-                          whyRead={whyReadMap.get(getPaperId(paper))}
-                          isExpanded={false}
-                          index={index * columnCount + colIndex}
-                        />
-                      </div>
-                    ))}
+                    {rowItems.map((paper, colIndex) => {
+                      // 展開アイテムがある場合でも正しいナンバリングを保つため、
+                      // 行インデックスベースの計算ではなく、元のpapers配列でのインデックスを使用
+                      const actualIndex = papers.findIndex((p) => p.id === paper.id);
+                      const finalIndex = actualIndex >= 0 ? actualIndex : undefined;
+                      return (
+                        <div
+                          key={getPaperId(paper)}
+                          className="animate-card-stagger"
+                          style={{
+                            animationDelay: `${(finalIndex !== undefined ? finalIndex : index * columnCount + colIndex) * 0.05}s`,
+                            overflow: "visible",
+                            /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
+                            padding: "12px",
+                          }}
+                        >
+                          <PaperCard
+                            paper={paper}
+                            onClick={onPaperClick}
+                            whyRead={whyReadMap.get(getPaperId(paper))}
+                            isExpanded={false}
+                            index={finalIndex}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
