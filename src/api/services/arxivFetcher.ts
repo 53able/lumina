@@ -1,5 +1,7 @@
+import { format, subDays } from "date-fns";
 import { parseISO } from "date-fns";
 import type { Paper } from "../../shared/schemas/index";
+import type { SyncPeriod } from "../../shared/schemas/index";
 
 /**
  * arXiv API クエリオプション
@@ -11,6 +13,8 @@ export interface ArxivQueryOptions {
   maxResults: number;
   /** 開始位置（ページング用） */
   start?: number;
+  /** 同期期間（日数） */
+  period?: SyncPeriod;
 }
 
 /**
@@ -115,27 +119,79 @@ export const parseArxivEntry = (entryXml: string): Paper => {
 };
 
 /**
- * arXiv API用のクエリ文字列を構築する
+ * 日付をarXiv API形式（YYYYMMDDHHMMSS）に変換する
+ * @param date 変換対象の日付
+ * @returns arXiv API形式の日付文字列（例: "20260127*"）
  */
-const buildSearchQuery = (categories: string[]): string => {
+const formatArxivDate = (date: Date): string => {
+  return format(date, "yyyyMMdd") + "*";
+};
+
+/**
+ * 同期期間から開始日を計算する
+ * @param period 同期期間（日数）
+ * @returns 開始日のDateオブジェクト
+ */
+const getPeriodStartDate = (period: SyncPeriod): Date => {
+  const days = Number.parseInt(period, 10);
+  return subDays(new Date(), days);
+};
+
+/**
+ * arXiv API用のクエリ文字列をエンコードする
+ * arXiv APIでは + がスペースとして解釈されるため、encodeURIComponent の後に + を復元する
+ * また、ブラケット [ ] はエンコードしない（arXiv APIの仕様）
+ * @param query クエリ文字列
+ * @returns エンコードされたクエリ文字列
+ */
+const encodeArxivQuery = (query: string): string => {
+  // まず特殊文字をエンコード
+  let encoded = encodeURIComponent(query);
+  // スペース（%20）を + に変換（arXiv APIでは + がスペースとして解釈される）
+  encoded = encoded.replace(/%20/g, "+");
+  // 既存の + をスペースとして扱うために %2B を + に戻す
+  encoded = encoded.replace(/%2B/g, "+");
+  // ブラケット [ ] をデコード（arXiv APIが期待する形式）
+  encoded = encoded.replace(/%5B/g, "[").replace(/%5D/g, "]");
+  return encoded;
+};
+
+/**
+ * arXiv API用のクエリ文字列を構築する
+ * @param categories カテゴリ配列
+ * @param period 同期期間（オプショナル、現在は使用しない - arXiv APIの日付範囲クエリが不安定なため）
+ * @returns arXiv API用のクエリ文字列
+ */
+const buildSearchQuery = (categories: string[], period?: SyncPeriod): string => {
   // カテゴリをOR条件で結合
   // cat:cs.AI OR cat:cs.LG
-  return categories.map((cat) => `cat:${cat}`).join("+OR+");
+  const categoryQuery = categories.map((cat) => `cat:${cat}`).join("+OR+");
+
+  // 注意: arXiv APIの日付範囲クエリは不安定なため、日付フィルタは使用しない
+  // 代わりに、クライアント側で publishedAt または updatedAt でフィルタリングする
+  // これにより、arXiv APIの制限を回避しつつ、期間内の論文を取得できる
+
+  return categoryQuery;
 };
 
 /**
  * arXiv APIから論文データを取得する
  */
 export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<ArxivFetchResult> => {
-  const { categories, maxResults, start = 0 } = options;
+  const { categories, maxResults, start = 0, period } = options;
 
-  const searchQuery = buildSearchQuery(categories);
-  const url = `${ARXIV_API_URL}?search_query=${searchQuery}&start=${start}&max_results=${maxResults}&sortBy=submittedDate&sortOrder=descending`;
+  const searchQuery = buildSearchQuery(categories, period);
+  const encodedQuery = encodeArxivQuery(searchQuery);
+  const url = `${ARXIV_API_URL}?search_query=${encodedQuery}&start=${start}&max_results=${maxResults}&sortBy=submittedDate&sortOrder=descending`;
 
   const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(`arXiv API error: ${response.status} ${response.statusText}`);
+    const errorText = await response.text().catch(() => "");
+    // エラーメッセージ全体を取得（XMLパースしてエラーメッセージを抽出）
+    const errorMatch = errorText.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i);
+    const errorMessage = errorMatch?.[1]?.trim() || errorText.substring(0, 1000);
+    throw new Error(`arXiv API error: ${response.status} ${response.statusText} - ${errorMessage}`);
   }
 
   const xml = await response.text();
@@ -146,7 +202,18 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
 
   // エントリを抽出してパース
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/gi;
-  const papers = Array.from(xml.matchAll(entryRegex), (m) => parseArxivEntry(m[1] ?? ""));
+  let papers = Array.from(xml.matchAll(entryRegex), (m) => parseArxivEntry(m[1] ?? ""));
+
+  // 期間指定がある場合は、クライアント側でフィルタリング
+  if (period) {
+    const startDate = getPeriodStartDate(period);
+    const endDate = new Date();
+    papers = papers.filter((paper) => {
+      // publishedAt または updatedAt が期間内にあるかチェック
+      const paperDate = paper.updatedAt > paper.publishedAt ? paper.updatedAt : paper.publishedAt;
+      return paperDate >= startDate && paperDate <= endDate;
+    });
+  }
 
   return {
     papers,

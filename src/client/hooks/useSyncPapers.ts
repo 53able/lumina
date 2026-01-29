@@ -5,6 +5,7 @@ import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
 import { getDecryptedApiKey, syncApi } from "../lib/api";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useSyncStore } from "../stores/syncStore";
 
 /**
  * APIレスポンスの論文データを正規化（日付文字列をDateオブジェクトに変換）
@@ -55,6 +56,12 @@ const normalizeSyncResponse = (response: {
 
 /** キャッシュの有効期間（5分） */
 const SYNC_STALE_TIME = 5 * 60 * 1000;
+
+/** レートリミット: 100リクエスト/15分 */
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15分
+const RATE_LIMIT_MAX_REQUESTS = 100;
+/** 安全マージンを考慮した1リクエストあたりの待機時間（ミリ秒） */
+const RATE_LIMIT_DELAY_MS = Math.ceil((RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX_REQUESTS) * 1.1); // 約10秒
 
 /**
  * 同期APIの入力パラメータ
@@ -107,6 +114,12 @@ export const useSyncPapers = (
 ) => {
   const { addPapers, papers: storePapers } = usePaperStore();
   const { setLastSyncedAt } = useSettingsStore();
+  const {
+    startIncrementalSync,
+    updateProgress,
+    completeIncrementalSync,
+    errorIncrementalSync,
+  } = useSyncStore();
   const queryClient = useQueryClient();
 
   // コールバックをrefで安定化（依存配列での無限ループを防ぐ）
@@ -122,6 +135,25 @@ export const useSyncPapers = (
   // 同期フラグ（レースコンディション防止用）
   // useState は非同期バッチ更新のため、連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
+  // レートリミット管理: 最後のリクエスト時刻を記録
+  const lastRequestTimeRef = useRef<number>(0);
+
+  /**
+   * レートリミットを考慮して待機する
+   * 最後のリクエストから一定時間経過するまで待機
+   */
+  const waitForRateLimitRef = useRef(async (): Promise<void> => {
+    const now = timestamp();
+    const timeSinceLastRequest = now - lastRequestTimeRef.current;
+
+    if (timeSinceLastRequest < RATE_LIMIT_DELAY_MS) {
+      const waitTime = RATE_LIMIT_DELAY_MS - timeSinceLastRequest;
+      console.log(`[useSyncPapers] Rate limit: waiting ${waitTime}ms`);
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+    }
+
+    lastRequestTimeRef.current = timestamp();
+  });
 
   const queryKey = createSyncQueryKey(params);
 
@@ -150,13 +182,19 @@ export const useSyncPapers = (
   // 成功時の処理（dataが変わったとき）
   useEffect(() => {
     if (data && data.papers.length > 0) {
-      addPapers(data.papers);
+      // DBに既に存在する論文をスキップ
+      const existingPaperIds = new Set(storePapers.map((p) => p.id));
+      const newPapers = data.papers.filter((p) => !existingPaperIds.has(p.id));
+
+      if (newPapers.length > 0) {
+        addPapers(newPapers);
+      }
       setNextStart(data.fetchedCount);
       setTotalResults(data.totalResults);
       setLastSyncedAt(now()); // 最終同期日時を更新
       onSuccessRef.current?.(data);
     }
-  }, [data, addPapers, setLastSyncedAt]);
+  }, [data, addPapers, setLastSyncedAt, storePapers]);
 
   // エラー時の処理
   useEffect(() => {
@@ -219,6 +257,9 @@ export const useSyncPapers = (
     console.log(`[useSyncPapers] Fetching more papers from start=${effectiveStart}`);
 
     try {
+      // レートリミットを考慮して待機
+      await waitForRateLimitRef.current();
+
       // API key を復号化して取得
       const apiKey = await getDecryptedApiKey();
 
@@ -234,7 +275,13 @@ export const useSyncPapers = (
       const response = normalizeSyncResponse(rawResponse);
 
       if (response.papers.length > 0) {
-        addPapers(response.papers);
+        // DBに既に存在する論文をスキップ
+        const existingPaperIds = new Set(storePapers.map((p) => p.id));
+        const newPapers = response.papers.filter((p) => !existingPaperIds.has(p.id));
+
+        if (newPapers.length > 0) {
+          addPapers(newPapers);
+        }
         // effectiveStartを基準に次の開始位置を設定
         setNextStart(effectiveStart + response.fetchedCount);
         setTotalResults(response.totalResults);
@@ -247,7 +294,136 @@ export const useSyncPapers = (
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [totalResults, nextStart, storePapers.length, params, addPapers, setLastSyncedAt]);
+  }, [totalResults, nextStart, storePapers, params, addPapers, setLastSyncedAt]);
+
+  /**
+   * 同期期間内の未取得論文を順次取得する（バックグラウンド実行）
+   * レートリミットを考慮しながら、全ての論文を取得するまで繰り返す
+   *
+   * @param onProgress 進捗コールバック（取得した論文数、残り件数など）- オプショナル、syncStoreでも管理される
+   * @param onComplete 完了コールバック - オプショナル
+   * @param onError エラーコールバック - オプショナル
+   * @returns 中断用のAbortController
+   */
+  const syncIncremental = useCallback(
+    async (
+      onProgress?: (progress: { fetched: number; remaining: number; total: number }) => void,
+      onComplete?: () => void,
+      onError?: (error: Error) => void
+    ): Promise<AbortController> => {
+      const abortController = new AbortController();
+      const existingPaperIds = new Set(storePapers.map((p) => p.id));
+      let currentStart = 0;
+      let totalRemaining: number | null = null;
+
+      // syncStoreで状態を開始
+      startIncrementalSync(abortController);
+
+      const fetchNextBatch = async (): Promise<void> => {
+        if (abortController.signal.aborted) {
+          console.log("[useSyncPapers] Incremental sync aborted");
+          completeIncrementalSync();
+          return;
+        }
+
+        try {
+          // レートリミットを考慮して待機
+          await waitForRateLimitRef.current();
+
+          // API key を復号化して取得
+          const apiKey = await getDecryptedApiKey();
+
+          const rawResponse = await syncApi(
+            {
+              categories: params.categories,
+              period: params.period,
+              start: currentStart,
+              maxResults: 50, // 1回あたりの最大取得件数
+            },
+            { apiKey }
+          );
+
+          const response = normalizeSyncResponse(rawResponse);
+          totalRemaining = response.totalResults;
+
+          if (response.papers.length === 0) {
+            // これ以上取得する論文がない
+            console.log("[useSyncPapers] Incremental sync completed: no more papers");
+            completeIncrementalSync();
+            onComplete?.();
+            return;
+          }
+
+          // DBに既に存在する論文をスキップ
+          const newPapers = response.papers.filter((p) => !existingPaperIds.has(p.id));
+
+          if (newPapers.length > 0) {
+            addPapers(newPapers);
+            // 既存のIDセットを更新（次回のフィルタリング用）
+            for (const paper of newPapers) {
+              existingPaperIds.add(paper.id);
+            }
+          }
+
+          // 次のバッチの開始位置を更新（処理済み件数をカウント）
+          currentStart += response.fetchedCount;
+
+          // 進捗を通知（syncStoreとコールバックの両方に通知）
+          // fetched: 処理済み件数（既存論文のスキップも含む）
+          // remaining: 残り件数
+          // total: 全件数
+          const processedCount = currentStart; // 処理済み件数
+          const remaining = Math.max(0, totalRemaining - processedCount);
+          const progressData = {
+            fetched: processedCount,
+            remaining,
+            total: totalRemaining,
+          };
+          updateProgress(progressData);
+          onProgress?.(progressData);
+
+          // まだ取得する論文があるかチェック
+          if (currentStart >= totalRemaining) {
+            console.log("[useSyncPapers] Incremental sync completed: all papers fetched");
+            setLastSyncedAt(now());
+            completeIncrementalSync();
+            onComplete?.();
+            return;
+          }
+
+          // 次のバッチを取得（再帰的に呼び出す）
+          await fetchNextBatch();
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error("[useSyncPapers] Incremental sync error:", error);
+          errorIncrementalSync();
+          onError?.(error);
+          onErrorRef.current?.(error);
+        }
+      };
+
+      // 非同期で実行開始
+      fetchNextBatch().catch((err) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error("[useSyncPapers] Incremental sync fatal error:", error);
+        errorIncrementalSync();
+        onError?.(error);
+        onErrorRef.current?.(error);
+      });
+
+      return abortController;
+    },
+    [
+      storePapers,
+      params,
+      addPapers,
+      setLastSyncedAt,
+      startIncrementalSync,
+      updateProgress,
+      completeIncrementalSync,
+      errorIncrementalSync,
+    ]
+  );
 
   // まだ論文があるかどうか
   const hasMore = totalResults === null || nextStart < totalResults;
@@ -257,6 +433,8 @@ export const useSyncPapers = (
     sync,
     /** 追加同期を実行する関数（次のページを取得） */
     syncMore,
+    /** 同期期間内の未取得論文を順次取得する関数（バックグラウンド実行） */
+    syncIncremental,
     /** 同期中かどうか */
     isSyncing: isFetching || isLoadingMore,
     /** まだ論文があるかどうか */

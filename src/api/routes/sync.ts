@@ -32,11 +32,12 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
     const body = c.req.valid("json");
 
     try {
-      // 1. arXivから論文データを取得（startでページング）
+      // 1. arXivから論文データを取得（startでページング、期間フィルタ適用）
       const arxivResult = await fetchArxivPapers({
         categories: body.categories,
         maxResults: body.maxResults ?? 50,
         start: body.start ?? 0,
+        period: body.period,
       });
 
       // 2. APIキーがある場合はEmbeddingを生成（並列処理は課金考慮で逐次実行）
