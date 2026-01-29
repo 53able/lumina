@@ -1,11 +1,11 @@
-import { Calendar, Info, Play, Square, FileText } from "lucide-react";
-import { useCallback } from "react";
+import { Calendar, FileText, Info, Play, Square } from "lucide-react";
 import type { FC } from "react";
+import { useCallback } from "react";
 import type { SyncPeriod } from "../../shared/schemas/index";
-import { useSettingsStore } from "../stores/settingsStore";
-import { useSyncStore } from "../stores/syncStore";
 import { useSyncPapers } from "../hooks/useSyncPapers";
 import { usePaperStore } from "../stores/paperStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import { useSyncStore } from "../stores/syncStore";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";

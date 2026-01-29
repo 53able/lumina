@@ -1,7 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import type { FC } from "react";
-import { Button } from "./ui/button";
 import { useSyncStore } from "../stores/syncStore";
+import { Button } from "./ui/button";
 
 /**
  * SyncButton Props
