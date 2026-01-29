@@ -1,7 +1,12 @@
-import { Calendar, Info } from "lucide-react";
+import { Calendar, Info, Play, Square, FileText } from "lucide-react";
+import { useCallback } from "react";
 import type { FC } from "react";
 import type { SyncPeriod } from "../../shared/schemas/index";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useSyncStore } from "../stores/syncStore";
+import { useSyncPapers } from "../hooks/useSyncPapers";
+import { usePaperStore } from "../stores/paperStore";
+import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
@@ -24,11 +29,42 @@ const SYNC_PERIOD_OPTIONS: {
  * 機能:
  * - 同期期間の選択
  * - 最終同期日時の表示
+ * - 同期期間内の未取得論文を順次取得（オブジェクト指向UI: 同期オブジェクトに対するアクション）
  */
 export const SyncSettings: FC = () => {
-  const { syncPeriodDays, setSyncPeriodDays, getLastSyncedAt } = useSettingsStore();
+  const { syncPeriodDays, setSyncPeriodDays, getLastSyncedAt, selectedCategories } =
+    useSettingsStore();
 
   const lastSyncedAt = getLastSyncedAt();
+
+  // 論文数を取得
+  const paperCount = usePaperStore((state) => state.getPaperCount());
+
+  // syncStoreから同期状態を取得（グローバル状態管理）
+  const { isIncrementalSyncing, progress, abortIncrementalSync } = useSyncStore();
+
+  // 同期フックから順次取得関数を取得
+  const { syncIncremental } = useSyncPapers(
+    {
+      categories: selectedCategories,
+      period: syncPeriodDays,
+    },
+    {
+      onError: (error) => {
+        console.error("Incremental sync error:", error);
+      },
+    }
+  );
+
+  // 順次取得を開始（オブジェクト指向UI: 同期オブジェクトに対するアクション）
+  const handleStartIncrementalSync = useCallback(async () => {
+    await syncIncremental();
+  }, [syncIncremental]);
+
+  // 順次取得を中断（オブジェクト指向UI: 実行中のアクションを中断）
+  const handleAbortIncrementalSync = useCallback(() => {
+    abortIncrementalSync();
+  }, [abortIncrementalSync]);
 
   return (
     <div className="space-y-6">
@@ -78,8 +114,69 @@ export const SyncSettings: FC = () => {
         </div>
       </div>
 
-      {/* 最終同期日時 */}
-      <div className="border-t pt-4">
+      {/* 順次取得セクション（オブジェクト指向UI: 同期オブジェクトに対するアクション） */}
+      <div className="border-t pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>順次取得</Label>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              同期期間内でまだ取得していない論文を順次取得します。レートリミットを考慮して自動的に実行されます。
+            </p>
+          </div>
+        </div>
+
+        {isIncrementalSyncing ? (
+          <div className="space-y-3">
+            {/* 進捗表示 */}
+            {progress && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">進捗</span>
+                  <span className="font-medium">
+                    {progress.fetched}件取得済み / 残り{progress.remaining}件
+                  </span>
+                </div>
+                {progress.total > 0 && (
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div
+                      className="bg-primary h-2 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, (progress.fetched / progress.total) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 中断ボタン */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAbortIncrementalSync}
+              className="w-full"
+            >
+              <Square className="h-4 w-4 mr-2" />
+              中断
+            </Button>
+          </div>
+        ) : (
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleStartIncrementalSync}
+            className="w-full"
+            disabled={selectedCategories.length === 0}
+          >
+            <Play className="h-4 w-4 mr-2" />
+            順次取得を開始
+          </Button>
+        )}
+      </div>
+
+      {/* 最終同期日時と論文数 */}
+      <div className="border-t pt-4 space-y-3">
+        {/* 最終同期日時 */}
         <div className="flex items-center gap-2 text-sm">
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <span className="text-muted-foreground">最終同期:</span>
@@ -98,6 +195,13 @@ export const SyncSettings: FC = () => {
         <p className="text-xs text-muted-foreground/60 mt-1">
           24時間以上経過すると自動で同期が実行されます
         </p>
+
+        {/* 取得済み論文数 */}
+        <div className="flex items-center gap-2 text-sm">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <span className="text-muted-foreground">取得済み論文:</span>
+          <span className="font-medium">{paperCount.toLocaleString("ja-JP")}件</span>
+        </div>
       </div>
     </div>
   );

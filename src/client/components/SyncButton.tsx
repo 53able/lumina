@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import type { FC } from "react";
 import { Button } from "./ui/button";
+import { useSyncStore } from "../stores/syncStore";
 
 /**
  * SyncButton Props
@@ -17,6 +18,7 @@ interface SyncButtonProps {
  *
  * React Query の useMutation と連携して使用する。
  * ローディング状態は外部から isPending を渡すことで制御される。
+ * 順次取得（バックグラウンド同期）の状態も syncStore から自動的に取得して表示する。
  *
  * @example
  * ```tsx
@@ -25,16 +27,37 @@ interface SyncButtonProps {
  * ```
  */
 export const SyncButton: FC<SyncButtonProps> = ({ isSyncing, onSync }) => {
+  // 順次取得（バックグラウンド同期）の状態を取得
+  const { isIncrementalSyncing, progress } = useSyncStore();
+
+  // いずれかの同期が実行中かどうか
+  const isAnySyncing = isSyncing || isIncrementalSyncing;
+
+  // 表示テキストを決定
+  const getButtonText = (): string => {
+    if (isIncrementalSyncing && progress) {
+      // 順次取得中で進捗情報がある場合
+      if (progress.total > 0) {
+        return `同期中 (${progress.fetched}/${progress.total})`;
+      }
+      return `同期中 (${progress.fetched}件)`;
+    }
+    if (isAnySyncing) {
+      return "同期中";
+    }
+    return "同期";
+  };
+
   return (
     <Button
       variant="outline"
       size="sm"
       onClick={onSync}
-      disabled={isSyncing}
-      aria-label={isSyncing ? "同期中" : "同期"}
+      disabled={isAnySyncing}
+      aria-label={isAnySyncing ? "同期中" : "同期"}
     >
-      <RefreshCw className={isSyncing ? "animate-spin" : ""} />
-      {isSyncing ? "同期中" : "同期"}
+      <RefreshCw className={isAnySyncing ? "animate-spin" : ""} />
+      {getButtonText()}
     </Button>
   );
 };
