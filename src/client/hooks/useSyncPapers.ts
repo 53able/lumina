@@ -63,6 +63,11 @@ const RATE_LIMIT_MAX_REQUESTS = 100;
 /** 安全マージンを考慮した1リクエストあたりの待機時間（ミリ秒） */
 const RATE_LIMIT_DELAY_MS = Math.ceil((RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX_REQUESTS) * 1.1); // 約10秒
 
+/** 順次取得: 1リクエストあたりの最大取得件数 */
+const INCREMENTAL_BATCH_SIZE = 50;
+/** 順次取得: 1ラウンドあたりの並列リクエスト数 */
+const INCREMENTAL_PARALLEL_COUNT = 5;
+
 /**
  * 同期APIの入力パラメータ
  */
@@ -114,12 +119,8 @@ export const useSyncPapers = (
 ) => {
   const { addPapers, papers: storePapers } = usePaperStore();
   const { setLastSyncedAt } = useSettingsStore();
-  const {
-    startIncrementalSync,
-    updateProgress,
-    completeIncrementalSync,
-    errorIncrementalSync,
-  } = useSyncStore();
+  const { startIncrementalSync, updateProgress, completeIncrementalSync, errorIncrementalSync } =
+    useSyncStore();
   const queryClient = useQueryClient();
 
   // コールバックをrefで安定化（依存配列での無限ループを防ぐ）
@@ -319,7 +320,7 @@ export const useSyncPapers = (
       // syncStoreで状態を開始
       startIncrementalSync(abortController);
 
-      const fetchNextBatch = async (): Promise<void> => {
+      const fetchNextRound = async (): Promise<void> => {
         if (abortController.signal.aborted) {
           console.log("[useSyncPapers] Incremental sync aborted");
           completeIncrementalSync();
@@ -327,62 +328,55 @@ export const useSyncPapers = (
         }
 
         try {
-          // レートリミットを考慮して待機
+          // レートリミットを考慮して待機（1ラウンドに1回）
           await waitForRateLimitRef.current();
 
-          // API key を復号化して取得
           const apiKey = await getDecryptedApiKey();
 
-          const rawResponse = await syncApi(
-            {
-              categories: params.categories,
-              period: params.period,
-              start: currentStart,
-              maxResults: 50, // 1回あたりの最大取得件数
-            },
-            { apiKey }
-          );
+          // 50件×5並列: start = currentStart, currentStart+50, ... の5リクエストを同時に発行
+          const requests = Array.from({ length: INCREMENTAL_PARALLEL_COUNT }, (_, i) => ({
+            categories: params.categories,
+            period: params.period,
+            start: currentStart + i * INCREMENTAL_BATCH_SIZE,
+            maxResults: INCREMENTAL_BATCH_SIZE,
+          }));
 
-          const response = normalizeSyncResponse(rawResponse);
-          totalRemaining = response.totalResults;
+          const rawResponses = await Promise.all(requests.map((req) => syncApi(req, { apiKey })));
 
-          if (response.papers.length === 0) {
-            // これ以上取得する論文がない
+          const responses = rawResponses.map(normalizeSyncResponse);
+          const firstTotal = responses[0]?.totalResults ?? 0;
+          totalRemaining = firstTotal;
+
+          // レスポンスを start 順に並べた論文リスト（重複なし・順序保持）
+          const mergedPapers = responses.flatMap((r) => r.papers);
+
+          if (mergedPapers.length === 0) {
             console.log("[useSyncPapers] Incremental sync completed: no more papers");
             completeIncrementalSync();
             onComplete?.();
             return;
           }
 
-          // DBに既に存在する論文をスキップ
-          const newPapers = response.papers.filter((p) => !existingPaperIds.has(p.id));
-
+          const newPapers = mergedPapers.filter((p) => !existingPaperIds.has(p.id));
           if (newPapers.length > 0) {
             addPapers(newPapers);
-            // 既存のIDセットを更新（次回のフィルタリング用）
             for (const paper of newPapers) {
               existingPaperIds.add(paper.id);
             }
           }
 
-          // 次のバッチの開始位置を更新（処理済み件数をカウント）
-          currentStart += response.fetchedCount;
+          const roundFetchedCount = responses.reduce((sum, r) => sum + r.fetchedCount, 0);
+          currentStart += roundFetchedCount;
 
-          // 進捗を通知（syncStoreとコールバックの両方に通知）
-          // fetched: 処理済み件数（既存論文のスキップも含む）
-          // remaining: 残り件数
-          // total: 全件数
-          const processedCount = currentStart; // 処理済み件数
-          const remaining = Math.max(0, totalRemaining - processedCount);
+          const remaining = Math.max(0, totalRemaining - currentStart);
           const progressData = {
-            fetched: processedCount,
+            fetched: currentStart,
             remaining,
             total: totalRemaining,
           };
           updateProgress(progressData);
           onProgress?.(progressData);
 
-          // まだ取得する論文があるかチェック
           if (currentStart >= totalRemaining) {
             console.log("[useSyncPapers] Incremental sync completed: all papers fetched");
             setLastSyncedAt(now());
@@ -391,8 +385,7 @@ export const useSyncPapers = (
             return;
           }
 
-          // 次のバッチを取得（再帰的に呼び出す）
-          await fetchNextBatch();
+          await fetchNextRound();
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           console.error("[useSyncPapers] Incremental sync error:", error);
@@ -402,8 +395,7 @@ export const useSyncPapers = (
         }
       };
 
-      // 非同期で実行開始
-      fetchNextBatch().catch((err) => {
+      fetchNextRound().catch((err) => {
         const error = err instanceof Error ? err : new Error(String(err));
         console.error("[useSyncPapers] Incremental sync fatal error:", error);
         errorIncrementalSync();
