@@ -320,9 +320,7 @@ describe("useSemanticSearch", () => {
         },
       ];
 
-      const { result } = renderHook(() =>
-        useSemanticSearch({ papers: papersWithOneExcluded })
-      );
+      const { result } = renderHook(() => useSemanticSearch({ papers: papersWithOneExcluded }));
 
       await act(async () => {
         await result.current.search("transformer");
