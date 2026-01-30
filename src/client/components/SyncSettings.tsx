@@ -1,4 +1,4 @@
-import { Calendar, FileText, Info, Play, Square } from "lucide-react";
+import { Calendar, FileText, Info, Play, SearchX, Square } from "lucide-react";
 import type { FC } from "react";
 import { useCallback } from "react";
 import type { SyncPeriod } from "../../shared/schemas/index";
@@ -37,8 +37,12 @@ export const SyncSettings: FC = () => {
 
   const lastSyncedAt = getLastSyncedAt();
 
-  // 論文数を取得
+  // 論文数と Embedding 未設定件数を取得
   const paperCount = usePaperStore((state) => state.getPaperCount());
+  const papers = usePaperStore((state) => state.papers);
+  const papersWithoutEmbeddingCount = papers.filter(
+    (p) => !p.embedding || p.embedding.length === 0
+  ).length;
 
   // syncStoreから同期状態を取得（グローバル状態管理）
   const { isIncrementalSyncing, progress, abortIncrementalSync } = useSyncStore();
@@ -202,6 +206,15 @@ export const SyncSettings: FC = () => {
           <span className="text-muted-foreground">取得済み論文:</span>
           <span className="font-medium">{paperCount.toLocaleString("ja-JP")}件</span>
         </div>
+
+        {/* Embedding 未設定件数（集約表示・重要情報の可視化） */}
+        {papersWithoutEmbeddingCount > 0 && (
+          <div className="flex items-center gap-2 text-sm">
+            <SearchX className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Embedding 未設定:</span>
+            <span className="font-medium">{papersWithoutEmbeddingCount.toLocaleString("ja-JP")}件</span>
+          </div>
+        )}
       </div>
     </div>
   );
