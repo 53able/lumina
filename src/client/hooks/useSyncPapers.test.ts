@@ -22,6 +22,11 @@ vi.mock("../lib/api", () => ({
   getDecryptedApiKey: () => mockGetDecryptedApiKey(),
 }));
 
+const mockRunBackfillEmbeddings = vi.fn();
+vi.mock("../lib/backfillEmbeddings", () => ({
+  runBackfillEmbeddings: (...args: unknown[]) => mockRunBackfillEmbeddings(...args),
+}));
+
 const mockAddPapers = vi.fn();
 const mockSetLastSyncedAt = vi.fn();
 const mockStartIncrementalSync = vi.fn();
@@ -137,6 +142,38 @@ describe("useSyncPapers", () => {
         const req = call[0] as { maxResults?: number };
         expect(req.maxResults).toBe(BATCH_SIZE);
       });
+    });
+  });
+
+  describe("同期成功後のEmbeddingバックフィル", () => {
+    it("sync成功後、Embeddingが無い論文を引数にrunBackfillEmbeddingsが1回呼ばれる", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
+      mockRunBackfillEmbeddings.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        result.current.sync();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockRunBackfillEmbeddings).toHaveBeenCalledTimes(1);
+      const [papersPassed] = mockRunBackfillEmbeddings.mock.calls[0] as [unknown];
+      expect(Array.isArray(papersPassed)).toBe(true);
+      const papers = papersPassed as Array<{ embedding?: number[] }>;
+      const allWithoutEmbedding = papers.every(
+        (p) => !p.embedding || p.embedding.length === 0
+      );
+      expect(allWithoutEmbedding).toBe(true);
     });
   });
 });
