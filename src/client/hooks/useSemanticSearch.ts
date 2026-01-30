@@ -37,6 +37,8 @@ interface UseSemanticSearchReturn {
   ) => Promise<SearchResult[]>;
   /** 検索結果 */
   results: SearchResult[];
+  /** 検索対象外（Embeddingなし）の論文（常時可視化用） */
+  papersExcludedFromSearch: Paper[];
   /** ローディング状態 */
   isLoading: boolean;
   /** エラー */
@@ -103,6 +105,7 @@ export const useSemanticSearch = ({
   scoreThreshold = DEFAULT_SCORE_THRESHOLD,
 }: UseSemanticSearchOptions): UseSemanticSearchReturn => {
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [papersExcludedFromSearch, setPapersExcludedFromSearch] = useState<Paper[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [expandedQuery, setExpandedQuery] = useState<ExpandedQuery | null>(null);
@@ -133,8 +136,14 @@ export const useSemanticSearch = ({
         // queryEmbeddingがない場合は結果を空にする
         if (embedding.length === 0) {
           setResults([]);
+          const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
+          setPapersExcludedFromSearch(excluded);
           return [];
         }
+
+        // Embeddingなし論文を検索対象外として保持（常時可視化用）
+        const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
+        setPapersExcludedFromSearch(excluded);
 
         // 4. ローカルの論文とコサイン類似度を計算
         const searchResults: SearchResult[] = [];
@@ -206,8 +215,13 @@ export const useSemanticSearch = ({
         // queryEmbeddingがない場合は結果を空にする
         if (savedQueryEmbedding.length === 0) {
           setResults([]);
+          const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
+          setPapersExcludedFromSearch(excluded);
           return [];
         }
+
+        const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
+        setPapersExcludedFromSearch(excluded);
 
         // ローカルの論文とコサイン類似度を計算
         const searchResults: SearchResult[] = [];
@@ -261,6 +275,7 @@ export const useSemanticSearch = ({
 
   const reset = useCallback(() => {
     setResults([]);
+    setPapersExcludedFromSearch([]);
     setExpandedQuery(null);
     setQueryEmbedding(null);
     setError(null);
@@ -270,6 +285,7 @@ export const useSemanticSearch = ({
     search,
     searchWithSavedData,
     results,
+    papersExcludedFromSearch,
     isLoading,
     error,
     expandedQuery,

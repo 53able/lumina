@@ -59,6 +59,7 @@ const HomePage: FC = () => {
     search,
     searchWithSavedData,
     results,
+    papersExcludedFromSearch,
     isLoading,
     expandedQuery,
     queryEmbedding,
@@ -253,14 +254,16 @@ const HomePage: FC = () => {
     [deleteHistory]
   );
 
-  // 検索結果の論文リスト
+  // 検索結果の論文リスト（関連度順）
   const searchResultPapers = results.map((r) => r.paper);
 
   // 検索中かどうかを判定（expandedQueryがあれば検索後）
   const isSearchActive = expandedQuery !== null;
 
-  // 初期表示用の論文（検索後は検索結果（0件含む）、それ以外はストアから）
-  const displayPapers = isSearchActive ? searchResultPapers : papers;
+  // 初期表示用の論文（検索後は検索結果＋検索対象外を常時可視化、それ以外はストアから）
+  const displayPapers = isSearchActive
+    ? [...searchResultPapers, ...papersExcludedFromSearch]
+    : papers;
 
   return (
     <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-bold bg-particles">

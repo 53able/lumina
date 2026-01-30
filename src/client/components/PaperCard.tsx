@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { Bookmark, ExternalLink, Heart } from "lucide-react";
+import { Bookmark, ExternalLink, Heart, SearchX } from "lucide-react";
 import { type FC, memo, useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Paper } from "../../shared/schemas/index";
@@ -190,7 +190,19 @@ const PaperCardComponent: FC<PaperCardProps> = ({
         </CardHeader>
         <CardContent>
           {/* カテゴリバッジ（ツールチップ付き） */}
-          <div className="relative z-10 mb-3 flex flex-wrap gap-2">{categoryBadges}</div>
+          <div className="relative z-10 mb-3 flex flex-wrap gap-2">
+            {categoryBadges}
+            {(!paper.embedding || paper.embedding.length === 0) && (
+              <Badge
+                variant="outline"
+                className="relative z-10 inline-flex items-center gap-1 border-muted-foreground/40 bg-muted/50 text-muted-foreground font-normal text-xs px-2 py-0.5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SearchX className="h-3 w-3 shrink-0" aria-hidden />
+                セマンティック検索に未対応
+              </Badge>
+            )}
+          </div>
 
           {/* 公開日とアクションボタン */}
           <div className="flex items-center justify-between">
@@ -275,12 +287,13 @@ const PaperCardComponent: FC<PaperCardProps> = ({
  * React.memoでラップし、propsが変更された場合のみ再レンダリング
  */
 export const PaperCard = memo(PaperCardComponent, (prevProps, nextProps) => {
-  // カスタム比較関数: 必要なpropsのみを比較
+  // カスタム比較関数: 必要なpropsのみを比較（embeddingの有無でバッジ表示が変わるため含める）
   return (
     prevProps.paper.id === nextProps.paper.id &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.whyRead === nextProps.whyRead &&
     prevProps.index === nextProps.index &&
-    prevProps.onClick === nextProps.onClick
+    prevProps.onClick === nextProps.onClick &&
+    (prevProps.paper.embedding?.length ?? 0) === (nextProps.paper.embedding?.length ?? 0)
   );
 });
