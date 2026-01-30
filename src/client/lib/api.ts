@@ -94,6 +94,34 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
 };
 
 /**
+ * Embedding API
+ *
+ * テキストから Embedding ベクトルを生成する。
+ *
+ * @param request { text: string } 対象テキスト（1〜8000文字）
+ * @param options APIオプション
+ * @returns embedding 配列（1536次元）
+ * @throws Error APIエラー時
+ */
+export const embeddingApi = async (
+  request: { text: string },
+  options?: ApiOptions
+): Promise<{ embedding: number[] }> => {
+  const res = await client.api.v1.embedding.$post({ json: request }, withApiKey(options));
+
+  if (!res.ok) {
+    const error = await res.json();
+    const message =
+      error && typeof error === "object" && "error" in error
+        ? String((error as { error: unknown }).error)
+        : "Embeddingの取得に失敗しました";
+    throw new Error(message);
+  }
+
+  return res.json();
+};
+
+/**
  * 同期APIの入力型（デフォルト値を持つフィールドはオプショナル）
  */
 type SyncApiInput = {

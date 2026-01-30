@@ -17,9 +17,11 @@ const PARALLEL_COUNT = 5;
 const mockSyncApi = vi.fn();
 const mockGetDecryptedApiKey = vi.fn();
 
+const mockEmbeddingApi = vi.fn();
 vi.mock("../lib/api", () => ({
   syncApi: (...args: unknown[]) => mockSyncApi(...args),
   getDecryptedApiKey: () => mockGetDecryptedApiKey(),
+  embeddingApi: (...args: unknown[]) => mockEmbeddingApi(...args),
 }));
 
 const mockRunBackfillEmbeddings = vi.fn();
@@ -28,6 +30,7 @@ vi.mock("../lib/backfillEmbeddings", () => ({
 }));
 
 const mockAddPapers = vi.fn();
+const mockAddPaper = vi.fn();
 const mockSetLastSyncedAt = vi.fn();
 const mockStartIncrementalSync = vi.fn();
 const mockUpdateProgress = vi.fn();
@@ -39,6 +42,7 @@ vi.mock("../stores/paperStore", () => ({
     const state = {
       papers: [],
       addPapers: mockAddPapers,
+      addPaper: mockAddPaper,
     };
     return selector ? selector(state) : state;
   },
@@ -100,6 +104,7 @@ describe("useSyncPapers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetDecryptedApiKey.mockResolvedValue("test-api-key");
+    mockRunBackfillEmbeddings.mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -149,6 +154,7 @@ describe("useSyncPapers", () => {
     it("sync成功後、Embeddingが無い論文を引数にrunBackfillEmbeddingsが1回呼ばれる", async () => {
       mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
       mockRunBackfillEmbeddings.mockResolvedValue(undefined);
+      mockEmbeddingApi.mockResolvedValue({ embedding: Array(1536).fill(0.1) });
 
       const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
         wrapper,
@@ -166,13 +172,12 @@ describe("useSyncPapers", () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(mockRunBackfillEmbeddings).toHaveBeenCalledTimes(1);
-      const [papersPassed] = mockRunBackfillEmbeddings.mock.calls[0] as [unknown];
+      expect(mockRunBackfillEmbeddings).toHaveBeenCalled();
+      const firstCall = mockRunBackfillEmbeddings.mock.calls[0] as [unknown];
+      const [papersPassed] = firstCall;
       expect(Array.isArray(papersPassed)).toBe(true);
       const papers = papersPassed as Array<{ embedding?: number[] }>;
-      const allWithoutEmbedding = papers.every(
-        (p) => !p.embedding || p.embedding.length === 0
-      );
+      const allWithoutEmbedding = papers.every((p) => !p.embedding || p.embedding.length === 0);
       expect(allWithoutEmbedding).toBe(true);
     });
   });

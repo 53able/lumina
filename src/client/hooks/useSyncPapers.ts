@@ -2,7 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Paper, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
-import { getDecryptedApiKey, syncApi } from "../lib/api";
+import { embeddingApi, getDecryptedApiKey, syncApi } from "../lib/api";
+import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
@@ -117,7 +118,7 @@ export const useSyncPapers = (
     onError?: (error: Error) => void;
   }
 ) => {
-  const { addPapers, papers: storePapers } = usePaperStore();
+  const { addPaper, addPapers, papers: storePapers } = usePaperStore();
   const { setLastSyncedAt } = useSettingsStore();
   const { startIncrementalSync, updateProgress, completeIncrementalSync, errorIncrementalSync } =
     useSyncStore();
@@ -194,8 +195,26 @@ export const useSyncPapers = (
       setTotalResults(data.totalResults);
       setLastSyncedAt(now()); // 最終同期日時を更新
       onSuccessRef.current?.(data);
+
+      // Embedding が無い論文をバックグラウンドで補完（API Key があるときのみ）
+      const allPapersMap = new Map(storePapers.map((p) => [p.id, p]));
+      for (const p of data.papers) {
+        allPapersMap.set(p.id, p);
+      }
+      const withoutEmbedding = Array.from(allPapersMap.values()).filter(
+        (p) => !p.embedding || p.embedding.length === 0
+      );
+      if (withoutEmbedding.length > 0) {
+        getDecryptedApiKey().then((apiKey) => {
+          if (!apiKey) return;
+          runBackfillEmbeddings(withoutEmbedding, {
+            fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
+            addPaper,
+          }).catch(() => {});
+        });
+      }
     }
-  }, [data, addPapers, setLastSyncedAt, storePapers]);
+  }, [data, addPaper, addPapers, setLastSyncedAt, storePapers]);
 
   // エラー時の処理
   useEffect(() => {
@@ -283,11 +302,26 @@ export const useSyncPapers = (
         if (newPapers.length > 0) {
           addPapers(newPapers);
         }
-        // effectiveStartを基準に次の開始位置を設定
         setNextStart(effectiveStart + response.fetchedCount);
         setTotalResults(response.totalResults);
-        setLastSyncedAt(now()); // 最終同期日時を更新
+        setLastSyncedAt(now());
         onSuccessRef.current?.(response);
+
+        const allMap = new Map(storePapers.map((p) => [p.id, p]));
+        for (const p of response.papers) allMap.set(p.id, p);
+        const withoutEmbedding = Array.from(allMap.values()).filter(
+          (p) => !p.embedding || p.embedding.length === 0
+        );
+        if (withoutEmbedding.length > 0) {
+          getDecryptedApiKey().then((key) => {
+            if (!key) return;
+            runBackfillEmbeddings(withoutEmbedding, {
+              fetchEmbedding: (text) =>
+                embeddingApi({ text }, { apiKey: key }).then((r) => r.embedding),
+              addPaper,
+            }).catch(() => {});
+          });
+        }
       }
     } catch (err) {
       onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
@@ -295,7 +329,7 @@ export const useSyncPapers = (
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [totalResults, nextStart, storePapers, params, addPapers, setLastSyncedAt]);
+  }, [totalResults, nextStart, storePapers, params, addPaper, addPapers, setLastSyncedAt]);
 
   /**
    * 同期期間内の未取得論文を順次取得する（バックグラウンド実行）
@@ -365,6 +399,16 @@ export const useSyncPapers = (
             }
           }
 
+          const withoutEmbedding = mergedPapers.filter(
+            (p) => !p.embedding || p.embedding.length === 0
+          );
+          if (withoutEmbedding.length > 0 && apiKey) {
+            runBackfillEmbeddings(withoutEmbedding, {
+              fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
+              addPaper,
+            }).catch(() => {});
+          }
+
           const roundFetchedCount = responses.reduce((sum, r) => sum + r.fetchedCount, 0);
           currentStart += roundFetchedCount;
 
@@ -408,6 +452,7 @@ export const useSyncPapers = (
     [
       storePapers,
       params,
+      addPaper,
       addPapers,
       setLastSyncedAt,
       startIncrementalSync,

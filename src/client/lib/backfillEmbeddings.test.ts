@@ -20,8 +20,8 @@ const createPaperWithoutEmbedding = (id: string, title: string, abstract: string
   categories: ["cs.AI"],
   publishedAt: date("2024-01-01"),
   updatedAt: date("2024-01-01"),
-  pdfUrl: "https://arxiv.org/pdf/" + id + ".pdf",
-  arxivUrl: "https://arxiv.org/abs/" + id,
+  pdfUrl: `https://arxiv.org/pdf/${id}.pdf`,
+  arxivUrl: `https://arxiv.org/abs/${id}`,
 });
 
 /** Embedding ありの論文を1件つくる */
