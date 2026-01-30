@@ -303,6 +303,36 @@ describe("useSemanticSearch", () => {
       const resultIds = result.current.results.map((r) => r.paper.id);
       expect(resultIds).not.toContain("2401.00004");
     });
+
+    it("検索実行後、embeddingが無い論文はpapersExcludedFromSearchに含まれる（常時可視化用）", async () => {
+      const papersWithOneExcluded = [
+        ...mockPapers,
+        {
+          id: "2401.00004",
+          title: "Paper Without Embedding",
+          abstract: "No embedding here...",
+          authors: ["Someone"],
+          categories: ["cs.AI"],
+          publishedAt: parseISO("2024-01-04"),
+          updatedAt: parseISO("2024-01-04"),
+          pdfUrl: "https://arxiv.org/pdf/2401.00004.pdf",
+          arxivUrl: "https://arxiv.org/abs/2401.00004",
+        },
+      ];
+
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: papersWithOneExcluded })
+      );
+
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+
+      expect(result.current.papersExcludedFromSearch).toBeDefined();
+      const excludedIds = result.current.papersExcludedFromSearch.map((p) => p.id);
+      expect(excludedIds).toContain("2401.00004");
+      expect(result.current.papersExcludedFromSearch).toHaveLength(1);
+    });
   });
 
   describe("reset機能", () => {

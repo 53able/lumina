@@ -170,6 +170,39 @@ describe("PaperCard", () => {
     });
   });
 
+  describe("Embedding状態表示", () => {
+    it("embeddingが無い論文の場合、セマンティック検索に未対応のインジケータが表示される", async () => {
+      const { PaperCard } = await import("./PaperCard");
+      const paper = createSamplePaper();
+      // embedding を付けない（undefined）または空配列
+      const paperWithoutEmbedding = { ...paper, embedding: undefined };
+
+      renderWithRouter(<PaperCard paper={paperWithoutEmbedding} />);
+
+      expect(screen.getByText(/セマンティック検索に未対応/)).toBeInTheDocument();
+    });
+
+    it("embeddingが空配列の論文の場合もインジケータが表示される", async () => {
+      const { PaperCard } = await import("./PaperCard");
+      const paper = createSamplePaper({ embedding: [] });
+
+      renderWithRouter(<PaperCard paper={paper} />);
+
+      expect(screen.getByText(/セマンティック検索に未対応/)).toBeInTheDocument();
+    });
+
+    it("embeddingがある論文の場合はそのインジケータが表示されない", async () => {
+      const { PaperCard } = await import("./PaperCard");
+      const paper = createSamplePaper({
+        embedding: Array(1536).fill(0.1),
+      });
+
+      renderWithRouter(<PaperCard paper={paper} />);
+
+      expect(screen.queryByText(/セマンティック検索に未対応/)).not.toBeInTheDocument();
+    });
+  });
+
   describe("whyRead表示", () => {
     it("正常系: whyReadが指定された場合に表示される", async () => {
       const { PaperCard } = await import("./PaperCard");
