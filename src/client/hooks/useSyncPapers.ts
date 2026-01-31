@@ -134,11 +134,18 @@ export const useSyncPapers = (
   const [nextStart, setNextStart] = useState(0);
   const [totalResults, setTotalResults] = useState<number | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  /** Embedding バックフィル実行中（ボタン「同期中」表示用） */
+  const [isEmbeddingBackfilling, setIsEmbeddingBackfilling] = useState(false);
   // 同期フラグ（レースコンディション防止用）
   // useState は非同期バッチ更新のため、連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
   // レートリミット管理: 最後のリクエスト時刻を記録
   const lastRequestTimeRef = useRef<number>(0);
+  /** この sync レスポンスではすでに backfill を開始したか（storePapers 更新で effect が再実行されても二重起動しない） */
+  const lastBackfillDataRef = useRef<SyncResponse | null>(null);
+  /** effect 内で getState が使えない場合（テスト等）のフォールバック用。常に最新の storePapers を指す */
+  const storePapersRef = useRef(storePapers);
+  storePapersRef.current = storePapers;
 
   /**
    * レートリミットを考慮して待機する
@@ -181,40 +188,50 @@ export const useSyncPapers = (
     gcTime: SYNC_STALE_TIME, // キャッシュ保持期間も5分
   });
 
-  // 成功時の処理（dataが変わったとき）
+  // 成功時の処理（data が変わったときのみ実行。storePapers を deps に含めないので addPaper で store が更新されても再実行されない）
   useEffect(() => {
-    if (data && data.papers.length > 0) {
-      // DBに既に存在する論文をスキップ
-      const existingPaperIds = new Set(storePapers.map((p) => p.id));
-      const newPapers = data.papers.filter((p) => !existingPaperIds.has(p.id));
+    if (!data || data.papers.length === 0) return;
 
-      if (newPapers.length > 0) {
-        addPapers(newPapers);
-      }
-      setNextStart(data.fetchedCount);
-      setTotalResults(data.totalResults);
-      setLastSyncedAt(now()); // 最終同期日時を更新
-      onSuccessRef.current?.(data);
+    const currentStorePapers =
+      typeof usePaperStore.getState === "function"
+        ? usePaperStore.getState().papers
+        : storePapersRef.current;
 
-      // Embedding が無い論文をバックグラウンドで補完（API Key があるときのみ）
-      const allPapersMap = new Map(storePapers.map((p) => [p.id, p]));
-      for (const p of data.papers) {
-        allPapersMap.set(p.id, p);
-      }
-      const withoutEmbedding = Array.from(allPapersMap.values()).filter(
-        (p) => !p.embedding || p.embedding.length === 0
-      );
-      if (withoutEmbedding.length > 0) {
-        getDecryptedApiKey().then((apiKey) => {
+    // DBに既に存在する論文をスキップ
+    const existingPaperIds = new Set(currentStorePapers.map((p) => p.id));
+    const newPapers = data.papers.filter((p) => !existingPaperIds.has(p.id));
+
+    if (newPapers.length > 0) {
+      addPapers(newPapers);
+    }
+    setNextStart(data.fetchedCount);
+    setTotalResults(data.totalResults);
+    setLastSyncedAt(now()); // 最終同期日時を更新
+    onSuccessRef.current?.(data);
+
+    // Embedding が無い論文をバックグラウンドで補完（API Key があるときのみ）
+    const allPapersMap = new Map(currentStorePapers.map((p) => [p.id, p]));
+    for (const p of data.papers) {
+      allPapersMap.set(p.id, p);
+    }
+    const withoutEmbedding = Array.from(allPapersMap.values()).filter(
+      (p) => !p.embedding || p.embedding.length === 0
+    );
+
+    if (withoutEmbedding.length > 0 && lastBackfillDataRef.current !== data) {
+      lastBackfillDataRef.current = data;
+      setIsEmbeddingBackfilling(true);
+      getDecryptedApiKey()
+        .then((apiKey) => {
           if (!apiKey) return;
-          runBackfillEmbeddings(withoutEmbedding, {
+          return runBackfillEmbeddings(withoutEmbedding, {
             fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
             addPaper,
           }).catch(() => {});
-        });
-      }
+        })
+        .finally(() => setIsEmbeddingBackfilling(false));
     }
-  }, [data, addPaper, addPapers, setLastSyncedAt, storePapers]);
+  }, [data, addPaper, addPapers, setLastSyncedAt]);
 
   // エラー時の処理
   useEffect(() => {
@@ -313,14 +330,17 @@ export const useSyncPapers = (
           (p) => !p.embedding || p.embedding.length === 0
         );
         if (withoutEmbedding.length > 0) {
-          getDecryptedApiKey().then((key) => {
-            if (!key) return;
-            runBackfillEmbeddings(withoutEmbedding, {
-              fetchEmbedding: (text) =>
-                embeddingApi({ text }, { apiKey: key }).then((r) => r.embedding),
-              addPaper,
-            }).catch(() => {});
-          });
+          setIsEmbeddingBackfilling(true);
+          getDecryptedApiKey()
+            .then((key) => {
+              if (!key) return;
+              return runBackfillEmbeddings(withoutEmbedding, {
+                fetchEmbedding: (text) =>
+                  embeddingApi({ text }, { apiKey: key }).then((r) => r.embedding),
+                addPaper,
+              }).catch(() => {});
+            })
+            .finally(() => setIsEmbeddingBackfilling(false));
         }
       }
     } catch (err) {
@@ -472,8 +492,8 @@ export const useSyncPapers = (
     syncMore,
     /** 同期期間内の未取得論文を順次取得する関数（バックグラウンド実行） */
     syncIncremental,
-    /** 同期中かどうか */
-    isSyncing: isFetching || isLoadingMore,
+    /** 同期中かどうか（論文取得中 or Embedding バックフィル中） */
+    isSyncing: isFetching || isLoadingMore || isEmbeddingBackfilling,
     /** まだ論文があるかどうか */
     hasMore,
     /** 全件数 */
