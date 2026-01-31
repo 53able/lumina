@@ -23,6 +23,8 @@ const AUTO_SYNC_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 interface SettingsState {
   /** OpenAI APIキー（暗号化済み） */
   apiKey: string;
+  /** APIキーを使って検索・同期・要約を行うか（ON/OFF） */
+  apiEnabled: boolean;
   /** 対象カテゴリ */
   selectedCategories: string[];
   /** 同期期間 */
@@ -54,6 +56,10 @@ interface SettingsActions {
   getApiKeyAsync: () => Promise<string>;
   /** APIキーが設定されているか確認する */
   hasApiKey: () => boolean;
+  /** API利用可能（ON/OFF）を設定する */
+  setApiEnabled: (enabled: boolean) => void;
+  /** APIキーが設定されていてかつ利用可能がONか */
+  canUseApi: () => boolean;
   /** APIキーをクリアする */
   clearApiKey: () => void;
   /** カテゴリを設定する */
@@ -102,6 +108,7 @@ export const useSettingsStore = create<SettingsStore>()(
       (set, get) => ({
         // State（デフォルト値）
         apiKey: "",
+        apiEnabled: true,
         selectedCategories: DEFAULT_CATEGORIES,
         syncPeriodDays: DEFAULT_SYNC_PERIOD,
         autoGenerateSummary: false,
@@ -139,6 +146,14 @@ export const useSettingsStore = create<SettingsStore>()(
 
         hasApiKey: () => {
           return get().apiKey.length > 0;
+        },
+
+        setApiEnabled: (enabled) => {
+          set({ apiEnabled: enabled });
+        },
+
+        canUseApi: () => {
+          return get().apiKey.length > 0 && get().apiEnabled;
         },
 
         clearApiKey: () => {
@@ -194,6 +209,7 @@ export const useSettingsStore = create<SettingsStore>()(
         resetAllSettings: () => {
           set({
             apiKey: "",
+            apiEnabled: true,
             selectedCategories: DEFAULT_CATEGORIES,
             syncPeriodDays: DEFAULT_SYNC_PERIOD,
             autoGenerateSummary: false,

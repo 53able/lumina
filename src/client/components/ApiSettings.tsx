@@ -12,6 +12,8 @@ import { Switch } from "./ui/switch";
  * - APIキーの入力・保存（暗号化）
  * - 保存済みAPIキーのクリア
  * - パスワードマスク表示
+ * - 利用可能のON/OFF（APIキー設定済み時のみ操作可能）
+ * - 自動要約のON/OFF（利用可能がONのときのみ操作可能）
  *
  * @remarks
  * API key は暗号化されて localStorage に保存される。
@@ -19,8 +21,16 @@ import { Switch } from "./ui/switch";
  * 保存時に新しい値で上書きする。
  */
 export const ApiSettings: FC = () => {
-  const { setApiKeyAsync, clearApiKey, hasApiKey, autoGenerateSummary, setAutoGenerateSummary } =
-    useSettingsStore();
+  const {
+    setApiKeyAsync,
+    clearApiKey,
+    hasApiKey,
+    apiEnabled,
+    setApiEnabled,
+    canUseApi,
+    autoGenerateSummary,
+    setAutoGenerateSummary,
+  } = useSettingsStore();
   const [inputValue, setInputValue] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -75,6 +85,26 @@ export const ApiSettings: FC = () => {
 
       {showSuccess && <p className="text-sm text-green-600">保存しました</p>}
 
+      {/* 利用可能スイッチ */}
+      <div className="border-t pt-4 mt-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="api-enabled">利用可能</Label>
+            <p className="text-xs text-muted-foreground">
+              {hasApiKey()
+                ? "APIキーを使って検索・同期・要約を行う"
+                : "APIキーを設定すると利用可能のON/OFFができます"}
+            </p>
+          </div>
+          <Switch
+            id="api-enabled"
+            checked={apiEnabled}
+            onCheckedChange={setApiEnabled}
+            disabled={!hasApiKey()}
+          />
+        </div>
+      </div>
+
       {/* 自動要約生成スイッチ */}
       <div className="border-t pt-4 mt-4">
         <div className="flex items-center justify-between">
@@ -88,12 +118,12 @@ export const ApiSettings: FC = () => {
             id="auto-summary"
             checked={autoGenerateSummary}
             onCheckedChange={setAutoGenerateSummary}
-            disabled={!hasApiKey()}
+            disabled={!canUseApi()}
           />
         </div>
-        {!hasApiKey() && (
+        {!canUseApi() && (
           <p className="text-xs text-amber-600 mt-2">
-            自動要約を有効にするにはAPIキーを設定してください
+            自動要約を有効にするにはAPIキーを設定し、利用可能をONにしてください
           </p>
         )}
       </div>

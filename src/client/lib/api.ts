@@ -63,7 +63,7 @@ const withApiKey = (options?: ApiOptions) => {
  */
 export const getDecryptedApiKey = async (): Promise<string | undefined> => {
   const store = useSettingsStore.getState();
-  if (!store.hasApiKey()) {
+  if (!store.canUseApi()) {
     return undefined;
   }
   const plainKey = await store.getApiKeyAsync();
@@ -93,24 +93,135 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
   return res.json();
 };
 
+/** バックエンドと共有: 未取得時は 1 req/10秒で控えめに（100 req/15分を下回る） */
+const FALLBACK_MIN_INTERVAL_MS = 10_000;
+
+/** レスポンスの RateLimit-* から更新する共有状態（sync / embedding 同一バケット） */
+let rateLimitRemaining: number | null = null;
+/** ウィンドウリセット時刻（Unix ms）。draft-6 の RateLimit-Reset は秒で返る想定 */
+let rateLimitResetAtMs: number | null = null;
+
+/**
+ * レスポンスヘッダーから RateLimit-* をパースし共有状態を更新する。
+ * sync / embedding は同一レートリミットバケットのため、どちらのレスポンスでも更新する。
+ */
+const updateRateLimitFromResponse = (res: Response): void => {
+  const remainingRaw = res.headers.get("RateLimit-Remaining");
+  const resetRaw = res.headers.get("RateLimit-Reset");
+  if (remainingRaw !== null) {
+    const parsed = parseInt(remainingRaw, 10);
+    if (!Number.isNaN(parsed)) rateLimitRemaining = parsed;
+  }
+  if (resetRaw !== null) {
+    const resetSec = parseInt(resetRaw, 10);
+    if (!Number.isNaN(resetSec)) {
+      // 秒で返る場合は ms に（10桁以上ならすでに ms の可能性）
+      rateLimitResetAtMs = resetSec < 1e10 ? resetSec * 1000 : resetSec;
+    }
+  }
+};
+
+/**
+ * レートリミット残り枠に応じた推奨並列数（1〜10）。
+ * backfill の並列オートスケール用。未取得時は 1 で控えめにする。
+ */
+export const getRecommendedConcurrency = (): number =>
+  Math.min(10, Math.max(1, rateLimitRemaining ?? 1));
+
+/**
+ * 次の embedding 送信までに待つべき ms。
+ * ヘッダーがある場合は remaining / (reset までの時間) で均等に割り、なければ固定間隔。
+ */
+const getEmbeddingDelayMs = (): number => {
+  const now = Date.now();
+  if (rateLimitRemaining === null || rateLimitResetAtMs === null) {
+    return FALLBACK_MIN_INTERVAL_MS;
+  }
+  const windowLeftMs = rateLimitResetAtMs - now;
+  if (windowLeftMs <= 0) return FALLBACK_MIN_INTERVAL_MS;
+  if (rateLimitRemaining <= 0) return windowLeftMs;
+  const intervalMs = windowLeftMs / rateLimitRemaining;
+  return Math.min(Math.max(intervalMs, 0), 60_000);
+};
+
+/**
+ * 送信間隔を守る。バックエンドの RateLimit-* に応じて待機時間をオートスケールする。
+ */
+const waitForEmbeddingInterval = async (): Promise<void> => {
+  const delayMs = getEmbeddingDelayMs();
+  if (delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+};
+
+/** 429 リトライ: 最大回数 */
+const EMBEDDING_RATE_LIMIT_MAX_RETRIES = 5;
+/** 429 リトライ: 初回待機 ms（指数バックオフの基準） */
+const EMBEDDING_RATE_LIMIT_INITIAL_DELAY_MS = 1000;
+/** 429 リトライ: 指数バックオフの倍率 */
+const EMBEDDING_RATE_LIMIT_BACKOFF_MULTIPLIER = 2;
+/** Retry-After が 0 や無効のときの最低待機 ms（スラッシング防止） */
+const EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS = 60_000;
+
+/** 共有バックオフ: 429 を受けたら全 embedding 呼び出しがこの時刻まで待ってから再送する */
+let embeddingBackOffUntil = 0;
+
+/**
+ * 共有バックオフを考慮して待機する。429 時に全リクエストが同じ時刻まで待つことでスラッシングを防ぐ。
+ */
+const waitForEmbeddingBackOff = async (): Promise<void> => {
+  const now = Date.now();
+  if (now < embeddingBackOffUntil) {
+    const waitMs = embeddingBackOffUntil - now;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+};
+
 /**
  * Embedding API
  *
  * テキストから Embedding ベクトルを生成する。
+ * 429（Too Many Requests）のときは共有バックオフ＋Retry-After（または指数バックオフ）でリトライする。
  *
  * @param request { text: string } 対象テキスト（1〜8000文字）
  * @param options APIオプション
  * @returns embedding 配列（1536次元）
- * @throws Error APIエラー時
+ * @throws Error APIエラー時（リトライし尽くした場合を含む）
  */
 export const embeddingApi = async (
   request: { text: string },
   options?: ApiOptions
 ): Promise<{ embedding: number[] }> => {
-  const res = await client.api.v1.embedding.$post({ json: request }, withApiKey(options));
+  const opts = withApiKey(options);
 
-  if (!res.ok) {
-    const error = await res.json();
+  await waitForEmbeddingBackOff();
+  await waitForEmbeddingInterval();
+  let lastRes = await client.api.v1.embedding.$post({ json: request }, opts);
+  updateRateLimitFromResponse(lastRes);
+  let retryCount = 0;
+
+  while (!lastRes.ok && lastRes.status === 429 && retryCount < EMBEDDING_RATE_LIMIT_MAX_RETRIES) {
+    const retryAfterSecRaw = lastRes.headers.get("retry-after");
+    const retryAfterSec = retryAfterSecRaw ? parseInt(retryAfterSecRaw, 10) : NaN;
+    const delayMs =
+      Number.isNaN(retryAfterSec) || retryAfterSec <= 0
+        ? Math.max(
+            EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS,
+            EMBEDDING_RATE_LIMIT_INITIAL_DELAY_MS *
+              EMBEDDING_RATE_LIMIT_BACKOFF_MULTIPLIER ** retryCount
+          )
+        : Math.max(1000, retryAfterSec * 1000);
+
+    embeddingBackOffUntil = Math.max(embeddingBackOffUntil, Date.now() + delayMs);
+    await waitForEmbeddingBackOff();
+    await waitForEmbeddingInterval();
+    retryCount += 1;
+    lastRes = await client.api.v1.embedding.$post({ json: request }, opts);
+    updateRateLimitFromResponse(lastRes);
+  }
+
+  if (!lastRes.ok) {
+    const error = await lastRes.json();
     const message =
       error && typeof error === "object" && "error" in error
         ? String((error as { error: unknown }).error)
@@ -118,7 +229,7 @@ export const embeddingApi = async (
     throw new Error(message);
   }
 
-  return res.json();
+  return lastRes.json();
 };
 
 /**
@@ -132,11 +243,14 @@ type SyncApiInput = {
   start?: number;
 };
 
+/** sync 429 リトライ: 最大回数（embedding と同一バケットのため 429 になりうる） */
+const SYNC_RATE_LIMIT_MAX_RETRIES = 3;
+
 /**
  * 同期API
  *
  * arXiv論文を取得し、Embeddingを生成する。
- * Hono RPC により、レスポンス型は自動推論される。
+ * 429（Too Many Requests）のときは Retry-After に従ってリトライする（embedding と同一レートリミットバケットのため）。
  *
  * @param request 同期リクエスト
  * @param options APIオプション
@@ -144,24 +258,36 @@ type SyncApiInput = {
  * @throws Error APIエラー時
  */
 export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
-  const res = await client.api.v1.sync.$post(
-    {
-      json: {
-        categories: request.categories,
-        period: request.period ?? "30",
-        maxResults: request.maxResults ?? 50,
-        start: request.start ?? 0,
-      },
-    },
-    withApiKey(options)
-  );
+  const opts = withApiKey(options);
+  const body = {
+    categories: request.categories,
+    period: request.period ?? "30",
+    maxResults: request.maxResults ?? 50,
+    start: request.start ?? 0,
+  };
 
-  if (!res.ok) {
-    throw new Error(`Sync failed: ${res.status}`);
+  let lastRes = await client.api.v1.sync.$post({ json: body }, opts);
+  updateRateLimitFromResponse(lastRes);
+  let retryCount = 0;
+
+  while (!lastRes.ok && lastRes.status === 429 && retryCount < SYNC_RATE_LIMIT_MAX_RETRIES) {
+    const retryAfterSecRaw = lastRes.headers.get("retry-after");
+    const retryAfterSec = retryAfterSecRaw ? parseInt(retryAfterSecRaw, 10) : NaN;
+    const delayMs =
+      Number.isNaN(retryAfterSec) || retryAfterSec <= 0
+        ? EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS
+        : Math.max(1000, retryAfterSec * 1000);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    retryCount += 1;
+    lastRes = await client.api.v1.sync.$post({ json: body }, opts);
+    updateRateLimitFromResponse(lastRes);
   }
 
-  // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される
-  return res.json();
+  if (!lastRes.ok) {
+    throw new Error(`Sync failed: ${lastRes.status}`);
+  }
+
+  return lastRes.json();
 };
 
 /**
