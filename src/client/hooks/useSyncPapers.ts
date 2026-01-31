@@ -98,17 +98,18 @@ const createSyncQueryKey = (params: SyncParams) =>
  *
  * @param params - 同期パラメータ（categories, period, apiKey）
  * @param options - コールバックオプション
- * @returns { sync, isSyncing, error } - 同期関数と状態
+ * @returns { sync, isSyncing, isEmbeddingBackfilling, error } - 同期関数と状態（isSyncing は論文取得中のみ）
  *
  * @example
  * ```tsx
- * const { sync, isSyncing, error } = useSyncPapers(
+ * const { sync, isSyncing, isEmbeddingBackfilling, error } = useSyncPapers(
  *   { categories: ["cs.AI"], period: "30" },
  *   { onError: (err) => console.error(err) }
  * );
  *
  * // ボタン押下時に実行
  * <SyncButton isSyncing={isSyncing} onSync={sync} />
+ * // Embedding 取得中は SyncStatusBar 等で isEmbeddingBackfilling を表示
  * ```
  */
 export const useSyncPapers = (
@@ -136,13 +137,16 @@ export const useSyncPapers = (
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   /** Embedding バックフィル実行中（ボタン「同期中」表示用） */
   const [isEmbeddingBackfilling, setIsEmbeddingBackfilling] = useState(false);
+  /** Embedding バックフィル進捗（取得中は「N/M件」表示用） */
+  const [embeddingBackfillProgress, setEmbeddingBackfillProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   // 同期フラグ（レースコンディション防止用）
   // useState は非同期バッチ更新のため、連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
   // レートリミット管理: 最後のリクエスト時刻を記録
   const lastRequestTimeRef = useRef<number>(0);
-  /** この sync レスポンスではすでに backfill を開始したか（storePapers 更新で effect が再実行されても二重起動しない） */
-  const lastBackfillDataRef = useRef<SyncResponse | null>(null);
   /** effect 内で getState が使えない場合（テスト等）のフォールバック用。常に最新の storePapers を指す */
   const storePapersRef = useRef(storePapers);
   storePapersRef.current = storePapers;
@@ -209,29 +213,8 @@ export const useSyncPapers = (
     setLastSyncedAt(now()); // 最終同期日時を更新
     onSuccessRef.current?.(data);
 
-    // Embedding が無い論文をバックグラウンドで補完（API Key があるときのみ）
-    const allPapersMap = new Map(currentStorePapers.map((p) => [p.id, p]));
-    for (const p of data.papers) {
-      allPapersMap.set(p.id, p);
-    }
-    const withoutEmbedding = Array.from(allPapersMap.values()).filter(
-      (p) => !p.embedding || p.embedding.length === 0
-    );
-
-    if (withoutEmbedding.length > 0 && lastBackfillDataRef.current !== data) {
-      lastBackfillDataRef.current = data;
-      setIsEmbeddingBackfilling(true);
-      getDecryptedApiKey()
-        .then((apiKey) => {
-          if (!apiKey) return;
-          return runBackfillEmbeddings(withoutEmbedding, {
-            fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
-            addPaper,
-          }).catch(() => {});
-        })
-        .finally(() => setIsEmbeddingBackfilling(false));
-    }
-  }, [data, addPaper, addPapers, setLastSyncedAt]);
+    // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」ボタンから実行する。
+  }, [data, addPapers, setLastSyncedAt]);
 
   // エラー時の処理
   useEffect(() => {
@@ -324,24 +307,7 @@ export const useSyncPapers = (
         setLastSyncedAt(now());
         onSuccessRef.current?.(response);
 
-        const allMap = new Map(storePapers.map((p) => [p.id, p]));
-        for (const p of response.papers) allMap.set(p.id, p);
-        const withoutEmbedding = Array.from(allMap.values()).filter(
-          (p) => !p.embedding || p.embedding.length === 0
-        );
-        if (withoutEmbedding.length > 0) {
-          setIsEmbeddingBackfilling(true);
-          getDecryptedApiKey()
-            .then((key) => {
-              if (!key) return;
-              return runBackfillEmbeddings(withoutEmbedding, {
-                fetchEmbedding: (text) =>
-                  embeddingApi({ text }, { apiKey: key }).then((r) => r.embedding),
-                addPaper,
-              }).catch(() => {});
-            })
-            .finally(() => setIsEmbeddingBackfilling(false));
-        }
+        // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」から実行する。
       }
     } catch (err) {
       onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
@@ -349,7 +315,7 @@ export const useSyncPapers = (
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [totalResults, nextStart, storePapers, params, addPaper, addPapers, setLastSyncedAt]);
+  }, [totalResults, nextStart, storePapers, params, addPapers, setLastSyncedAt]);
 
   /**
    * 同期期間内の未取得論文を順次取得する（バックグラウンド実行）
@@ -395,7 +361,9 @@ export const useSyncPapers = (
             maxResults: INCREMENTAL_BATCH_SIZE,
           }));
 
-          const rawResponses = await Promise.all(requests.map((req) => syncApi(req, { apiKey })));
+          const rawResponses = await Promise.all(
+            requests.map((req) => syncApi(req, { apiKey, signal: abortController.signal }))
+          );
 
           const responses = rawResponses.map(normalizeSyncResponse);
           const firstTotal = responses[0]?.totalResults ?? 0;
@@ -451,6 +419,11 @@ export const useSyncPapers = (
 
           await fetchNextRound();
         } catch (err) {
+          const isAbort = err instanceof DOMException && err.name === "AbortError";
+          if (isAbort) {
+            console.log("[useSyncPapers] Incremental sync aborted by user");
+            return;
+          }
           const error = err instanceof Error ? err : new Error(String(err));
           console.error("[useSyncPapers] Incremental sync error:", error);
           errorIncrementalSync();
@@ -460,6 +433,11 @@ export const useSyncPapers = (
       };
 
       fetchNextRound().catch((err) => {
+        const isAbort = err instanceof DOMException && err.name === "AbortError";
+        if (isAbort) {
+          console.log("[useSyncPapers] Incremental sync aborted by user");
+          return;
+        }
         const error = err instanceof Error ? err : new Error(String(err));
         console.error("[useSyncPapers] Incremental sync fatal error:", error);
         errorIncrementalSync();
@@ -485,6 +463,49 @@ export const useSyncPapers = (
   // まだ論文があるかどうか
   const hasMore = totalResults === null || nextStart < totalResults;
 
+  /**
+   * Embedding 未設定の論文を手動で補完する（同期ボタンから切り離した処理）
+   * SyncStatusBar の「Embeddingを補完」ボタンから呼ぶ
+   */
+  const runEmbeddingBackfill = useCallback(async (): Promise<void> => {
+    const papers =
+      typeof usePaperStore.getState === "function"
+        ? usePaperStore.getState().papers
+        : storePapersRef.current;
+    const withoutEmbedding = papers.filter(
+      (p) => !p.embedding || p.embedding.length === 0
+    );
+    if (withoutEmbedding.length === 0) return;
+
+    // クリック直後に「取得中」を表示する（getDecryptedApiKey の完了を待たない）
+    setIsEmbeddingBackfilling(true);
+    setEmbeddingBackfillProgress({ completed: 0, total: withoutEmbedding.length });
+
+    const apiKey = await getDecryptedApiKey();
+    if (!apiKey) {
+      setIsEmbeddingBackfilling(false);
+      setEmbeddingBackfillProgress(null);
+      return;
+    }
+
+    try {
+      await runBackfillEmbeddings(withoutEmbedding, {
+        fetchEmbedding: (text) =>
+          embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
+        addPaper,
+        getRecommendedConcurrency: () => 1,
+        onProgress: (completed, total) => {
+          setEmbeddingBackfillProgress({ completed, total });
+        },
+      });
+    } catch {
+      // エラーは呼び出し元で toast 等表示する想定。ここでは状態だけ戻す
+    } finally {
+      setIsEmbeddingBackfilling(false);
+      setEmbeddingBackfillProgress(null);
+    }
+  }, [addPaper]);
+
   return {
     /** 同期を実行する関数（最初から取得） */
     sync,
@@ -492,8 +513,14 @@ export const useSyncPapers = (
     syncMore,
     /** 同期期間内の未取得論文を順次取得する関数（バックグラウンド実行） */
     syncIncremental,
-    /** 同期中かどうか（論文取得中 or Embedding バックフィル中） */
-    isSyncing: isFetching || isLoadingMore || isEmbeddingBackfilling,
+    /** Embedding 未設定の論文を手動で補完する関数（SyncStatusBar の「Embeddingを補完」から呼ぶ） */
+    runEmbeddingBackfill,
+    /** 論文取得中かどうか（初回 sync / syncMore。Embedding バックフィルは含まない） */
+    isSyncing: isFetching || isLoadingMore,
+    /** Embedding バックフィル実行中かどうか（SyncStatusBar 等で表示用） */
+    isEmbeddingBackfilling,
+    /** Embedding バックフィル進捗（取得中のみ。SyncStatusBar で「N/M件」表示） */
+    embeddingBackfillProgress,
     /** まだ論文があるかどうか */
     hasMore,
     /** 全件数 */

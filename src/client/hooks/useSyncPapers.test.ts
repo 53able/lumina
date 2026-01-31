@@ -37,15 +37,33 @@ const mockUpdateProgress = vi.fn();
 const mockCompleteIncrementalSync = vi.fn();
 const mockErrorIncrementalSync = vi.fn();
 
+/** runEmbeddingBackfill 用: getState().papers で返すストアの論文（addPapers で更新される） */
+const papersRef = {
+  current: [] as Array<{ id: string; title?: string; abstract?: string; embedding?: number[] }>,
+};
+
 vi.mock("../stores/paperStore", () => ({
-  usePaperStore: (selector: (s: unknown) => unknown) => {
-    const state = {
-      papers: [],
-      addPapers: mockAddPapers,
-      addPaper: mockAddPaper,
-    };
-    return selector ? selector(state) : state;
-  },
+  usePaperStore: Object.assign(
+    (selector: (s: unknown) => unknown) => {
+      const state = {
+        get papers() {
+          return papersRef.current;
+        },
+        addPapers: mockAddPapers,
+        addPaper: mockAddPaper,
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+        get papers() {
+          return papersRef.current;
+        },
+        addPapers: mockAddPapers,
+        addPaper: mockAddPaper,
+      }),
+    }
+  ),
 }));
 
 vi.mock("../stores/settingsStore", () => ({
@@ -103,6 +121,12 @@ const createMockResponse = (start: number, totalResults: number) => {
 describe("useSyncPapers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    papersRef.current = [];
+    mockAddPapers.mockImplementation(
+      (newPapers: Array<{ id: string; embedding?: number[] }>) => {
+        papersRef.current = [...papersRef.current, ...newPapers];
+      }
+    );
     mockGetDecryptedApiKey.mockResolvedValue("test-api-key");
     mockRunBackfillEmbeddings.mockResolvedValue(undefined);
     vi.useFakeTimers();
@@ -150,11 +174,9 @@ describe("useSyncPapers", () => {
     });
   });
 
-  describe("同期成功後のEmbeddingバックフィル", () => {
-    it("sync成功後、Embeddingが無い論文を引数にrunBackfillEmbeddingsが1回呼ばれる", async () => {
+  describe("同期とEmbeddingバックフィルの切り離し", () => {
+    it("sync成功後はrunBackfillEmbeddingsが呼ばれない（Embedding補完は手動ボタンから）", async () => {
       mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
-      mockRunBackfillEmbeddings.mockResolvedValue(undefined);
-      mockEmbeddingApi.mockResolvedValue({ embedding: Array(1536).fill(0.1) });
 
       const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
         wrapper,
@@ -165,23 +187,13 @@ describe("useSyncPapers", () => {
       });
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(20_000);
-      });
-
-      await act(async () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(mockRunBackfillEmbeddings).toHaveBeenCalled();
-      const firstCall = mockRunBackfillEmbeddings.mock.calls[0] as [unknown];
-      const [papersPassed] = firstCall;
-      expect(Array.isArray(papersPassed)).toBe(true);
-      const papers = papersPassed as Array<{ embedding?: number[] }>;
-      const allWithoutEmbedding = papers.every((p) => !p.embedding || p.embedding.length === 0);
-      expect(allWithoutEmbedding).toBe(true);
+      expect(mockRunBackfillEmbeddings).not.toHaveBeenCalled();
     });
 
-    it("sync成功後バックフィル実行中は isSyncing が true である", async () => {
+    it("runEmbeddingBackfill呼び出し後バックフィル実行中は isEmbeddingBackfilling が true である", async () => {
       mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
       const backfillResolveRef = { current: null as (() => void) | null };
       mockRunBackfillEmbeddings.mockImplementation(
@@ -198,25 +210,29 @@ describe("useSyncPapers", () => {
       await act(async () => {
         result.current.sync();
       });
-
       await act(async () => {
         await vi.runAllTimersAsync();
       });
+      expect(result.current.isEmbeddingBackfilling).toBe(false);
 
-      expect(result.current.isSyncing).toBe(true);
+      await act(async () => {
+        result.current.runEmbeddingBackfill();
+      });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      expect(result.current.isEmbeddingBackfilling).toBe(true);
 
       await act(async () => {
         if (backfillResolveRef.current) backfillResolveRef.current();
       });
-
       await act(async () => {
         await vi.runAllTimersAsync();
       });
-
-      expect(result.current.isSyncing).toBe(false);
+      expect(result.current.isEmbeddingBackfilling).toBe(false);
     });
 
-    it("バックフィル完了後は isSyncing が false である", async () => {
+    it("runEmbeddingBackfillはEmbeddingが無い論文を引数にrunBackfillEmbeddingsを1回呼ぶ", async () => {
       mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
       mockRunBackfillEmbeddings.mockResolvedValue(undefined);
 
@@ -227,12 +243,24 @@ describe("useSyncPapers", () => {
       await act(async () => {
         result.current.sync();
       });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      expect(mockRunBackfillEmbeddings).not.toHaveBeenCalled();
 
+      await act(async () => {
+        result.current.runEmbeddingBackfill();
+      });
       await act(async () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(result.current.isSyncing).toBe(false);
+      expect(mockRunBackfillEmbeddings).toHaveBeenCalledTimes(1);
+      const [papersPassed] = mockRunBackfillEmbeddings.mock.calls[0] as [unknown];
+      expect(Array.isArray(papersPassed)).toBe(true);
+      const papers = papersPassed as Array<{ embedding?: number[] }>;
+      const allWithoutEmbedding = papers.every((p) => !p.embedding || p.embedding.length === 0);
+      expect(allWithoutEmbedding).toBe(true);
     });
   });
 });
