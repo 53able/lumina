@@ -180,5 +180,59 @@ describe("useSyncPapers", () => {
       const allWithoutEmbedding = papers.every((p) => !p.embedding || p.embedding.length === 0);
       expect(allWithoutEmbedding).toBe(true);
     });
+
+    it("sync成功後バックフィル実行中は isSyncing が true である", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
+      const backfillResolveRef = { current: null as (() => void) | null };
+      mockRunBackfillEmbeddings.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            backfillResolveRef.current = resolve;
+          })
+      );
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        result.current.sync();
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.isSyncing).toBe(true);
+
+      await act(async () => {
+        if (backfillResolveRef.current) backfillResolveRef.current();
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.isSyncing).toBe(false);
+    });
+
+    it("バックフィル完了後は isSyncing が false である", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
+      mockRunBackfillEmbeddings.mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        result.current.sync();
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.isSyncing).toBe(false);
+    });
   });
 });
