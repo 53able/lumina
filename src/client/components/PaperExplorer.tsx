@@ -4,6 +4,7 @@ import type { Paper } from "../../shared/schemas/index";
 import { useInteractionContext } from "../contexts/InteractionContext";
 import { usePaperFilter } from "../hooks/usePaperFilter";
 import { cn } from "../lib/utils";
+import { usePaperStore } from "../stores/paperStore";
 import { CategoryFilter } from "./CategoryFilter";
 import { PaperList } from "./PaperList";
 import { PaperSearch } from "./PaperSearch";
@@ -71,36 +72,47 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     filterPapers,
   } = usePaperFilter();
 
-  // 論文とローディング状態（親コンポーネントとの連携が必要なためローカルstate）
-  const [papers, setPapers] = useState<Paper[]>(initialPapers);
+  // 検索後かどうか（displayPapers の算出に必要なので先に定義）
+  const hasSearched = searchQuery !== null;
+
+  // 一覧表示時は store を直接購読（backfill で embedding が付与されても即反映）
+  const storePapers = usePaperStore((s) => s.papers);
+  // 検索結果用のローカル state（検索時のみ使用）
+  const [searchResultPapers, setSearchResultPapers] = useState<Paper[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // initialPapers が変更されたら papers state を更新
-  useEffect(() => {
-    setPapers(initialPapers);
-  }, [initialPapers]);
+  // 検索していないときは store（未ロード時は initialPapers にフォールバック）、検索後は検索結果
+  const displayPapers = hasSearched
+    ? searchResultPapers
+    : storePapers.length > 0
+      ? storePapers
+      : initialPapers;
 
-  // ストックしてある論文（initialPapers）から利用可能なカテゴリを抽出
+  // initialPapers が変更されたら searchResultPapers の初期値を更新（検索クリア時に使う）
+  useEffect(() => {
+    if (!hasSearched) setSearchResultPapers(initialPapers);
+  }, [initialPapers, hasSearched]);
+
+  // ストックしてある論文（表示元）から利用可能なカテゴリを抽出
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
-    for (const paper of initialPapers) {
+    for (const paper of displayPapers) {
       for (const cat of paper.categories) {
         categories.add(cat);
       }
     }
-    // ソートして返す
     return [...categories].sort();
-  }, [initialPapers]);
+  }, [displayPapers]);
 
   // カテゴリ + いいね/ブックマークでフィルタリングした論文リスト
   const filteredPapers = useMemo(
-    () => filterPapers(papers, likedPaperIds, bookmarkedPaperIds),
-    [papers, filterPapers, likedPaperIds, bookmarkedPaperIds]
+    () => filterPapers(displayPapers, likedPaperIds, bookmarkedPaperIds),
+    [displayPapers, filterPapers, likedPaperIds, bookmarkedPaperIds]
   );
 
   // いいね/ブックマークの件数
-  const likedCount = papers.filter((p) => likedPaperIds.has(p.id)).length;
-  const bookmarkedCount = papers.filter((p) => bookmarkedPaperIds.has(p.id)).length;
+  const likedCount = displayPapers.filter((p) => likedPaperIds.has(p.id)).length;
+  const bookmarkedCount = displayPapers.filter((p) => bookmarkedPaperIds.has(p.id)).length;
 
   // externalQuery が変更されたら URL の searchQuery を同期（検索履歴からの再検索用）
   useEffect(() => {
@@ -116,7 +128,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     try {
       if (onSearch) {
         const results = await onSearch(query);
-        setPapers(results);
+        setSearchResultPapers(results);
       }
     } finally {
       setIsLoading(false);
@@ -128,16 +140,13 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
    */
   const handleClear = () => {
     setSearchQuery(null);
-    setPapers(initialPapers);
+    setSearchResultPapers(initialPapers);
     clearAllFilters(); // URLフィルターもクリア
     onClear?.();
   };
 
   // タイトルの決定
   const title = searchQuery ? `"${searchQuery}" の検索結果` : "論文を探す";
-
-  // 検索後かどうか
-  const hasSearched = searchQuery !== null;
 
   return (
     <div className="space-y-8">
@@ -173,7 +182,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         <PaperSearch onSearch={handleSearch} isLoading={isLoading} />
 
         {/* フィルター（論文がある場合、またはフィルターが有効な場合に表示） */}
-        {(initialPapers.length > 0 || filterMode !== "all" || selectedCategories.size > 0) && (
+        {(displayPapers.length > 0 || filterMode !== "all" || selectedCategories.size > 0) && (
           <div className="flex flex-wrap items-center gap-4 pt-2">
             {/* いいね/ブックマークフィルター */}
             <div className="flex items-center gap-2">
