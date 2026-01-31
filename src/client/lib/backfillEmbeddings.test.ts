@@ -6,6 +6,7 @@
 import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
+import { EmbeddingRateLimitError } from "./api";
 import { runBackfillEmbeddings } from "./backfillEmbeddings";
 
 /** 日付ヘルパー */
@@ -53,7 +54,7 @@ describe("runBackfillEmbeddings", () => {
     await runBackfillEmbeddings(papers, {
       fetchEmbedding: mockFetchEmbedding,
       addPaper: mockAddPaper,
-      concurrency: 3,
+      getRecommendedConcurrency: () => 3,
     });
 
     expect(mockFetchEmbedding).toHaveBeenCalledTimes(2);
@@ -80,13 +81,14 @@ describe("runBackfillEmbeddings", () => {
     await runBackfillEmbeddings(papers, {
       fetchEmbedding: mockFetchEmbedding,
       addPaper: mockAddPaper,
+      getRecommendedConcurrency: () => 2,
     });
 
     expect(mockFetchEmbedding).not.toHaveBeenCalled();
     expect(mockAddPaper).not.toHaveBeenCalled();
   });
 
-  it("並列上限: 同時実行数がconcurrencyを超えない（5件・concurrency=2のとき同時に2まで）", async () => {
+  it("並列上限: getRecommendedConcurrency で 2 を返すとき同時実行数が2を超えない", async () => {
     let concurrentCount = 0;
     let maxConcurrent = 0;
     mockFetchEmbedding.mockImplementation(async () => {
@@ -104,17 +106,43 @@ describe("runBackfillEmbeddings", () => {
     await runBackfillEmbeddings(papers, {
       fetchEmbedding: mockFetchEmbedding,
       addPaper: mockAddPaper,
-      concurrency: 2,
+      getRecommendedConcurrency: () => 2,
     });
 
     expect(maxConcurrent).toBeLessThanOrEqual(2);
     expect(mockAddPaper).toHaveBeenCalledTimes(5);
   });
 
+  it("getRecommendedConcurrency で 5 を返すとき同時実行数が5を超えない", async () => {
+    let concurrentCount = 0;
+    let maxConcurrent = 0;
+    mockFetchEmbedding.mockImplementation(async () => {
+      concurrentCount += 1;
+      maxConcurrent = Math.max(maxConcurrent, concurrentCount);
+      await new Promise((r) => setTimeout(r, 10));
+      concurrentCount -= 1;
+      return Array(1536).fill(0.1);
+    });
+
+    const papers: Paper[] = Array.from({ length: 12 }, (_, i) =>
+      createPaperWithoutEmbedding(`2401.0000${i}`, `Title ${i}`, `Abstract ${i}`)
+    );
+
+    await runBackfillEmbeddings(papers, {
+      fetchEmbedding: mockFetchEmbedding,
+      addPaper: mockAddPaper,
+      getRecommendedConcurrency: () => 5,
+    });
+
+    expect(maxConcurrent).toBeLessThanOrEqual(5);
+    expect(mockAddPaper).toHaveBeenCalledTimes(12);
+  });
+
   it("対象が0件（空配列）のとき、fetchEmbeddingもaddPaperも呼ばれない", async () => {
     await runBackfillEmbeddings([], {
       fetchEmbedding: mockFetchEmbedding,
       addPaper: mockAddPaper,
+      getRecommendedConcurrency: () => 1,
     });
 
     expect(mockFetchEmbedding).not.toHaveBeenCalled();
@@ -128,10 +156,37 @@ describe("runBackfillEmbeddings", () => {
     await runBackfillEmbeddings([paper], {
       fetchEmbedding: mockFetchEmbedding,
       addPaper: mockAddPaper,
+      getRecommendedConcurrency: () => 1,
     });
 
     expect(mockFetchEmbedding).toHaveBeenCalledTimes(1);
     expect(mockFetchEmbedding).toHaveBeenCalledWith("Title\n\nAbstract");
     expect(mockAddPaper).toHaveBeenCalledTimes(1);
+  });
+
+  it("429 が出た時点で新規取得を止め、完了分だけ保存して resolve する（次回再開）", async () => {
+    const papers: Paper[] = [
+      createPaperWithoutEmbedding("2401.00001", "Title One", "Abstract One"),
+      createPaperWithoutEmbedding("2401.00002", "Title Two", "Abstract Two"),
+      createPaperWithoutEmbedding("2401.00003", "Title Three", "Abstract Three"),
+    ];
+    mockFetchEmbedding
+      .mockResolvedValueOnce(Array(1536).fill(0.1))
+      .mockRejectedValueOnce(new EmbeddingRateLimitError());
+
+    await runBackfillEmbeddings(papers, {
+      fetchEmbedding: mockFetchEmbedding,
+      addPaper: mockAddPaper,
+      getRecommendedConcurrency: () => 2,
+    });
+
+    expect(mockFetchEmbedding).toHaveBeenCalledTimes(2);
+    expect(mockFetchEmbedding).toHaveBeenNthCalledWith(1, "Title One\n\nAbstract One");
+    expect(mockFetchEmbedding).toHaveBeenNthCalledWith(2, "Title Two\n\nAbstract Two");
+    expect(mockAddPaper).toHaveBeenCalledTimes(1);
+    expect(mockAddPaper).toHaveBeenCalledWith({
+      ...papers[0],
+      embedding: expect.any(Array),
+    });
   });
 });
