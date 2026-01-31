@@ -115,4 +115,50 @@ describe("ApiSettings", () => {
       expect(input).toHaveAttribute("type", "password");
     });
   });
+
+  describe("利用可能スイッチ", () => {
+    it("APIキー設定済みのとき「利用可能」のスイッチが表示され、有効（操作可能）である", async () => {
+      const { ApiSettings } = await import("./ApiSettings");
+      useSettingsStore.getState().setApiKey("sk-existing-key");
+
+      render(<ApiSettings />);
+
+      const switchEl = screen.getByRole("switch", { name: /利用可能/i });
+      expect(switchEl).toBeInTheDocument();
+      expect(switchEl).not.toBeDisabled();
+    });
+
+    it("APIキー未設定のとき「利用可能」スイッチは無効（disabled）である", async () => {
+      const { ApiSettings } = await import("./ApiSettings");
+      render(<ApiSettings />);
+
+      const switchEl = screen.getByRole("switch", { name: /利用可能/i });
+      expect(switchEl).toBeDisabled();
+    });
+
+    it("利用可能スイッチを OFF にするとストアの apiEnabled が false になる", async () => {
+      const { ApiSettings } = await import("./ApiSettings");
+      const user = userEvent.setup();
+      useSettingsStore.getState().setApiKey("sk-existing-key");
+      useSettingsStore.getState().setApiEnabled(true);
+
+      render(<ApiSettings />);
+
+      const switchEl = screen.getByRole("switch", { name: /利用可能/i });
+      await user.click(switchEl);
+
+      expect(useSettingsStore.getState().apiEnabled).toBe(false);
+    });
+
+    it("apiEnabled が false のとき、自動要約スイッチが無効（disabled）である", async () => {
+      const { ApiSettings } = await import("./ApiSettings");
+      useSettingsStore.getState().setApiKey("sk-existing-key");
+      useSettingsStore.getState().setApiEnabled(false);
+
+      render(<ApiSettings />);
+
+      const autoSummarySwitch = screen.getByRole("switch", { name: /自動要約/i });
+      expect(autoSummarySwitch).toBeDisabled();
+    });
+  });
 });

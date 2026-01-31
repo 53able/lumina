@@ -193,6 +193,57 @@ describe("settingsStore", () => {
     });
   });
 
+  describe("API利用可能", () => {
+    it("正常系: apiEnabled のデフォルトが true である", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      const state = useSettingsStore.getState();
+
+      expect(state.apiEnabled).toBe(true);
+    });
+
+    it("正常系: setApiEnabled(false) で apiEnabled が false になる", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setApiEnabled(false);
+
+      expect(useSettingsStore.getState().apiEnabled).toBe(false);
+    });
+
+    it("正常系: canUseApi() は APIキー未設定なら false", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      expect(useSettingsStore.getState().canUseApi()).toBe(false);
+    });
+
+    it("正常系: canUseApi() は キー設定かつ apiEnabled が true なら true", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setApiKey("sk-test");
+      useSettingsStore.getState().setApiEnabled(true);
+
+      expect(useSettingsStore.getState().canUseApi()).toBe(true);
+    });
+
+    it("正常系: canUseApi() は キー設定かつ apiEnabled が false なら false", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setApiKey("sk-test");
+      useSettingsStore.getState().setApiEnabled(false);
+
+      expect(useSettingsStore.getState().canUseApi()).toBe(false);
+    });
+
+    it("正常系: resetAllSettings() 後に apiEnabled が true に戻る", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setApiEnabled(false);
+      useSettingsStore.getState().resetAllSettings();
+
+      expect(useSettingsStore.getState().apiEnabled).toBe(true);
+    });
+  });
+
   describe("設定のリセット", () => {
     it("正常系: 全設定をリセットできる", async () => {
       const { useSettingsStore } = await import("./settingsStore");
