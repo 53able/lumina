@@ -32,6 +32,8 @@ const client = hc<AppType>(getBaseUrl());
 interface ApiOptions {
   /** OpenAI APIキー（オプション） */
   apiKey?: string;
+  /** リクエスト中止用の AbortSignal（同期中止など） */
+  signal?: AbortSignal;
 }
 
 /**
@@ -47,11 +49,18 @@ const withApiKey = (options?: ApiOptions) => {
 };
 
 /**
+ * 復号済み API key のキャッシュ（PBKDF2 復号の遅延を避ける）
+ * ストアの apiKey が変わったらキャッシュは無効になる
+ */
+let cachedDecryptedKey: { encrypted: string; plain: string } | null = null;
+
+/**
  * settingsStore から復号化された API key を取得する
  *
  * @description
  * API 呼び出し前にこの関数を使用して平文の API key を取得し、
  * searchApi/syncApi/summaryApi の options に渡す。
+ * 同一セッションで同じ暗号文ならキャッシュを返す（復号は PBKDF2 で重いため）。
  *
  * @returns 平文の API key（未設定の場合は undefined）
  *
@@ -64,9 +73,19 @@ const withApiKey = (options?: ApiOptions) => {
 export const getDecryptedApiKey = async (): Promise<string | undefined> => {
   const store = useSettingsStore.getState();
   if (!store.canUseApi()) {
+    cachedDecryptedKey = null;
     return undefined;
   }
+  const stored = store.apiKey;
+  if (!stored) {
+    cachedDecryptedKey = null;
+    return undefined;
+  }
+  if (cachedDecryptedKey?.encrypted === stored) {
+    return cachedDecryptedKey.plain || undefined;
+  }
   const plainKey = await store.getApiKeyAsync();
+  cachedDecryptedKey = { encrypted: stored, plain: plainKey };
   return plainKey || undefined;
 };
 
@@ -106,6 +125,7 @@ let rateLimitResetAtMs: number | null = null;
  * sync / embedding は同一レートリミットバケットのため、どちらのレスポンスでも更新する。
  */
 const updateRateLimitFromResponse = (res: Response): void => {
+  if (!res?.headers) return;
   const remainingRaw = res.headers.get("RateLimit-Remaining");
   const resetRaw = res.headers.get("RateLimit-Reset");
   if (remainingRaw !== null) {
@@ -115,8 +135,10 @@ const updateRateLimitFromResponse = (res: Response): void => {
   if (resetRaw !== null) {
     const resetSec = parseInt(resetRaw, 10);
     if (!Number.isNaN(resetSec)) {
-      // 秒で返る場合は ms に（10桁以上ならすでに ms の可能性）
-      rateLimitResetAtMs = resetSec < 1e10 ? resetSec * 1000 : resetSec;
+      // 絶対時刻(Unix秒)なら 1e9 以上。それ未満は「残り秒数」として now + 秒 に解釈する
+      const asAbsoluteMs = resetSec < 1e10 ? resetSec * 1000 : resetSec;
+      rateLimitResetAtMs =
+        resetSec < 1e9 ? Date.now() + resetSec * 1000 : asAbsoluteMs;
     }
   }
 };
@@ -148,45 +170,39 @@ const getEmbeddingDelayMs = (): number => {
  * 送信間隔を守る。バックエンドの RateLimit-* に応じて待機時間をオートスケールする。
  */
 const waitForEmbeddingInterval = async (): Promise<void> => {
-  const delayMs = getEmbeddingDelayMs();
+  const intervalMs = getEmbeddingDelayMs();
+  const concurrency = getRecommendedConcurrency();
+  // 並列 N で「1リクエスト/interval」を守るため、バッチ間隔は N * interval にする
+  const delayMs = intervalMs * concurrency;
   if (delayMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 };
 
-/** 429 リトライ: 最大回数 */
-const EMBEDDING_RATE_LIMIT_MAX_RETRIES = 5;
-/** 429 リトライ: 初回待機 ms（指数バックオフの基準） */
-const EMBEDDING_RATE_LIMIT_INITIAL_DELAY_MS = 1000;
-/** 429 リトライ: 指数バックオフの倍率 */
-const EMBEDDING_RATE_LIMIT_BACKOFF_MULTIPLIER = 2;
-/** Retry-After が 0 や無効のときの最低待機 ms（スラッシング防止） */
-const EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS = 60_000;
-
-/** 共有バックオフ: 429 を受けたら全 embedding 呼び出しがこの時刻まで待ってから再送する */
-let embeddingBackOffUntil = 0;
-
 /**
- * 共有バックオフを考慮して待機する。429 時に全リクエストが同じ時刻まで待つことでスラッシングを防ぐ。
+ * Embedding API が 429（Too Many Requests）を返したときに投げるエラー。
+ * バックフィルではこのエラーで「今回の取得を止め、次回『Embeddingを補完』で続きから再開する」と判定する。
  */
-const waitForEmbeddingBackOff = async (): Promise<void> => {
-  const now = Date.now();
-  if (now < embeddingBackOffUntil) {
-    const waitMs = embeddingBackOffUntil - now;
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+export class EmbeddingRateLimitError extends Error {
+  readonly status = 429;
+
+  constructor(message = "Embeddingのレート制限に達しました。次回「Embeddingを補完」で続きから取得できます。") {
+    super(message);
+    this.name = "EmbeddingRateLimitError";
   }
-};
+}
 
 /**
  * Embedding API
  *
  * テキストから Embedding ベクトルを生成する。
- * 429（Too Many Requests）のときは共有バックオフ＋Retry-After（または指数バックオフ）でリトライする。
+ * 429 のときはリトライせず EmbeddingRateLimitError を投げる。呼び出し元（バックフィル）で停止し、次回再開する。
  *
  * @param request { text: string } 対象テキスト（1〜8000文字）
  * @param options APIオプション
  * @returns embedding 配列（1536次元）
- * @throws Error APIエラー時（リトライし尽くした場合を含む）
+ * @throws EmbeddingRateLimitError 429 時
+ * @throws Error その他の API エラー時
  */
 export const embeddingApi = async (
   request: { text: string },
@@ -194,34 +210,16 @@ export const embeddingApi = async (
 ): Promise<{ embedding: number[] }> => {
   const opts = withApiKey(options);
 
-  await waitForEmbeddingBackOff();
   await waitForEmbeddingInterval();
-  let lastRes = await client.api.v1.embedding.$post({ json: request }, opts);
-  updateRateLimitFromResponse(lastRes);
-  let retryCount = 0;
+  const res = await client.api.v1.embedding.$post({ json: request }, opts);
+  updateRateLimitFromResponse(res);
 
-  while (!lastRes.ok && lastRes.status === 429 && retryCount < EMBEDDING_RATE_LIMIT_MAX_RETRIES) {
-    const retryAfterSecRaw = lastRes.headers.get("retry-after");
-    const retryAfterSec = retryAfterSecRaw ? parseInt(retryAfterSecRaw, 10) : NaN;
-    const delayMs =
-      Number.isNaN(retryAfterSec) || retryAfterSec <= 0
-        ? Math.max(
-            EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS,
-            EMBEDDING_RATE_LIMIT_INITIAL_DELAY_MS *
-              EMBEDDING_RATE_LIMIT_BACKOFF_MULTIPLIER ** retryCount
-          )
-        : Math.max(1000, retryAfterSec * 1000);
-
-    embeddingBackOffUntil = Math.max(embeddingBackOffUntil, Date.now() + delayMs);
-    await waitForEmbeddingBackOff();
-    await waitForEmbeddingInterval();
-    retryCount += 1;
-    lastRes = await client.api.v1.embedding.$post({ json: request }, opts);
-    updateRateLimitFromResponse(lastRes);
+  if (!res.ok && res.status === 429) {
+    throw new EmbeddingRateLimitError();
   }
 
-  if (!lastRes.ok) {
-    const error = await lastRes.json();
+  if (!res.ok) {
+    const error = await res.json();
     const message =
       error && typeof error === "object" && "error" in error
         ? String((error as { error: unknown }).error)
@@ -229,7 +227,7 @@ export const embeddingApi = async (
     throw new Error(message);
   }
 
-  return lastRes.json();
+  return res.json();
 };
 
 /**
@@ -258,7 +256,7 @@ const SYNC_RATE_LIMIT_MAX_RETRIES = 3;
  * @throws Error APIエラー時
  */
 export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
-  const opts = withApiKey(options);
+  const opts = { ...withApiKey(options), signal: options?.signal };
   const body = {
     categories: request.categories,
     period: request.period ?? "30",
@@ -271,6 +269,9 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
   let retryCount = 0;
 
   while (!lastRes.ok && lastRes.status === 429 && retryCount < SYNC_RATE_LIMIT_MAX_RETRIES) {
+    if (opts.signal?.aborted) {
+      throw new DOMException("Sync aborted", "AbortError");
+    }
     const retryAfterSecRaw = lastRes.headers.get("retry-after");
     const retryAfterSec = retryAfterSecRaw ? parseInt(retryAfterSecRaw, 10) : NaN;
     const delayMs =
