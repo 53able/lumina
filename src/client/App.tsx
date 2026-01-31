@@ -8,6 +8,7 @@ import { PaperExplorer } from "./components/PaperExplorer";
 import { SearchHistory } from "./components/SearchHistory";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SyncButton } from "./components/SyncButton";
+import { SyncStatusBar } from "./components/SyncStatusBar";
 import { Button } from "./components/ui/button";
 import {
   Sheet,
@@ -178,7 +179,10 @@ const HomePage: FC = () => {
   const {
     sync: syncPapers,
     syncMore,
+    runEmbeddingBackfill,
     isSyncing,
+    isEmbeddingBackfilling,
+    embeddingBackfillProgress,
     hasMore: hasMorePapers,
   } = useSyncPapers(
     {
@@ -392,6 +396,13 @@ const HomePage: FC = () => {
         {/* Main Content - 論文リスト */}
         <main className="flex-1 overflow-y-auto min-w-0 relative z-10">
           <div className="px-6 py-8 lg:px-12 lg:py-10">
+            {/* 同期ステータス（最終同期・論文数・Embedding未設定・順次取得） - メイン画面で把握 */}
+            <SyncStatusBar
+              isEmbeddingBackfilling={isEmbeddingBackfilling}
+              embeddingBackfillProgress={embeddingBackfillProgress}
+              onRunEmbeddingBackfill={runEmbeddingBackfill}
+            />
+
             {/* 拡張クエリ情報の表示 - ロジック駆動: 関連要素は近くに */}
             {expandedQuery && (
               <div className="mb-4 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
