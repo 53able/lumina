@@ -27,6 +27,10 @@ interface PaperExplorerProps {
   onPaperClick?: (paper: Paper) => void;
   /** 外部から設定される検索クエリ（検索履歴からの再検索用） */
   externalQuery?: string | null;
+  /** 検索入力欄の値（制御モード時。親で一元管理） */
+  searchInputValue?: string;
+  /** 検索入力欄の変更コールバック（制御モード時） */
+  onSearchInputChange?: (value: string) => void;
   /** 論文ID → whyRead のマップ */
   whyReadMap?: Map<string, string>;
   /** 追加同期リクエスト時のコールバック */
@@ -55,6 +59,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   onClear,
   onPaperClick,
   externalQuery = null,
+  searchInputValue,
+  onSearchInputChange,
   whyReadMap = new Map(),
   onRequestSync,
   isSyncing = false,
@@ -213,7 +219,13 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         </div>
 
         {/* 検索ボックス（モバイルでも1行のまま） */}
-        <PaperSearch onSearch={handleSearch} isLoading={isLoading} />
+        <PaperSearch
+          onSearch={handleSearch}
+          isLoading={isLoading}
+          {...(searchInputValue !== undefined && onSearchInputChange !== undefined
+            ? { value: searchInputValue, onChange: onSearchInputChange }
+            : {})}
+        />
 
         {/* 絞り込み: モバイルは「フィルター」ボタン＋Sheet、デスクトップはインラインコンパクト */}
         {showFilterArea &&

@@ -13,8 +13,12 @@ interface PaperSearchProps {
   isLoading?: boolean;
   /** 検索後に入力をクリアするか */
   clearAfterSearch?: boolean;
-  /** 初期クエリ */
+  /** 初期クエリ（非制御モード時） */
   defaultQuery?: string;
+  /** 入力値（制御モード時。value と onChange の両方で制御） */
+  value?: string;
+  /** 入力変更時のコールバック（制御モード時） */
+  onChange?: (value: string) => void;
 }
 
 /**
@@ -30,8 +34,13 @@ export const PaperSearch: FC<PaperSearchProps> = ({
   isLoading = false,
   clearAfterSearch = false,
   defaultQuery = "",
+  value: controlledValue,
+  onChange: onControlledChange,
 }) => {
-  const [query, setQuery] = useState(defaultQuery);
+  const [internalQuery, setInternalQuery] = useState(defaultQuery);
+  const isControlled = controlledValue !== undefined && onControlledChange !== undefined;
+  const query = isControlled ? controlledValue : internalQuery;
+  const setQuery = isControlled ? onControlledChange : setInternalQuery;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -40,8 +49,8 @@ export const PaperSearch: FC<PaperSearchProps> = ({
       return;
     }
     onSearch(trimmedQuery);
-    if (clearAfterSearch) {
-      setQuery("");
+    if (clearAfterSearch && !isControlled) {
+      setInternalQuery("");
     }
   };
 

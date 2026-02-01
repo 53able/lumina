@@ -80,6 +80,9 @@ const HomePage: FC = () => {
   // 設定ダイアログの開閉状態
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  // 検索入力欄の値（履歴クリックで反映・クリアで空にする）
+  const [searchInputValue, setSearchInputValue] = useState("");
+
   // 画面サイズ判定（lg = 1024px以上）
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
@@ -234,12 +237,14 @@ const HomePage: FC = () => {
 
   // 検索をクリア（初期状態に戻す）
   const handleClearSearch = useCallback(() => {
+    setSearchInputValue("");
     clearSearch();
   }, [clearSearch]);
 
   // 検索履歴から再検索
   const handleReSearch = useCallback(
     (history: SearchHistoryType) => {
+      setSearchInputValue(history.originalQuery);
       // 履歴にqueryEmbeddingが保存されている場合は、保存済みデータを使用（APIリクエストなし）
       if (history.queryEmbedding && history.queryEmbedding.length > 0) {
         // 履歴追加用にクエリを記録（既存履歴が更新される）
@@ -466,6 +471,8 @@ const HomePage: FC = () => {
               onClear={handleClearSearch}
               onPaperClick={handlePaperClick}
               externalQuery={expandedQuery?.original ?? null}
+              searchInputValue={searchInputValue}
+              onSearchInputChange={setSearchInputValue}
               whyReadMap={whyReadMap}
               onRequestSync={hasMorePapers ? syncMore : undefined}
               isSyncing={isSyncing}

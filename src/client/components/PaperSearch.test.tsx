@@ -140,4 +140,24 @@ describe("PaperSearch", () => {
       expect(searchBox).toHaveValue("初期クエリ");
     });
   });
+
+  describe("制御モード", () => {
+    it("正常系: valueを渡すとその値が表示され、入力でonChangeが呼ばれる", async () => {
+      const { PaperSearch } = await import("./PaperSearch");
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+
+      render(
+        <PaperSearch onSearch={vi.fn()} value="制御された値" onChange={onChange} />
+      );
+
+      const searchBox = screen.getByRole("searchbox");
+      expect(searchBox).toHaveValue("制御された値");
+
+      await user.clear(searchBox);
+      await user.type(searchBox, "x");
+
+      expect(onChange).toHaveBeenCalled();
+    });
+  });
 });
