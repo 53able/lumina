@@ -52,24 +52,24 @@ warmupCrypto()
     ])
   )
   .then(() => {
-  createRoot(rootElement).render(
-    <StrictMode>
-      <BrowserRouter>
-        <QueryClientProvider client={queryClient}>
-          <InteractionProvider>
-            <App />
-            <Toaster
-              position="bottom-right"
-              richColors
-              closeButton
-              toastOptions={{
-                className: "font-sans",
-                duration: 4000,
-              }}
-            />
-          </InteractionProvider>
-        </QueryClientProvider>
-      </BrowserRouter>
-    </StrictMode>
-  );
-});
+    createRoot(rootElement).render(
+      <StrictMode>
+        <BrowserRouter>
+          <QueryClientProvider client={queryClient}>
+            <InteractionProvider>
+              <App />
+              <Toaster
+                position="bottom-right"
+                richColors
+                closeButton
+                toastOptions={{
+                  className: "font-sans",
+                  duration: 4000,
+                }}
+              />
+            </InteractionProvider>
+          </QueryClientProvider>
+        </BrowserRouter>
+      </StrictMode>
+    );
+  });

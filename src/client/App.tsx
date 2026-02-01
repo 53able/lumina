@@ -268,7 +268,8 @@ const HomePage: FC = () => {
         <>
           <p className="text-lg text-muted-foreground">APIキーの復号に失敗しました</p>
           <p className="text-sm text-muted-foreground/70">
-            別のブラウザやアドレス（http/https など）で保存した可能性があります。設定でAPIキーを再入力してください。
+            別のブラウザやアドレス（http/https
+            など）で保存した可能性があります。設定でAPIキーを再入力してください。
           </p>
         </>
       ) : queryEmbedding === null ? (

@@ -221,8 +221,10 @@ export const decryptApiKey = async (encryptedData: string): Promise<string> => {
   const ciphertext = combined.slice(IV_LENGTH);
 
   const isOperationError = (e: unknown): boolean =>
-    (e instanceof Error && e.name === "OperationError") ||
-    (e && (e as { name?: string }).name === "OperationError");
+    Boolean(
+      (e instanceof Error && e.name === "OperationError") ||
+        (e && (e as { name?: string }).name === "OperationError")
+    );
 
   const tryDecryptWithSalt = async (salt: string): Promise<string> => {
     const getKey = (): Promise<CryptoKey> => deriveKey(salt);

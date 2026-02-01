@@ -185,100 +185,95 @@ export const PaperList: FC<PaperListProps> = ({
           }
         }}
       >
-        <div
-          className={cn(
-            "relative w-full min-h-0",
-            papers.length === 0 && "min-h-[300px]"
-          )}
-        >
+        <div className={cn("relative w-full min-h-0", papers.length === 0 && "min-h-[300px]")}>
           {/* グリッドコンテナを常に先頭に置き、0件でもアンマウントしない（検索0件→一覧復帰でレイアウトが崩れないようにする） */}
           <div
             ref={gridContainerRef}
             className="relative w-full"
             style={{ height: `${totalSize}px` }}
           >
-          {/* 仮想化された行をレンダリング */}
-          {virtualRows.map((virtualRow) => {
-            const { index, start, items: rowItems, isExpanded } = virtualRow;
+            {/* 仮想化された行をレンダリング */}
+            {virtualRows.map((virtualRow) => {
+              const { index, start, items: rowItems, isExpanded } = virtualRow;
 
-            return (
-              <div
-                key={`row-${index}`}
-                data-index={index}
-                ref={measureElement}
-                className="absolute left-0 right-0"
-                style={{
-                  top: `${start}px`,
-                  zIndex: isExpanded ? 10 : 1,
-                }}
-              >
-                {isExpanded && rowItems[0] ? (
-                  // 展開行: 全幅でカードと詳細を横並び（高さはコンテンツに合わせる）
-                  <div
-                    className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_2fr] animate-in fade-in duration-300 p-1"
-                    style={{ minHeight: `${ESTIMATED_EXPANDED_ROW_HEIGHT}px` }}
-                  >
-                    {/* 左側: コンパクトなカード */}
-                    <div className="lg:sticky lg:top-0 lg:self-start">
-                      <PaperCard
-                        paper={rowItems[0]}
-                        onClick={onPaperClick}
-                        whyRead={whyReadMap.get(getPaperId(rowItems[0]))}
-                        isExpanded={true}
-                        index={(() => {
-                          const foundIndex = papers.findIndex((p) => p.id === rowItems[0].id);
-                          return foundIndex >= 0 ? foundIndex : undefined;
-                        })()}
-                      />
-                    </div>
-                    {/* 右側: 詳細パネル（コンテンツに合わせた高さ） */}
-                    {renderExpandedDetail && (
-                      <div className="rounded-xl border border-primary/20 bg-card/80 backdrop-blur-sm shadow-lg">
-                        {renderExpandedDetail(rowItems[0])}
+              return (
+                <div
+                  key={`row-${index}`}
+                  data-index={index}
+                  ref={measureElement}
+                  className="absolute left-0 right-0"
+                  style={{
+                    top: `${start}px`,
+                    zIndex: isExpanded ? 10 : 1,
+                  }}
+                >
+                  {isExpanded && rowItems[0] ? (
+                    // 展開行: 全幅でカードと詳細を横並び（高さはコンテンツに合わせる）
+                    <div
+                      className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_2fr] animate-in fade-in duration-300 p-1"
+                      style={{ minHeight: `${ESTIMATED_EXPANDED_ROW_HEIGHT}px` }}
+                    >
+                      {/* 左側: コンパクトなカード */}
+                      <div className="lg:sticky lg:top-0 lg:self-start">
+                        <PaperCard
+                          paper={rowItems[0]}
+                          onClick={onPaperClick}
+                          whyRead={whyReadMap.get(getPaperId(rowItems[0]))}
+                          isExpanded={true}
+                          index={(() => {
+                            const foundIndex = papers.findIndex((p) => p.id === rowItems[0].id);
+                            return foundIndex >= 0 ? foundIndex : undefined;
+                          })()}
+                        />
                       </div>
-                    )}
-                  </div>
-                ) : (
-                  // 通常行: 複数カードをグリッド表示
-                  // RAMパターン応用: 列数は計算済み、幅は1frでブラウザに委譲
-                  <div
-                    className="grid"
-                    style={{
-                      gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-                      gap: `${GRID_GAP}px`,
-                    }}
-                  >
-                    {rowItems.map((paper, colIndex) => {
-                      // 展開アイテムがある場合でも正しいナンバリングを保つため、
-                      // 行インデックスベースの計算ではなく、元のpapers配列でのインデックスを使用
-                      const actualIndex = papers.findIndex((p) => p.id === paper.id);
-                      const finalIndex = actualIndex >= 0 ? actualIndex : undefined;
-                      return (
-                        <div
-                          key={getPaperId(paper)}
-                          className="min-w-0 animate-card-stagger"
-                          style={{
-                            animationDelay: `${(finalIndex !== undefined ? finalIndex : index * columnCount + colIndex) * 0.05}s`,
-                            overflow: "visible",
-                            /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
-                            padding: "12px",
-                          }}
-                        >
-                          <PaperCard
-                            paper={paper}
-                            onClick={onPaperClick}
-                            whyRead={whyReadMap.get(getPaperId(paper))}
-                            isExpanded={false}
-                            index={finalIndex}
-                          />
+                      {/* 右側: 詳細パネル（コンテンツに合わせた高さ） */}
+                      {renderExpandedDetail && (
+                        <div className="rounded-xl border border-primary/20 bg-card/80 backdrop-blur-sm shadow-lg">
+                          {renderExpandedDetail(rowItems[0])}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                      )}
+                    </div>
+                  ) : (
+                    // 通常行: 複数カードをグリッド表示
+                    // RAMパターン応用: 列数は計算済み、幅は1frでブラウザに委譲
+                    <div
+                      className="grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+                        gap: `${GRID_GAP}px`,
+                      }}
+                    >
+                      {rowItems.map((paper, colIndex) => {
+                        // 展開アイテムがある場合でも正しいナンバリングを保つため、
+                        // 行インデックスベースの計算ではなく、元のpapers配列でのインデックスを使用
+                        const actualIndex = papers.findIndex((p) => p.id === paper.id);
+                        const finalIndex = actualIndex >= 0 ? actualIndex : undefined;
+                        return (
+                          <div
+                            key={getPaperId(paper)}
+                            className="min-w-0 animate-card-stagger"
+                            style={{
+                              animationDelay: `${(finalIndex !== undefined ? finalIndex : index * columnCount + colIndex) * 0.05}s`,
+                              overflow: "visible",
+                              /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
+                              padding: "12px",
+                            }}
+                          >
+                            <PaperCard
+                              paper={paper}
+                              onClick={onPaperClick}
+                              whyRead={whyReadMap.get(getPaperId(paper))}
+                              isExpanded={false}
+                              index={finalIndex}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           {/* 0件時は EmptyMessage を絶対配置でオーバーレイ（グリッドの位置を変えずレイアウトを維持） */}
           {papers.length === 0 ? (

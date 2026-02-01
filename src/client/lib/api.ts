@@ -94,7 +94,9 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
   }
   if (inFlightDecrypt?.stored === stored) {
     await inFlightDecrypt.promise;
-    return cachedDecryptedKey?.encrypted === stored ? cachedDecryptedKey.plain || undefined : undefined;
+    return cachedDecryptedKey?.encrypted === stored
+      ? cachedDecryptedKey.plain || undefined
+      : undefined;
   }
   const doDecrypt = async (): Promise<string | undefined> => {
     const plainKey = await store.getApiKeyAsync();
@@ -102,8 +104,12 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
     return plainKey || undefined;
   };
   const isOperationError = (e: unknown): boolean =>
-    (e instanceof Error && e.name === "OperationError") ||
-    (e && typeof (e as { name?: string }).name === "string" && (e as { name: string }).name === "OperationError");
+    Boolean(
+      (e instanceof Error && e.name === "OperationError") ||
+        (e &&
+          typeof (e as { name?: string }).name === "string" &&
+          (e as { name: string }).name === "OperationError")
+    );
   const promise = (async (): Promise<string | undefined> => {
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -214,8 +220,7 @@ const waitForEmbeddingInterval = async (slotsUsed?: number): Promise<void> => {
   if (lastEmbeddingSentAtMs === null) return;
 
   const intervalMs = getEmbeddingDelayMs();
-  const slots =
-    slotsUsed !== undefined ? slotsUsed : getRecommendedConcurrency();
+  const slots = slotsUsed !== undefined ? slotsUsed : getRecommendedConcurrency();
   const delayMs = intervalMs * slots;
   const waitUntil = lastEmbeddingSentAtMs + delayMs;
   const now = Date.now();
