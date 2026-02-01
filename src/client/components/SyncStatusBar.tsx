@@ -1,8 +1,7 @@
 import { Calendar, FileText, Play, SearchX, Square } from "lucide-react";
 import type { FC } from "react";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useSyncPapers } from "../hooks/useSyncPapers";
-import { getDecryptedApiKey } from "../lib/api";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
@@ -63,14 +62,8 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
     abortIncrementalSync();
   }, [abortIncrementalSync]);
 
-  // 「Embeddingを補完」ボタンが表示されている間、API キーを事前復号（ウォームアップ）しておく
-  // クリック時の getDecryptedApiKey() がキャッシュヒットし、リクエストがすぐ始まる
-  const shouldWarmupApiKey =
-    Boolean(onRunEmbeddingBackfill) && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling;
-  useEffect(() => {
-    if (!shouldWarmupApiKey) return;
-    getDecryptedApiKey().catch(() => {});
-  }, [shouldWarmupApiKey]);
+  // ウォームアップは削除: 事前復号が OperationError を出し、続く検索の復号も失敗する不具合のため
+  // 初回の getDecryptedApiKey() はユーザー操作（検索・同期）時のみに限定する
 
   return (
     <div

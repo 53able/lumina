@@ -55,12 +55,18 @@ const withApiKey = (options?: ApiOptions) => {
 let cachedDecryptedKey: { encrypted: string; plain: string } | null = null;
 
 /**
+ * 復号中の Promise（同一暗号文で並列復号すると OperationError が出るため直列化する）
+ */
+let inFlightDecrypt: { stored: string; promise: Promise<string | undefined> } | null = null;
+
+/**
  * settingsStore から復号化された API key を取得する
  *
  * @description
  * API 呼び出し前にこの関数を使用して平文の API key を取得し、
  * searchApi/syncApi/summaryApi の options に渡す。
  * 同一セッションで同じ暗号文ならキャッシュを返す（復号は PBKDF2 で重いため）。
+ * 同じ暗号文に対する並列呼び出しは 1 本にまとめ、crypto.subtle.decrypt の OperationError を防ぐ。
  *
  * @returns 平文の API key（未設定の場合は undefined）
  *
@@ -74,19 +80,49 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
   const store = useSettingsStore.getState();
   if (!store.canUseApi()) {
     cachedDecryptedKey = null;
+    inFlightDecrypt = null;
     return undefined;
   }
   const stored = store.apiKey;
   if (!stored) {
     cachedDecryptedKey = null;
+    inFlightDecrypt = null;
     return undefined;
   }
   if (cachedDecryptedKey?.encrypted === stored) {
     return cachedDecryptedKey.plain || undefined;
   }
-  const plainKey = await store.getApiKeyAsync();
-  cachedDecryptedKey = { encrypted: stored, plain: plainKey };
-  return plainKey || undefined;
+  if (inFlightDecrypt?.stored === stored) {
+    await inFlightDecrypt.promise;
+    return cachedDecryptedKey?.encrypted === stored ? cachedDecryptedKey.plain || undefined : undefined;
+  }
+  const doDecrypt = async (): Promise<string | undefined> => {
+    const plainKey = await store.getApiKeyAsync();
+    cachedDecryptedKey = { encrypted: stored, plain: plainKey };
+    return plainKey || undefined;
+  };
+  const isOperationError = (e: unknown): boolean =>
+    (e instanceof Error && e.name === "OperationError") ||
+    (e && typeof (e as { name?: string }).name === "string" && (e as { name: string }).name === "OperationError");
+  const promise = (async (): Promise<string | undefined> => {
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          return await doDecrypt();
+        } catch (e) {
+          if (attempt < 2 && isOperationError(e)) continue;
+          throw e;
+        }
+      }
+      return undefined;
+    } finally {
+      if (inFlightDecrypt?.stored === stored) {
+        inFlightDecrypt = null;
+      }
+    }
+  })();
+  inFlightDecrypt = { stored, promise };
+  return promise;
 };
 
 /**

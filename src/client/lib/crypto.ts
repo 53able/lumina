@@ -8,8 +8,9 @@
  * - 保存形式: Base64（IV + 暗号文）
  *
  * セキュリティ特性:
- * - 同じブラウザ/デバイスでのみ復号可能
- * - XSS 攻撃で暗号化された値を盗んでも、別環境では使用不可
+ * - 同一 origin（同じサイト）であればスマホ・PC で復号可能（salt は origin のみ）
+ * - 旧データは origin+userAgent でフォールバック復号
+ * - XSS 攻撃で暗号化された値を盗んでも、別 origin では使用不可
  *
  * @remarks
  * クライアントサイド暗号化は「完璧なセキュリティ」ではなく
@@ -32,15 +33,23 @@ const PBKDF2_ITERATIONS = 100000;
 const ENCRYPTED_PREFIX = "enc:";
 
 /**
- * ブラウザ固有のソルトを生成する
+ * 同一 origin 用のソルト（スマホ・PC で共有するため origin のみ）
  *
  * @description
- * origin + userAgent を組み合わせて固有のソルトを生成。
- * これにより、異なるブラウザ/デバイスでは同じ鍵が生成されない。
+ * origin のみでソルトを生成する。同一オリジンならスマホ・PC で同じ鍵になり、
+ * 一方で保存した API キーが他方で復号できる。
  *
  * @returns ソルト文字列
  */
 const getBrowserSalt = (): string => {
+  const origin = typeof window !== "undefined" ? window.location.origin : "localhost";
+  return `lumina:${origin}`;
+};
+
+/**
+ * 旧仕様のソルト（origin + userAgent）。既存データの復号フォールバック用。
+ */
+const getLegacyBrowserSalt = (): string => {
   const origin = typeof window !== "undefined" ? window.location.origin : "localhost";
   const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "unknown";
   return `lumina:${origin}:${userAgent}`;
@@ -85,28 +94,52 @@ const base64ToBuffer = (base64: string): ArrayBuffer => {
 };
 
 /**
+ * 派生鍵のキャッシュ（同一 salt で複数回 deriveKey すると OperationError が出る環境があるため）
+ */
+let cachedDerivedKey: { salt: string; key: CryptoKey } | null = null;
+
+/**
  * PBKDF2 で暗号化鍵を派生する
  *
  * @param salt - ソルト文字列
  * @returns AES-GCM 用の CryptoKey
  */
 const deriveKey = async (salt: string): Promise<CryptoKey> => {
-  const keyMaterial = await crypto.subtle.importKey("raw", stringToBuffer(salt), "PBKDF2", false, [
-    "deriveKey",
-  ]);
+  if (cachedDerivedKey?.salt === salt) {
+    return cachedDerivedKey.key;
+  }
+  let keyMaterial: CryptoKey;
+  try {
+    keyMaterial = await crypto.subtle.importKey("raw", stringToBuffer(salt), "PBKDF2", false, [
+      "deriveKey",
+    ]);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.warn("[decryptApiKey] importKey failed", { name: err.name, message: err.message });
+    throw e;
+  }
 
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: stringToBuffer("lumina-api-key-encryption"),
-      iterations: PBKDF2_ITERATIONS,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: ALGORITHM, length: KEY_LENGTH },
-    false,
-    ["encrypt", "decrypt"]
-  );
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: stringToBuffer("lumina-api-key-encryption"),
+        iterations: PBKDF2_ITERATIONS,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: ALGORITHM, length: KEY_LENGTH },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.warn("[decryptApiKey] deriveKey failed", { name: err.name, message: err.message });
+    throw e;
+  }
+  cachedDerivedKey = { salt, key };
+  return key;
 };
 
 /**
@@ -173,19 +206,75 @@ export const decryptApiKey = async (encryptedData: string): Promise<string> => {
   }
 
   const base64Data = encryptedData.slice(ENCRYPTED_PREFIX.length);
-  const combined = new Uint8Array(base64ToBuffer(base64Data));
+  let combined: Uint8Array;
+  try {
+    combined = new Uint8Array(base64ToBuffer(base64Data));
+  } catch {
+    throw new Error("Invalid encrypted data: Base64 decode failed");
+  }
+  if (combined.length < IV_LENGTH + 1) {
+    throw new Error("Invalid encrypted data: payload too short (corrupted or wrong format)");
+  }
 
   // IV と暗号文を分離
   const iv = combined.slice(0, IV_LENGTH);
   const ciphertext = combined.slice(IV_LENGTH);
 
-  const salt = getBrowserSalt();
-  const key = await deriveKey(salt);
+  const isOperationError = (e: unknown): boolean =>
+    (e instanceof Error && e.name === "OperationError") ||
+    (e && (e as { name?: string }).name === "OperationError");
 
-  // 復号化
-  const decrypted = await crypto.subtle.decrypt({ name: ALGORITHM, iv }, key, ciphertext);
+  const tryDecryptWithSalt = async (salt: string): Promise<string> => {
+    const getKey = (): Promise<CryptoKey> => deriveKey(salt);
+    let key: CryptoKey;
+    try {
+      key = await getKey();
+    } catch (e) {
+      if (!isOperationError(e)) throw e;
+      cachedDerivedKey = null;
+      key = await getKey();
+    }
+    let decrypted: ArrayBuffer;
+    try {
+      decrypted = await crypto.subtle.decrypt({ name: ALGORITHM, iv }, key, ciphertext);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      console.warn("[decryptApiKey] decrypt failed", { name: err.name, message: err.message });
+      throw e;
+    }
+    return bufferToString(decrypted);
+  };
 
-  return bufferToString(decrypted);
+  try {
+    return await tryDecryptWithSalt(getBrowserSalt());
+  } catch (e) {
+    if (!isOperationError(e)) throw e;
+    cachedDerivedKey = null;
+    try {
+      return await tryDecryptWithSalt(getLegacyBrowserSalt());
+    } catch {
+      throw e;
+    }
+  }
+};
+
+/**
+ * Web Crypto のウォームアップ（起動時に 1 回呼ぶ）
+ *
+ * @description
+ * 同一ドキュメントで最初の crypto.subtle 利用時に失敗する環境を避けるため、
+ * ユーザー操作前に origin 用と legacy（origin+userAgent）用の両方で deriveKey を実行し、
+ * リロード直後の検索で復号が失敗しないようにする。失敗してもアプリ起動はブロックしない。
+ */
+export const warmupCrypto = async (): Promise<void> => {
+  const salts = [getBrowserSalt(), getLegacyBrowserSalt()];
+  for (const salt of salts) {
+    try {
+      await deriveKey(salt);
+    } catch (e) {
+      console.warn("[warmupCrypto] failed for salt", e instanceof Error ? e.message : String(e));
+    }
+  }
 };
 
 /**
