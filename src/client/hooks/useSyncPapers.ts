@@ -4,6 +4,7 @@ import type { Paper, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
 import { embeddingApi, embeddingBatchApi, getDecryptedApiKey, syncApi } from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
+import { getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
@@ -66,6 +67,8 @@ const RATE_LIMIT_DELAY_MS = Math.ceil((RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX_REQ
 
 /** 順次取得: 1リクエストあたりの最大取得件数 */
 const INCREMENTAL_BATCH_SIZE = 50;
+/** syncMore の1リクエストあたりの取得件数（APIデフォルトと一致） */
+const SYNC_MORE_BATCH_SIZE = 50;
 /** 順次取得: 1ラウンドあたりの並列リクエスト数 */
 const INCREMENTAL_PARALLEL_COUNT = 5;
 
@@ -144,8 +147,8 @@ export const useSyncPapers = (
   onSuccessRef.current = options?.onSuccess;
   onErrorRef.current = options?.onError;
 
-  // ページング状態
-  const [nextStart, setNextStart] = useState(0);
+  // ページング状態（取得済み範囲 [start, end) でギャップ補填に対応）
+  const [requestedRanges, setRequestedRanges] = useState<[number, number][]>([]);
   const [totalResults, setTotalResults] = useState<number | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   /** Embedding バックフィル実行中（ボタン「同期中」表示用） */
@@ -220,7 +223,7 @@ export const useSyncPapers = (
     if (newPapers.length > 0) {
       addPapers(newPapers);
     }
-    setNextStart(data.fetchedCount);
+    setRequestedRanges((prev) => mergeRanges([...prev, [0, data.fetchedCount]]));
     setTotalResults(data.totalResults);
     setLastSyncedAt(now()); // 最終同期日時を更新
     onSuccessRef.current?.(data);
@@ -249,14 +252,14 @@ export const useSyncPapers = (
       if (cachedData.papers.length > 0) {
         addPapers(cachedData.papers);
       }
-      setNextStart(cachedData.fetchedCount);
+      setRequestedRanges((prev) => mergeRanges([...prev, [0, cachedData.fetchedCount]]));
       setTotalResults(cachedData.totalResults);
       onSuccessRef.current?.(cachedData);
       return;
     }
 
     // キャッシュが古いか存在しない → APIを叩く
-    setNextStart(0);
+    setRequestedRanges([]);
     setTotalResults(null);
     refetch();
   }, [queryClient, queryKey, addPapers, refetch]);
@@ -270,10 +273,16 @@ export const useSyncPapers = (
       return;
     }
 
-    // ストアに論文があるがnextStartが0の場合、ストアの件数を起点にする
-    // （初回syncなしでsyncMoreが呼ばれた場合の対策）
+    // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
+    const nextStartComputed = getNextStartToRequest(
+      requestedRanges,
+      totalResults ?? 0,
+      SYNC_MORE_BATCH_SIZE
+    );
     const effectiveStart =
-      nextStart === 0 && storePapers.length > 0 ? storePapers.length : nextStart;
+      requestedRanges.length === 0 && storePapers.length > 0
+        ? storePapers.length
+        : nextStartComputed;
 
     if (totalResults !== null && effectiveStart >= totalResults) {
       return;
@@ -309,7 +318,9 @@ export const useSyncPapers = (
         if (newPapers.length > 0) {
           addPapers(newPapers);
         }
-        setNextStart(effectiveStart + response.fetchedCount);
+        setRequestedRanges((prev) =>
+          mergeRanges([...prev, [effectiveStart, effectiveStart + response.fetchedCount]])
+        );
         setTotalResults(response.totalResults);
         setLastSyncedAt(now());
         onSuccessRef.current?.(response);
@@ -322,7 +333,7 @@ export const useSyncPapers = (
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [totalResults, nextStart, storePapers, params, addPapers, setLastSyncedAt]);
+  }, [totalResults, requestedRanges, storePapers, params, addPapers, setLastSyncedAt]);
 
   /**
    * 同期期間内の未取得論文を順次取得する（バックグラウンド実行）
@@ -345,10 +356,10 @@ export const useSyncPapers = (
     ): Promise<AbortController> => {
       const abortController = new AbortController();
       const existingPaperIds = new Set(storePapers.map((p) => p.id));
-      // 既に store にある件数以降から取得する（0 からだと既存と重複して newPapers が空になり取得済みが増えない）
       const initialStoreCount = storePapers.length;
-      let currentStart = initialStoreCount;
-      let totalRemaining: number | null = null;
+      // 取得済み範囲をローカルで管理（ギャップ補填: ギャップがあればその先頭から取得）
+      let localRanges: [number, number][] = [...requestedRanges];
+      let totalRemaining: number | null = totalResults;
 
       // syncStoreで状態を開始
       startIncrementalSync(abortController);
@@ -364,6 +375,16 @@ export const useSyncPapers = (
           await waitForRateLimitRef.current();
 
           const apiKey = await getDecryptedApiKey();
+
+          // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
+          const currentStart =
+            localRanges.length === 0 && initialStoreCount > 0
+              ? initialStoreCount
+              : getNextStartToRequest(
+                  localRanges,
+                  totalRemaining ?? Number.MAX_SAFE_INTEGER,
+                  INCREMENTAL_BATCH_SIZE
+                );
 
           // 50件×5並列: start = currentStart, currentStart+50, ... の5リクエストを同時に発行（period は必ず渡し、母数を同期期間・カテゴリで絞る）
           const effectivePeriod = params.period ?? "30";
@@ -412,24 +433,34 @@ export const useSyncPapers = (
           }
 
           const roundFetchedCount = responses.reduce((sum, r) => sum + r.fetchedCount, 0);
-          currentStart += roundFetchedCount;
+          const rangeEnd = currentStart + roundFetchedCount;
+          localRanges = mergeRanges([...localRanges, [currentStart, rangeEnd]]);
+          setRequestedRanges(localRanges);
+          setTotalResults(totalRemaining);
 
-          const remaining = Math.max(0, totalRemaining - currentStart);
+          const fetchedLeadingEdge =
+            localRanges.length > 0 ? Math.max(...localRanges.map(([, end]) => end)) : 0;
+          const remaining = Math.max(0, totalRemaining - fetchedLeadingEdge);
           const maxReasonable = effectivePeriod
             ? MAX_REASONABLE_TOTAL_BY_PERIOD[effectivePeriod]
             : 0;
           const displayTotal =
             maxReasonable > 0 && totalRemaining > maxReasonable ? 0 : totalRemaining;
           const progressData = {
-            fetched: currentStart,
-            fetchedThisRun: currentStart - initialStoreCount,
+            fetched: fetchedLeadingEdge,
+            fetchedThisRun: fetchedLeadingEdge - initialStoreCount,
             remaining,
             total: displayTotal,
           };
           updateProgress(progressData);
           onProgress?.(progressData);
 
-          if (currentStart >= totalRemaining) {
+          const nextStart = getNextStartToRequest(
+            localRanges,
+            totalRemaining,
+            INCREMENTAL_BATCH_SIZE
+          );
+          if (nextStart >= totalRemaining) {
             setLastSyncedAt(now());
             completeIncrementalSync();
             onComplete?.();
@@ -464,6 +495,8 @@ export const useSyncPapers = (
     },
     [
       storePapers,
+      requestedRanges,
+      totalResults,
       params,
       addPaper,
       addPapers,
@@ -475,8 +508,10 @@ export const useSyncPapers = (
     ]
   );
 
-  // まだ論文があるかどうか
-  const hasMore = totalResults === null || nextStart < totalResults;
+  // まだ論文があるかどうか（ギャップがあればその補填も含む）
+  const hasMore =
+    totalResults === null ||
+    getNextStartToRequest(requestedRanges, totalResults, SYNC_MORE_BATCH_SIZE) < totalResults;
 
   /**
    * Embedding 未設定の論文を手動で補完する（同期ボタンから切り離した処理）

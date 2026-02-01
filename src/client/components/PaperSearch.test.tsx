@@ -147,9 +147,7 @@ describe("PaperSearch", () => {
       const user = userEvent.setup();
       const onChange = vi.fn();
 
-      render(
-        <PaperSearch onSearch={vi.fn()} value="制御された値" onChange={onChange} />
-      );
+      render(<PaperSearch onSearch={vi.fn()} value="制御された値" onChange={onChange} />);
 
       const searchBox = screen.getByRole("searchbox");
       expect(searchBox).toHaveValue("制御された値");

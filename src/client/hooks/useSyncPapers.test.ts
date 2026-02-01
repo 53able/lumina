@@ -266,8 +266,9 @@ describe("useSyncPapers", () => {
       await act(async () => {
         result.current.syncIncremental();
       });
+      // 順次取得が完了するまで複数ラウンド分のタイマーを進める（1ラウンド約10s + API）
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(15_000);
+        await vi.runAllTimersAsync();
       });
 
       expect(mockUpdateProgress).toHaveBeenCalled();

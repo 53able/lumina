@@ -104,7 +104,9 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   : "h-4 w-4 shrink-0 text-muted-foreground"
               }
             />
-            <span className="text-muted-foreground shrink-0">{compact ? "同期:" : "最終同期:"}</span>
+            <span className="text-muted-foreground shrink-0">
+              {compact ? "同期:" : "最終同期:"}
+            </span>
             <span className={compact ? "whitespace-nowrap" : "truncate"}>
               {lastSyncedAt
                 ? compact
@@ -171,21 +173,23 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                 ）
               </span>
             )}
-            {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onRunEmbeddingBackfill}
-                aria-label="Embedding未設定の論文を補完"
-                className={
-                  compact
-                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
-                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
-                }
-              >
-                Embeddingを補完
-              </Button>
-            )}
+            {onRunEmbeddingBackfill &&
+              papersWithoutEmbeddingCount > 0 &&
+              !isEmbeddingBackfilling && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRunEmbeddingBackfill}
+                  aria-label="Embedding未設定の論文を補完"
+                  className={
+                    compact
+                      ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                      : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                  }
+                >
+                  Embeddingを補完
+                </Button>
+              )}
           </div>
         </div>
 
