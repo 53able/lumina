@@ -1,22 +1,23 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import type { Paper } from "../../shared/schemas/index";
-import { SyncRequestSchema } from "../../shared/schemas/index";
+import { EMBEDDING_BATCH_MAX_SIZE, SyncRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
 import { fetchArxivPapers } from "../services/arxivFetcher";
-import { createEmbedding, getOpenAIConfig, type OpenAIConfig } from "../services/openai";
+import { createEmbeddingsBatch, getOpenAIConfig, type OpenAIConfig } from "../services/openai";
 import type { Env } from "../types/env";
 
-/** 同期時の Embedding 生成の並列数上限（課金・レート制限を考慮） */
-const SYNC_EMBEDDING_CONCURRENCY = 5;
-
 /**
- * 論文にEmbeddingを生成して付与する
+ * 論文配列をバッチで Embedding 生成し、各論文に付与する
  */
-const generatePaperEmbedding = async (paper: Paper, config: OpenAIConfig): Promise<Paper> => {
-  const text = `${paper.title}\n\n${paper.abstract}`;
-  const result = await createEmbedding(text, config);
-  return { ...paper, embedding: result.embedding };
+const generatePapersEmbeddingsBatch = async (
+  papers: Paper[],
+  config: OpenAIConfig
+): Promise<Paper[]> => {
+  if (papers.length === 0) return [];
+  const texts = papers.map((p) => `${p.title}\n\n${p.abstract}`);
+  const { embeddings } = await createEmbeddingsBatch(texts, config);
+  return papers.map((paper, i) => ({ ...paper, embedding: embeddings[i] }));
 };
 
 /**
@@ -40,16 +41,14 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
         period: effectivePeriod,
       });
 
-      // 2. APIキーがある場合はEmbeddingを生成（並列数上限で速度と課金のバランス）
+      // 2. APIキーがある場合はバッチで Embedding を生成（1リクエストあたり最大 EMBEDDING_BATCH_MAX_SIZE 件）
       const papersWithEmbedding = await (async (): Promise<Paper[]> => {
         try {
           const config = getOpenAIConfig(c);
           const results: Paper[] = [];
-          for (let i = 0; i < arxivResult.papers.length; i += SYNC_EMBEDDING_CONCURRENCY) {
-            const chunk = arxivResult.papers.slice(i, i + SYNC_EMBEDDING_CONCURRENCY);
-            const chunkResults = await Promise.all(
-              chunk.map((paper) => generatePaperEmbedding(paper, config))
-            );
+          for (let i = 0; i < arxivResult.papers.length; i += EMBEDDING_BATCH_MAX_SIZE) {
+            const chunk = arxivResult.papers.slice(i, i + EMBEDDING_BATCH_MAX_SIZE);
+            const chunkResults = await generatePapersEmbeddingsBatch(chunk, config);
             results.push(...chunkResults);
           }
           return results;

@@ -8,10 +8,11 @@ vi.mock("../services/openai", async (importOriginal) => {
   return {
     ...original,
     createEmbedding: vi.fn(),
+    createEmbeddingsBatch: vi.fn(),
   };
 });
 
-import { createEmbedding } from "../services/openai";
+import { createEmbeddingsBatch } from "../services/openai";
 
 describe("同期API", () => {
   const app = createApp();
@@ -69,11 +70,11 @@ describe("同期API", () => {
       return Promise.reject(new Error("Unknown endpoint"));
     });
 
-    // createEmbeddingのモック
-    vi.mocked(createEmbedding).mockResolvedValue({
-      embedding: Array(EMBEDDING_DIMENSION).fill(0.1),
-      tokensUsed: 10,
-    });
+    // createEmbeddingsBatch のモック（sync はバッチで呼ぶ）
+    vi.mocked(createEmbeddingsBatch).mockImplementation(async (texts: string[]) => ({
+      embeddings: texts.map(() => Array(EMBEDDING_DIMENSION).fill(0.1)),
+      tokensUsed: texts.length * 10,
+    }));
   });
 
   afterEach(() => {
@@ -131,8 +132,9 @@ describe("同期API", () => {
       const body = await response.json();
       expect(body.papers[0]).toHaveProperty("embedding");
       expect(body.papers[0].embedding).toHaveLength(EMBEDDING_DIMENSION);
-      // createEmbeddingが論文の数だけ呼ばれる
-      expect(createEmbedding).toHaveBeenCalledTimes(2);
+      // createEmbeddingsBatch が 1 回呼ばれ、2 件分のテキストが渡される
+      expect(createEmbeddingsBatch).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(createEmbeddingsBatch).mock.calls[0][0]).toHaveLength(2);
     });
 
     it("正常系: 複数カテゴリでの同期", async () => {
