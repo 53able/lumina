@@ -1,7 +1,8 @@
 /**
  * Embedding が無い論文をバックグラウンドで Embedding API で補完する処理
  *
- * 並列数は Semaphore で制限する（開始時に getRecommendedConcurrency で 1〜10 を取得）。
+ * fetchEmbeddingBatch が渡された場合はバッチ API でチャンク単位に取得（HTTP 往復削減）。
+ * 渡されない場合は従来どおり Semaphore で並列数制限し 1 件ずつ fetchEmbedding。
  * 429 が出た時点で新規の取得を止め、完了した分だけ addPaper する。残りは次回「Embeddingを補完」で続きから再開する。
  *
  * ## async-mutex 利用指針（今後の設計）
@@ -11,11 +12,15 @@
  */
 import { Semaphore } from "async-mutex";
 import type { Paper } from "../../shared/schemas/index";
-import { EmbeddingRateLimitError, getRecommendedConcurrency as getApiRecommendedConcurrency } from "./api";
+import { EMBEDDING_BATCH_MAX_SIZE } from "../../shared/schemas/index";
+import {
+  EmbeddingRateLimitError,
+  getRecommendedConcurrency as getApiRecommendedConcurrency,
+} from "./api";
 
 /** runBackfillEmbeddings の依存（テストで注入可能） */
 export interface BackfillEmbeddingsDeps {
-  /** テキストから Embedding を取得する関数 */
+  /** テキストから Embedding を取得する関数（バッチ未使用時） */
   fetchEmbedding: (text: string) => Promise<number[]>;
   /** 論文をストアに保存する関数（既存は上書き） */
   addPaper: (paper: Paper) => Promise<void>;
@@ -23,14 +28,19 @@ export interface BackfillEmbeddingsDeps {
   getRecommendedConcurrency?: () => number;
   /** 1件完了するたびに呼ばれる（進捗表示用） */
   onProgress?: (completed: number, total: number) => void;
+  /**
+   * 複数テキストを1リクエストで Embedding に変換する関数。
+   * 渡すとバッチ API でチャンク単位に取得し、HTTP 往復と待機回数を削減する。
+   */
+  fetchEmbeddingBatch?: (texts: string[]) => Promise<number[][]>;
 }
 
 /**
- * Embedding が無い論文に対して fetchEmbedding を並列で呼び、addPaper で更新する。
+ * Embedding が無い論文に対して fetchEmbedding / fetchEmbeddingBatch で取得し、addPaper で更新する。
  * 429 が出たら新規取得を止め、完了した分だけ保存して resolve。残りは次回再開。
  *
  * @param papers 対象の論文配列（embedding が無いものだけ処理する）
- * @param deps fetchEmbedding / addPaper / getRecommendedConcurrency
+ * @param deps fetchEmbedding / addPaper / getRecommendedConcurrency / 任意で fetchEmbeddingBatch
  */
 export const runBackfillEmbeddings = async (
   papers: Paper[],
@@ -39,14 +49,22 @@ export const runBackfillEmbeddings = async (
   const toProcess = papers.filter((p) => !p.embedding || p.embedding.length === 0);
   if (toProcess.length === 0) return;
 
-  const { fetchEmbedding, addPaper, onProgress } = deps;
+  const { fetchEmbedding, addPaper, onProgress, fetchEmbeddingBatch } = deps;
+
+  if (fetchEmbeddingBatch) {
+    await runBackfillEmbeddingsBatch(toProcess, {
+      fetchEmbeddingBatch,
+      addPaper,
+      onProgress,
+    });
+    return;
+  }
+
   const getRecommendedConcurrency = deps.getRecommendedConcurrency ?? getApiRecommendedConcurrency;
-  /** 並列数制限。開始時の推奨値で Semaphore を初期化（実行中の動的変更はしない） */
   const limit = Math.max(1, getRecommendedConcurrency());
   const semaphore = new Semaphore(limit);
   let completedCount = 0;
   const total = toProcess.length;
-  /** 429 が一度でも出たら true。新規の fetchEmbedding は行わず、次回再開に回す */
   let rateLimitHit = false;
 
   const results = await Promise.allSettled(
@@ -82,5 +100,41 @@ export const runBackfillEmbeddings = async (
       return;
     }
     throw reason;
+  }
+};
+
+/** バッチ用: チャンク単位で fetchEmbeddingBatch を呼び、addPaper で保存。429 で打ち切り。 */
+const runBackfillEmbeddingsBatch = async (
+  toProcess: Paper[],
+  deps: {
+    fetchEmbeddingBatch: (texts: string[]) => Promise<number[][]>;
+    addPaper: (paper: Paper) => Promise<void>;
+    onProgress?: (completed: number, total: number) => void;
+  }
+): Promise<void> => {
+  const total = toProcess.length;
+  let completedCount = 0;
+
+  for (let i = 0; i < toProcess.length; i += EMBEDDING_BATCH_MAX_SIZE) {
+    const chunk = toProcess.slice(i, i + EMBEDDING_BATCH_MAX_SIZE);
+    const texts = chunk.map((p) => `${p.title}\n\n${p.abstract}`);
+
+    try {
+      const embeddings = await deps.fetchEmbeddingBatch(texts);
+      for (let j = 0; j < chunk.length; j += 1) {
+        const paper = chunk[j];
+        const embedding = embeddings[j];
+        if (embedding) {
+          await deps.addPaper({ ...paper, embedding });
+          completedCount += 1;
+          deps.onProgress?.(completedCount, total);
+        }
+      }
+    } catch (e) {
+      if (e instanceof EmbeddingRateLimitError) {
+        return;
+      }
+      throw e;
+    }
   }
 };

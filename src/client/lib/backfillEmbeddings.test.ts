@@ -189,4 +189,52 @@ describe("runBackfillEmbeddings", () => {
       embedding: expect.any(Array),
     });
   });
+
+  describe("fetchEmbeddingBatch 使用時（バッチ API）", () => {
+    const mockFetchEmbeddingBatch = vi.fn();
+
+    beforeEach(() => {
+      mockFetchEmbeddingBatch.mockImplementation(async (texts: string[]) =>
+        texts.map(() => Array(1536).fill(0.1))
+      );
+    });
+
+    it("正常系: 複数論文をチャンク単位でバッチ取得し addPaper する", async () => {
+      const papers: Paper[] = [
+        createPaperWithoutEmbedding("2401.00001", "Title One", "Abstract One"),
+        createPaperWithoutEmbedding("2401.00002", "Title Two", "Abstract Two"),
+      ];
+
+      await runBackfillEmbeddings(papers, {
+        fetchEmbedding: mockFetchEmbedding,
+        fetchEmbeddingBatch: mockFetchEmbeddingBatch,
+        addPaper: mockAddPaper,
+      });
+
+      expect(mockFetchEmbeddingBatch).toHaveBeenCalledTimes(1);
+      expect(mockFetchEmbeddingBatch).toHaveBeenCalledWith([
+        "Title One\n\nAbstract One",
+        "Title Two\n\nAbstract Two",
+      ]);
+      expect(mockFetchEmbedding).not.toHaveBeenCalled();
+      expect(mockAddPaper).toHaveBeenCalledTimes(2);
+    });
+
+    it("429 でバッチが失敗したときは完了分だけ保存して resolve", async () => {
+      const papers: Paper[] = [
+        createPaperWithoutEmbedding("2401.00001", "Title One", "Abstract One"),
+        createPaperWithoutEmbedding("2401.00002", "Title Two", "Abstract Two"),
+      ];
+      mockFetchEmbeddingBatch.mockRejectedValueOnce(new EmbeddingRateLimitError());
+
+      await runBackfillEmbeddings(papers, {
+        fetchEmbedding: mockFetchEmbedding,
+        fetchEmbeddingBatch: mockFetchEmbeddingBatch,
+        addPaper: mockAddPaper,
+      });
+
+      expect(mockFetchEmbeddingBatch).toHaveBeenCalledTimes(1);
+      expect(mockAddPaper).not.toHaveBeenCalled();
+    });
+  });
 });
