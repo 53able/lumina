@@ -304,23 +304,23 @@ const HomePage: FC = () => {
             {/* モバイルでは何も表示しない、デスクトップでも空 */}
           </div>
 
-          {/* 中央: ロゴ・タイトル - グローエフェクト */}
-          <div className="flex min-w-0 items-center gap-3 glow-effect justify-center">
-            <div className="relative">
+          {/* 中央: ロゴ・タイトル - グローエフェクト（スマホ時はサイズ縮小で省略なし・縦揃え） */}
+          <div className="flex min-w-0 items-center justify-center gap-2 sm:gap-3 glow-effect">
+            <div className="relative flex shrink-0 items-center justify-center">
               <Sparkles
-                className="h-8 w-8 text-primary animate-glow"
+                className="h-6 w-6 sm:h-8 sm:w-8 text-primary animate-glow"
                 style={{ filter: "drop-shadow(0 0 8px hsl(var(--primary) / 0.6))" }}
               />
               <div className="absolute inset-0 blur-xl bg-primary/30 rounded-full animate-pulse-glow" />
             </div>
-            <div className="flex min-w-0 items-baseline gap-3">
-              <h1 className="min-w-0 truncate text-2xl font-bold">
+            <div className="flex min-w-0 items-baseline gap-2 sm:gap-3">
+              <h1 className="min-w-0 shrink-0 text-lg font-bold leading-tight sm:text-2xl sm:leading-tight whitespace-nowrap">
                 <span className="bg-linear-to-r from-primary via-primary/80 to-primary-light bg-clip-text text-transparent">
                   Lumina
                 </span>
               </h1>
               <span
-                className="text-xs font-mono font-bold uppercase tracking-wider"
+                className="shrink-0 text-[10px] font-mono font-bold uppercase leading-none tracking-wider sm:text-xs"
                 style={{
                   color: "hsl(var(--primary-dark))",
                   opacity: 0.8,
