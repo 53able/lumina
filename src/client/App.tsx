@@ -64,6 +64,7 @@ const HomePage: FC = () => {
     isLoading,
     expandedQuery,
     queryEmbedding,
+    error: searchError,
     reset: clearSearch,
   } = useSemanticSearch({
     papers,
@@ -260,6 +261,33 @@ const HomePage: FC = () => {
   // 検索中かどうかを判定（expandedQueryがあれば検索後）
   const isSearchActive = expandedQuery !== null;
 
+  // 検索0件時の理由別メッセージ（スマホとPCで結果が違う原因の切り分け）
+  const emptySearchMessage =
+    isSearchActive && results.length === 0 ? (
+      searchError?.name === "OperationError" ? (
+        <>
+          <p className="text-lg text-muted-foreground">APIキーの復号に失敗しました</p>
+          <p className="text-sm text-muted-foreground/70">
+            別のブラウザやアドレス（http/https など）で保存した可能性があります。設定でAPIキーを再入力してください。
+          </p>
+        </>
+      ) : queryEmbedding === null ? (
+        <>
+          <p className="text-lg text-muted-foreground">検索にはAPIキーが必要です</p>
+          <p className="text-sm text-muted-foreground/70">
+            設定でOpenAI APIキーを入力してください。別デバイスでは設定が同期されません。
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-lg text-muted-foreground">該当する論文がありませんでした</p>
+          <p className="text-sm text-muted-foreground/70">
+            このデバイスに論文データが同期されていないか、Embeddingが未設定の可能性があります。同期ボタンや「Embeddingを補完」を試してください。
+          </p>
+        </>
+      )
+    ) : undefined;
+
   // 初期表示用の論文（検索後は検索結果＋検索対象外を常時可視化、それ以外はストアから）
   const displayPapers = isSearchActive
     ? [...searchResultPapers, ...papersExcludedFromSearch]
@@ -433,6 +461,7 @@ const HomePage: FC = () => {
               whyReadMap={whyReadMap}
               onRequestSync={hasMorePapers ? syncMore : undefined}
               isSyncing={isSyncing}
+              emptySearchMessage={emptySearchMessage}
               // インライン展開（デスクトップのみ）
               expandedPaperId={isDesktop ? (selectedPaper?.id ?? null) : null}
               renderExpandedDetail={

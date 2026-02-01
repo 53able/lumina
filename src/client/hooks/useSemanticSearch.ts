@@ -209,6 +209,16 @@ export const useSemanticSearch = ({
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
         setResultEntries([]);
+        // 復号失敗時も「検索したが0件」として空メッセージを表示するため stub をセット
+        if (err.name === "OperationError") {
+          setExpandedQuery({
+            original: query,
+            english: query,
+            synonyms: [],
+            searchText: query,
+          });
+          setQueryEmbedding(null);
+        }
         return [];
       } finally {
         setIsLoading(false);
