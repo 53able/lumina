@@ -42,6 +42,8 @@ interface PaperExplorerProps {
   expandedPaperId?: string | null;
   /** 展開中の論文の詳細コンテンツをレンダリング */
   renderExpandedDetail?: (paper: Paper) => ReactNode;
+  /** 検索0件時に表示するメッセージ（APIキー未設定など理由がある場合） */
+  emptySearchMessage?: ReactNode;
 }
 
 /**
@@ -63,6 +65,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   isSyncing = false,
   expandedPaperId = null,
   renderExpandedDetail,
+  emptySearchMessage,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { likedPaperIds, bookmarkedPaperIds } = useInteractionContext();
@@ -95,10 +98,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
       ? storePapers
       : initialPapers;
 
-  // initialPapers が変更されたら searchResultPapers の初期値を更新（検索クリア時に使う）
+  // 検索していないときは searchResultPapers を空にしておく（再検索時に 2461 件フラッシュ→0 件になる不具合を防ぐ）
   useEffect(() => {
-    if (!hasSearched) setSearchResultPapers(initialPapers);
-  }, [initialPapers, hasSearched]);
+    if (!hasSearched) setSearchResultPapers([]);
+  }, [hasSearched]);
 
   // ストックしてある論文（表示元）から利用可能なカテゴリを抽出
   const availableCategories = useMemo(() => {
@@ -131,6 +134,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
     setIsLoading(true);
+    setSearchResultPapers([]); // 新規検索開始時は一旦空にし、前回の一覧がフラッシュしないようにする
 
     try {
       if (onSearch) {
@@ -147,7 +151,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
    */
   const handleClear = () => {
     setSearchQuery(null);
-    setSearchResultPapers(initialPapers);
+    setSearchResultPapers([]); // クリア時は空にし、再検索時の表示ブレを防ぐ
     clearAllFilters(); // URLフィルターもクリア
     onClear?.();
     // モバイル: 検索結果→一覧に戻ったときメインのスクロール位置を先頭に戻す（レイアウト崩れ防止）
@@ -404,6 +408,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
       <PaperList
         papers={filteredPapers}
         isLoading={isLoading}
+        emptyMessage={hasSearched && !isLoading && filteredPapers.length === 0 ? emptySearchMessage : undefined}
         showCount={hasSearched && !isLoading && filteredPapers.length > 0}
         onPaperClick={onPaperClick}
         whyReadMap={whyReadMap}
