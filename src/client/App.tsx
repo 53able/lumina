@@ -220,10 +220,6 @@ const HomePage: FC = () => {
     const needsSync = papers.length === 0 || shouldAutoSync();
     if (needsSync) {
       hasAutoSyncedRef.current = true;
-      console.log(
-        "[App] Auto-sync triggered:",
-        papers.length === 0 ? "no cached papers" : "last sync > 24h ago"
-      );
       syncPapers();
     }
   }, [papers.length, isPapersLoading, isSyncing, shouldAutoSync, syncPapers]);
