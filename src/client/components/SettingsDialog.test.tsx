@@ -64,6 +64,13 @@ describe("SettingsDialog", () => {
       expect(screen.getByRole("tab", { name: /同期/i })).toBeInTheDocument();
     });
 
+    it("検索タブが表示される", async () => {
+      const { SettingsDialog } = await import("./SettingsDialog");
+      render(<SettingsDialog open onOpenChange={() => {}} />);
+
+      expect(screen.getByRole("tab", { name: /検索/i })).toBeInTheDocument();
+    });
+
     it("デフォルトでAPIタブが選択されている", async () => {
       const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);

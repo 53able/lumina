@@ -10,6 +10,9 @@ const DEFAULT_CATEGORIES = ["cs.AI", "cs.LG", "cs.CL", "stat.ML"];
 /** デフォルトの同期期間 */
 const DEFAULT_SYNC_PERIOD: SyncPeriod = "7";
 
+/** 検索時のコサイン類似度のデフォルトしきい値（この値以上を表示） */
+const DEFAULT_SEARCH_SCORE_THRESHOLD = 0.3;
+
 /** 自動同期を発動する閾値（24時間 = ミリ秒） */
 const AUTO_SYNC_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
@@ -31,6 +34,8 @@ interface SettingsState {
   syncPeriodDays: SyncPeriod;
   /** 論文詳細表示時にAI要約を自動生成するか */
   autoGenerateSummary: boolean;
+  /** 検索時のコサイン類似度しきい値（この値未満の結果は除外） */
+  searchScoreThreshold: number;
   /** 最終同期日時（ISO文字列で永続化） */
   lastSyncedAt: string | null;
 }
@@ -74,6 +79,8 @@ interface SettingsActions {
   setSyncPeriodDays: (period: SyncPeriod) => void;
   /** 自動要約生成の有効/無効を設定する */
   setAutoGenerateSummary: (enabled: boolean) => void;
+  /** 検索時のコサイン類似度しきい値を設定する（0〜1） */
+  setSearchScoreThreshold: (value: number) => void;
   /** 最終同期日時を設定する */
   setLastSyncedAt: (date: Date) => void;
   /** 最終同期日時を取得する（Date型で返す） */
@@ -112,6 +119,7 @@ export const useSettingsStore = create<SettingsStore>()(
         selectedCategories: DEFAULT_CATEGORIES,
         syncPeriodDays: DEFAULT_SYNC_PERIOD,
         autoGenerateSummary: false,
+        searchScoreThreshold: DEFAULT_SEARCH_SCORE_THRESHOLD,
         lastSyncedAt: null,
 
         // Actions
@@ -189,6 +197,11 @@ export const useSettingsStore = create<SettingsStore>()(
           set({ autoGenerateSummary: enabled });
         },
 
+        setSearchScoreThreshold: (value) => {
+          const clamped = Math.max(0, Math.min(1, value));
+          set({ searchScoreThreshold: clamped });
+        },
+
         setLastSyncedAt: (date) => {
           set({ lastSyncedAt: date.toISOString() });
         },
@@ -213,6 +226,7 @@ export const useSettingsStore = create<SettingsStore>()(
             selectedCategories: DEFAULT_CATEGORIES,
             syncPeriodDays: DEFAULT_SYNC_PERIOD,
             autoGenerateSummary: false,
+            searchScoreThreshold: DEFAULT_SEARCH_SCORE_THRESHOLD,
             lastSyncedAt: null,
           });
         },

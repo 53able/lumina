@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import { ApiSettings } from "./ApiSettings";
 import { CategorySettings } from "./CategorySettings";
+import { SearchSettings } from "./SearchSettings";
 import { SyncSettings } from "./SyncSettings";
 import { Button } from "./ui/button";
 import {
@@ -39,10 +40,11 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
         </DialogHeader>
 
         <Tabs defaultValue="api" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="api">API</TabsTrigger>
             <TabsTrigger value="category">カテゴリ</TabsTrigger>
             <TabsTrigger value="sync">同期</TabsTrigger>
+            <TabsTrigger value="search">検索</TabsTrigger>
           </TabsList>
 
           <TabsContent value="api" className="mt-4">
@@ -55,6 +57,10 @@ export const SettingsDialog: FC<SettingsDialogProps> = ({ open, onOpenChange }) 
 
           <TabsContent value="sync" className="mt-4">
             <SyncSettings />
+          </TabsContent>
+
+          <TabsContent value="search" className="mt-4">
+            <SearchSettings />
           </TabsContent>
         </Tabs>
 

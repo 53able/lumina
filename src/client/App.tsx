@@ -54,8 +54,13 @@ export const App: FC = () => {
  */
 const HomePage: FC = () => {
   const { papers, isLoading: isPapersLoading } = usePaperStore();
-  const { selectedCategories, syncPeriodDays, autoGenerateSummary, shouldAutoSync } =
-    useSettingsStore();
+  const {
+    selectedCategories,
+    syncPeriodDays,
+    autoGenerateSummary,
+    shouldAutoSync,
+    searchScoreThreshold,
+  } = useSettingsStore();
   const {
     search,
     searchWithSavedData,
@@ -66,8 +71,10 @@ const HomePage: FC = () => {
     queryEmbedding,
     error: searchError,
     reset: clearSearch,
+    totalMatchCount,
   } = useSemanticSearch({
     papers,
+    scoreThreshold: searchScoreThreshold,
   });
 
   // 設定ダイアログの開閉状態
@@ -116,7 +123,7 @@ const HomePage: FC = () => {
   // 最後に検索したクエリを追跡（履歴追加用）
   const lastSearchQueryRef = useRef<string | null>(null);
 
-  // 検索成功時に履歴を追加
+  // 検索成功時に履歴を追加（ヒット総数＝totalMatchCount を保存し、20件固定表示を防ぐ）
   useEffect(() => {
     // expandedQueryとqueryEmbeddingがあり、検索クエリが記録されている場合のみ
     if (expandedQuery && queryEmbedding && lastSearchQueryRef.current) {
@@ -125,14 +132,14 @@ const HomePage: FC = () => {
         originalQuery: lastSearchQueryRef.current,
         expandedQuery,
         queryEmbedding,
-        resultCount: results.length,
+        resultCount: totalMatchCount,
         createdAt: new Date(),
       };
       addHistory(history);
       // 追加後にリセット（重複防止）
       lastSearchQueryRef.current = null;
     }
-  }, [expandedQuery, queryEmbedding, results.length, addHistory]);
+  }, [expandedQuery, queryEmbedding, totalMatchCount, addHistory]);
 
   // 検索ハンドラー
   const handleSearch = useCallback(

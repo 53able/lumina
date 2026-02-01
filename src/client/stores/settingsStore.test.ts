@@ -248,10 +248,11 @@ describe("settingsStore", () => {
     it("正常系: 全設定をリセットできる", async () => {
       const { useSettingsStore } = await import("./settingsStore");
 
-      // 設定を変更
+      // 設定を変更（検索しきい値も変更してリセットで戻ることを確認）
       useSettingsStore.getState().setApiKey("sk-test");
       useSettingsStore.getState().setSelectedCategories(["cs.CV"]);
       useSettingsStore.getState().setSyncPeriodDays("90");
+      useSettingsStore.getState().setSearchScoreThreshold(0.5);
 
       // Act
       useSettingsStore.getState().resetAllSettings();
@@ -261,6 +262,38 @@ describe("settingsStore", () => {
       expect(state.apiKey).toBe("");
       expect(state.selectedCategories).toEqual(["cs.AI", "cs.LG", "cs.CL", "stat.ML"]);
       expect(state.syncPeriodDays).toBe("7");
+      expect(state.searchScoreThreshold).toBe(0.3);
+    });
+  });
+
+  describe("検索しきい値", () => {
+    it("正常系: デフォルトは 0.3", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+      useSettingsStore.getState().resetAllSettings();
+      expect(useSettingsStore.getState().searchScoreThreshold).toBe(0.3);
+    });
+
+    it("正常系: setSearchScoreThreshold でしきい値を変更できる", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setSearchScoreThreshold(0.5);
+      expect(useSettingsStore.getState().searchScoreThreshold).toBe(0.5);
+
+      useSettingsStore.getState().setSearchScoreThreshold(0);
+      expect(useSettingsStore.getState().searchScoreThreshold).toBe(0);
+
+      useSettingsStore.getState().setSearchScoreThreshold(1);
+      expect(useSettingsStore.getState().searchScoreThreshold).toBe(1);
+    });
+
+    it("正常系: 0〜1 の範囲にクランプされる", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setSearchScoreThreshold(1.5);
+      expect(useSettingsStore.getState().searchScoreThreshold).toBe(1);
+
+      useSettingsStore.getState().setSearchScoreThreshold(-0.1);
+      expect(useSettingsStore.getState().searchScoreThreshold).toBe(0);
     });
   });
 });

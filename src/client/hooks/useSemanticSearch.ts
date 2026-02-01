@@ -47,6 +47,8 @@ interface UseSemanticSearchReturn {
   expandedQuery: ExpandedQuery | null;
   /** 現在のクエリEmbedding */
   queryEmbedding: number[] | null;
+  /** 直近の検索でヒットした総件数（limit適用前。履歴の結果件数表示用） */
+  totalMatchCount: number;
   /** 状態リセット関数 */
   reset: () => void;
 }
@@ -112,6 +114,7 @@ export const useSemanticSearch = ({
 }: UseSemanticSearchOptions): UseSemanticSearchReturn => {
   const [resultEntries, setResultEntries] = useState<ResultEntry[]>([]);
   const [papersExcludedFromSearch, setPapersExcludedFromSearch] = useState<Paper[]>([]);
+  const [totalMatchCount, setTotalMatchCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [expandedQuery, setExpandedQuery] = useState<ExpandedQuery | null>(null);
@@ -154,6 +157,7 @@ export const useSemanticSearch = ({
         // queryEmbeddingがない場合は結果を空にする
         if (embedding.length === 0) {
           setResultEntries([]);
+          setTotalMatchCount(0);
           const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
           setPapersExcludedFromSearch(excluded);
           return [];
@@ -198,7 +202,8 @@ export const useSemanticSearch = ({
         // 7. limitを適用して上位N件に絞り込む
         const limitedResults = filteredResults.slice(0, limit);
 
-        // 8. 結果を保存（id + score のみ）して、返り値は papers から解決した SearchResult[] を返す
+        // 8. ヒット総数（limit適用前）を保存し、結果を保存（id + score のみ）して返す
+        setTotalMatchCount(filteredResults.length);
         setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
         const resolved = limitedResults.map((r) => ({
           paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
@@ -209,6 +214,7 @@ export const useSemanticSearch = ({
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
         setResultEntries([]);
+        setTotalMatchCount(0);
         // 復号失敗時も「検索したが0件」として空メッセージを表示するため stub をセット
         if (err.name === "OperationError") {
           setExpandedQuery({
@@ -247,6 +253,7 @@ export const useSemanticSearch = ({
         // queryEmbeddingがない場合は結果を空にする
         if (savedQueryEmbedding.length === 0) {
           setResultEntries([]);
+          setTotalMatchCount(0);
           const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
           setPapersExcludedFromSearch(excluded);
           return [];
@@ -290,7 +297,8 @@ export const useSemanticSearch = ({
         // limitを適用して上位N件に絞り込む
         const limitedResults = filteredResults.slice(0, limit);
 
-        // 結果を保存（id + score のみ）して、返り値は papers から解決した SearchResult[] を返す
+        // ヒット総数を保存し、結果を保存（id + score のみ）して返す
+        setTotalMatchCount(filteredResults.length);
         setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
         const resolved = limitedResults.map((r) => ({
           paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
@@ -301,6 +309,7 @@ export const useSemanticSearch = ({
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
         setResultEntries([]);
+        setTotalMatchCount(0);
         return [];
       } finally {
         setIsLoading(false);
@@ -312,6 +321,7 @@ export const useSemanticSearch = ({
   const reset = useCallback(() => {
     setResultEntries([]);
     setPapersExcludedFromSearch([]);
+    setTotalMatchCount(0);
     setExpandedQuery(null);
     setQueryEmbedding(null);
     setError(null);
@@ -326,6 +336,7 @@ export const useSemanticSearch = ({
     error,
     expandedQuery,
     queryEmbedding,
+    totalMatchCount,
     reset,
   };
 };
