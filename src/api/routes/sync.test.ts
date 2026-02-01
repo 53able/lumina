@@ -17,8 +17,16 @@ describe("同期API", () => {
   const app = createApp();
   const openAIKeyHeader = "test-openai-api-key";
 
-  // arXiv APIのモックレスポンス
-  const mockArxivResponse = `<?xml version="1.0" encoding="UTF-8"?>
+  /** period: "7" の範囲内になるよう、3日前の日付を生成する */
+  const getRecentIsoDate = (): string => {
+    const d = new Date();
+    d.setDate(d.getDate() - 3);
+    return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+  };
+
+  const createMockArxivResponse = (): string => {
+    const isoDate = getRecentIsoDate();
+    return `<?xml version="1.0" encoding="UTF-8"?>
     <feed xmlns="http://www.w3.org/2005/Atom">
       <opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">2</opensearch:totalResults>
       <entry>
@@ -27,8 +35,8 @@ describe("同期API", () => {
         <summary>Abstract for paper 1</summary>
         <author><name>Author 1</name></author>
         <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
-        <published>2024-01-01T00:00:00Z</published>
-        <updated>2024-01-01T00:00:00Z</updated>
+        <published>${isoDate}</published>
+        <updated>${isoDate}</updated>
         <link href="http://arxiv.org/abs/2401.00001v1" rel="alternate" type="text/html"/>
         <link href="http://arxiv.org/pdf/2401.00001v1.pdf" title="pdf" rel="related" type="application/pdf"/>
       </entry>
@@ -38,23 +46,24 @@ describe("同期API", () => {
         <summary>Abstract for paper 2</summary>
         <author><name>Author 2</name></author>
         <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
-        <published>2024-01-02T00:00:00Z</published>
-        <updated>2024-01-02T00:00:00Z</updated>
+        <published>${isoDate}</published>
+        <updated>${isoDate}</updated>
         <link href="http://arxiv.org/abs/2401.00002v1" rel="alternate" type="text/html"/>
         <link href="http://arxiv.org/pdf/2401.00002v1.pdf" title="pdf" rel="related" type="application/pdf"/>
       </entry>
     </feed>
   `;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // arXiv API呼び出しをモック
+    // arXiv API呼び出しをモック（period 内の日付でレスポンスを返す）
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes("arxiv.org")) {
         return Promise.resolve({
           ok: true,
-          text: () => Promise.resolve(mockArxivResponse),
+          text: () => Promise.resolve(createMockArxivResponse()),
         } as Response);
       }
       return Promise.reject(new Error("Unknown endpoint"));

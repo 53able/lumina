@@ -7,18 +7,16 @@ import { fetchArxivPapers } from "../services/arxivFetcher";
 import { createEmbedding, getOpenAIConfig, type OpenAIConfig } from "../services/openai";
 import type { Env } from "../types/env";
 
+/** 同期時の Embedding 生成の並列数上限（課金・レート制限を考慮） */
+const SYNC_EMBEDDING_CONCURRENCY = 5;
+
 /**
  * 論文にEmbeddingを生成して付与する
  */
 const generatePaperEmbedding = async (paper: Paper, config: OpenAIConfig): Promise<Paper> => {
-  // タイトルとアブストラクトを結合してEmbeddingを生成
   const text = `${paper.title}\n\n${paper.abstract}`;
   const result = await createEmbedding(text, config);
-
-  return {
-    ...paper,
-    embedding: result.embedding,
-  };
+  return { ...paper, embedding: result.embedding };
 };
 
 /**
@@ -33,25 +31,29 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
 
     try {
       // 1. arXivから論文データを取得（startでページング、期間フィルタ適用）
+      // period は必ず渡し、母数（totalResults）を同期期間・カテゴリで絞る（未送信時は "7"）
+      const effectivePeriod = body.period ?? "7";
       const arxivResult = await fetchArxivPapers({
         categories: body.categories,
         maxResults: body.maxResults ?? 50,
         start: body.start ?? 0,
-        period: body.period,
+        period: effectivePeriod,
       });
 
-      // 2. APIキーがある場合はEmbeddingを生成（並列処理は課金考慮で逐次実行）
+      // 2. APIキーがある場合はEmbeddingを生成（並列数上限で速度と課金のバランス）
       const papersWithEmbedding = await (async (): Promise<Paper[]> => {
         try {
           const config = getOpenAIConfig(c);
           const results: Paper[] = [];
-          for (const paper of arxivResult.papers) {
-            const paperWithEmbedding = await generatePaperEmbedding(paper, config);
-            results.push(paperWithEmbedding);
+          for (let i = 0; i < arxivResult.papers.length; i += SYNC_EMBEDDING_CONCURRENCY) {
+            const chunk = arxivResult.papers.slice(i, i + SYNC_EMBEDDING_CONCURRENCY);
+            const chunkResults = await Promise.all(
+              chunk.map((paper) => generatePaperEmbedding(paper, config))
+            );
+            results.push(...chunkResults);
           }
           return results;
         } catch {
-          // APIキーがない場合はEmbeddingなしで返す
           return arxivResult.papers;
         }
       })();
