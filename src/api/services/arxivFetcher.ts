@@ -177,13 +177,11 @@ const buildSearchQuery = (categories: string[], period?: SyncPeriod): string => 
   // submittedDate 範囲を AND で追加（arXiv API User's Manual: [YYYYMMDDHHmm+TO+YYYYMMDDHHmm] は GMT）
   const startDate = getPeriodStartDate(period);
   const endDate = new Date();
-  const fromStr = formatForSubmittedDate(new Date(Date.UTC(
-    startDate.getUTCFullYear(),
-    startDate.getUTCMonth(),
-    startDate.getUTCDate(),
-    0,
-    0
-  )));
+  const fromStr = formatForSubmittedDate(
+    new Date(
+      Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate(), 0, 0)
+    )
+  );
   const toStr = formatForSubmittedDate(endDate);
   const dateRangeQuery = `submittedDate:[${fromStr}+TO+${toStr}]`;
   return `${categoryQuery}+AND+${dateRangeQuery}`;

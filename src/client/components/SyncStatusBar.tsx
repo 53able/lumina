@@ -1,8 +1,8 @@
 import { Calendar, FileText, Play, SearchX, Square } from "lucide-react";
 import type { FC } from "react";
 import { useCallback, useEffect } from "react";
-import { getDecryptedApiKey } from "../lib/api";
 import { useSyncPapers } from "../hooks/useSyncPapers";
+import { getDecryptedApiKey } from "../lib/api";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
@@ -63,9 +63,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   // 「Embeddingを補完」ボタンが表示されている間、API キーを事前復号（ウォームアップ）しておく
   // クリック時の getDecryptedApiKey() がキャッシュヒットし、リクエストがすぐ始まる
   const shouldWarmupApiKey =
-    Boolean(onRunEmbeddingBackfill) &&
-    papersWithoutEmbeddingCount > 0 &&
-    !isEmbeddingBackfilling;
+    Boolean(onRunEmbeddingBackfill) && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling;
   useEffect(() => {
     if (!shouldWarmupApiKey) return;
     getDecryptedApiKey().catch(() => {});
@@ -113,18 +111,16 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               ）
             </span>
           )}
-          {onRunEmbeddingBackfill &&
-            papersWithoutEmbeddingCount > 0 &&
-            !isEmbeddingBackfilling && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onRunEmbeddingBackfill}
-                aria-label="Embedding未設定の論文を補完"
-              >
-                Embeddingを補完
-              </Button>
-            )}
+          {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRunEmbeddingBackfill}
+              aria-label="Embedding未設定の論文を補完"
+            >
+              Embeddingを補完
+            </Button>
+          )}
         </div>
 
         {/* 順次取得: ボタン or 進捗・中断 */}
