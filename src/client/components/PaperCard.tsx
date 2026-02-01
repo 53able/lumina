@@ -131,7 +131,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
   return (
     <Card
       role="article"
-      className={`cursor-pointer card-3d card-glow card-accent-line transition-all duration-200 relative ${
+      className={`min-w-0 cursor-pointer card-3d card-glow card-accent-line transition-all duration-200 relative ${
         isExpanded
           ? "card-expanded-border shadow-2xl bg-card/90 rotate-0"
           : "hover:shadow-xl hover:shadow-primary/20"
@@ -172,7 +172,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
                 #{index + 1}
               </span>
             )}
-            <CardTitle className="card-title-hover line-clamp-2 text-lg font-bold text-tight-bold">
+            <CardTitle className="min-w-0 card-title-hover line-clamp-2 text-lg font-bold text-tight-bold">
               {paper.title}
             </CardTitle>
           </div>

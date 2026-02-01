@@ -231,7 +231,7 @@ export const PaperList: FC<PaperListProps> = ({
                       return (
                         <div
                           key={getPaperId(paper)}
-                          className="animate-card-stagger"
+                          className="min-w-0 animate-card-stagger"
                           style={{
                             animationDelay: `${(finalIndex !== undefined ? finalIndex : index * columnCount + colIndex) * 0.05}s`,
                             overflow: "visible",

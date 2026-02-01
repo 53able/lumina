@@ -162,8 +162,10 @@ export const useGridVirtualizer = <T>({
     // 実際のアイテム幅を計算（ギャップを考慮して均等分割）
     // Math.floor で切り捨てて、オーバーフローを防止
     const width = Math.floor((effectiveWidth - columnGap * (cols - 1)) / cols);
+    // 1列のときはコンテナ幅を超えないよう width をそのまま使う（minItemWidth で clamp しない）
+    const itemWidth = cols === 1 ? width : Math.max(width, minItemWidth);
 
-    return { columnCount: cols, itemWidth: Math.max(width, minItemWidth) };
+    return { columnCount: cols, itemWidth };
   }, [containerWidth, minItemWidth, columnGap, gridContainerRef]); // containerWidthが更新されたときに再計算
 
   // アイテムを行に分割（展開アイテムは専用行）

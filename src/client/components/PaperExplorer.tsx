@@ -173,10 +173,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
       {/* Hero Search Section - モバイルではコンパクトにして一覧までの距離を短く */}
       <section className={cn("space-y-4", !isDesktop && "space-y-3")}>
         <div className={cn("space-y-2", !isDesktop && "space-y-1")}>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <h2
               className={cn(
-                "text-xl font-bold tracking-tight lg:text-2xl",
+                "min-w-0 truncate text-xl font-bold tracking-tight lg:text-2xl",
                 !isDesktop && "text-lg"
               )}
             >

@@ -269,14 +269,14 @@ const HomePage: FC = () => {
     <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-bold bg-particles">
       {/* Header - 全幅レイアウト、ロゴ中央・ボタン右端 */}
       <header className="sticky top-0 z-50 border-b border-border/40 bg-background/95 backdrop-blur-md supports-backdrop-filter:bg-background/60">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center px-6 py-4 gap-4">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 py-4 gap-4 sm:px-6">
           {/* 左側: 空（バランス用） */}
           <div className="flex items-center justify-start">
             {/* モバイルでは何も表示しない、デスクトップでも空 */}
           </div>
 
           {/* 中央: ロゴ・タイトル - グローエフェクト */}
-          <div className="flex items-center gap-3 glow-effect justify-center">
+          <div className="flex min-w-0 items-center gap-3 glow-effect justify-center">
             <div className="relative">
               <Sparkles
                 className="h-8 w-8 text-primary animate-glow"
@@ -284,8 +284,8 @@ const HomePage: FC = () => {
               />
               <div className="absolute inset-0 blur-xl bg-primary/30 rounded-full animate-pulse-glow" />
             </div>
-            <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl font-bold">
+            <div className="flex min-w-0 items-baseline gap-3">
+              <h1 className="min-w-0 truncate text-2xl font-bold">
                 <span className="bg-linear-to-r from-primary via-primary/80 to-primary-light bg-clip-text text-transparent">
                   Lumina
                 </span>
@@ -390,7 +390,7 @@ const HomePage: FC = () => {
         </aside>
 
         {/* Main Content - 論文リスト（モバイルはオブジェクトファーストで一覧を上に） */}
-        <main className="flex-1 overflow-y-auto min-w-0 relative z-10">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto min-w-0 relative z-10">
           <div className="px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-10">
             {/* デスクトップ: 同期ステータスは一覧の上。モバイル: 一覧の下に回すのでここでは出さない */}
             {isDesktop && (
