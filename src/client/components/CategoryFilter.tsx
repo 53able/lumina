@@ -18,6 +18,8 @@ interface CategoryFilterProps {
   onToggle: (category: string) => void;
   /** 全選択解除時のコールバック */
   onClear?: () => void;
+  /** 「絞り込み:」ラベルを非表示にする（コンパクト表示用） */
+  hideLabel?: boolean;
 }
 
 /**
@@ -33,6 +35,7 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
   selectedCategories,
   onToggle,
   onClear,
+  hideLabel = false,
 }) => {
   // カテゴリがない場合は何も表示しない
   if (availableCategories.length === 0) {
@@ -42,8 +45,10 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
   const hasSelection = selectedCategories.size > 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-muted-foreground/60 text-xs mr-1">絞り込み:</span>
+    <fieldset className="flex flex-wrap items-center gap-1.5 border-0 p-0 m-0 min-w-0">
+      <legend className={hideLabel ? "sr-only" : "text-muted-foreground/60 text-xs mr-1 inline"}>
+        {hideLabel ? "カテゴリで絞り込み" : "絞り込み:"}
+      </legend>
 
       {availableCategories.map((category) => {
         const isSelected = selectedCategories.has(category);
@@ -90,6 +95,6 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
           <X className="h-3 w-3" />
         </Button>
       )}
-    </div>
+    </fieldset>
   );
 };
