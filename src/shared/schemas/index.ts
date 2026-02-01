@@ -13,7 +13,12 @@ export {
 
 // Embedding
 export {
+  EMBEDDING_BATCH_MAX_SIZE,
   EMBEDDING_DIMENSION,
+  type EmbeddingBatchRequest,
+  EmbeddingBatchRequestSchema,
+  type EmbeddingBatchResponse,
+  EmbeddingBatchResponseSchema,
   type EmbeddingRequest,
   EmbeddingRequestSchema,
   type EmbeddingResponse,
