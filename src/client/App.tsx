@@ -390,7 +390,7 @@ const HomePage: FC = () => {
         </aside>
 
         {/* Main Content - 論文リスト（モバイルはオブジェクトファーストで一覧を上に） */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto min-w-0 relative z-10">
+        <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto min-w-0 relative z-10">
           <div className="px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-10">
             {/* デスクトップ: 同期ステータスは一覧の上。モバイル: 一覧の下に回すのでここでは出さない */}
             {isDesktop && (

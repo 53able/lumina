@@ -115,7 +115,9 @@ export const useGridVirtualizer = <T>({
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        setContainerWidth(entry.contentRect.width);
+        const w = entry.contentRect.width;
+        // アンマウント時などに 0 が報告されることがあるため、0 で上書きしない（レイアウト崩れ防止）
+        if (w > 0) setContainerWidth(w);
       }
     });
 
@@ -123,33 +125,18 @@ export const useGridVirtualizer = <T>({
 
     return () => observer.disconnect();
     // refオブジェクト自体は安定しているため、マウント時のみ実行される
-  }, [gridContainerRef]); // マウント時のみ実行（ResizeObserverが自動的にサイズ変更を監視するため）
-
-  // SSRからのハイドレーション時に確実に幅を再計算
-  useEffect(() => {
-    // マウント直後に幅を強制的に取得（SSRとの差異を解消）
-    if (gridContainerRef.current) {
-      const width = gridContainerRef.current.clientWidth;
-      if (width > 0 && width !== containerWidth) {
-        setContainerWidth(width);
-      }
-    }
-    // refオブジェクト自体は安定しているため、containerWidthの変更時のみ再実行される
-  }, [gridContainerRef, containerWidth]); // containerWidthが変更されたときに再実行
+  }, [gridContainerRef]);
 
   // 列数とアイテム幅を計算
-  // containerWidthが0の場合でも、gridContainerRefから直接幅を取得する
+  // containerWidthが0のときは ref から直接読む（初回レンダや検索0件→一覧復帰直後）
   const { columnCount, itemWidth } = useMemo(() => {
-    // containerWidthが0の場合は、gridContainerRefから直接幅を取得
     let effectiveWidth = containerWidth;
     if (effectiveWidth === 0 && gridContainerRef.current) {
       effectiveWidth = gridContainerRef.current.clientWidth;
     }
-
-    // それでも0の場合は、デスクトップサイズを仮定（SSR時のデフォルト）
-    // 一般的なデスクトップ幅（1200px）を使用して、マルチカラムレイアウトを実現
+    // それでも0の場合は幅未確定。モバイルファーストで1列を仮定（400px）
     if (effectiveWidth === 0) {
-      effectiveWidth = 1200;
+      effectiveWidth = 400;
     }
 
     // 小数点以下を切り捨てて精度問題を回避

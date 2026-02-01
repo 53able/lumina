@@ -1,7 +1,8 @@
 import { CheckCircle2, Loader2, Search } from "lucide-react";
-import { type FC, type ReactNode, useCallback, useRef } from "react";
+import { type FC, type ReactNode, useCallback, useEffect, useRef } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useGridVirtualizer } from "../hooks/useGridVirtualizer";
+import { cn } from "../lib/utils";
 import { PaperCard } from "./PaperCard";
 import { Card } from "./ui/card";
 
@@ -133,12 +134,23 @@ export const PaperList: FC<PaperListProps> = ({
   // Paper IDを取得するコールバック（メモ化）
   const getPaperId = useCallback((paper: Paper) => paper.id, []);
 
+  const showing: "skeleton" | "empty" | "grid" = isLoading
+    ? "skeleton"
+    : papers.length === 0
+      ? "empty"
+      : "grid";
+
+  // 検索0件→一覧復帰時: 仮想スクロールコンテナを先頭にスクロール
+  const prevShowingForScrollRef = useRef<"skeleton" | "empty" | "grid">(showing);
+  useEffect(() => {
+    if (prevShowingForScrollRef.current === "empty" && showing === "grid") {
+      requestAnimationFrame(() => scrollContainerRef.current?.scrollTo(0, 0));
+    }
+    prevShowingForScrollRef.current = showing;
+  }, [showing]);
+
   if (isLoading) {
     return <LoadingSkeleton />;
-  }
-
-  if (papers.length === 0) {
-    return <EmptyMessage />;
   }
 
   return (
@@ -149,10 +161,10 @@ export const PaperList: FC<PaperListProps> = ({
         </p>
       )}
 
-      {/* 仮想スクロールコンテナ */}
+      {/* 仮想スクロールコンテナ（0件でも常にマウントし、検索0件→一覧復帰でグリッドがアンマウントされないようにする） */}
       <div
         ref={scrollContainerRef}
-        className="relative overflow-auto"
+        className="relative w-full min-w-0 overflow-auto"
         style={{ maxHeight: "calc(100vh - 200px)" }}
         onScroll={(e) => {
           const target = e.currentTarget;
@@ -166,12 +178,18 @@ export const PaperList: FC<PaperListProps> = ({
           }
         }}
       >
-        {/* グリッドコンテナ（幅計算用） */}
         <div
-          ref={gridContainerRef}
-          className="relative w-full"
-          style={{ height: `${totalSize}px` }}
+          className={cn(
+            "relative w-full min-h-0",
+            papers.length === 0 && "min-h-[300px]"
+          )}
         >
+          {/* グリッドコンテナを常に先頭に置き、0件でもアンマウントしない（検索0件→一覧復帰でレイアウトが崩れないようにする） */}
+          <div
+            ref={gridContainerRef}
+            className="relative w-full"
+            style={{ height: `${totalSize}px` }}
+          >
           {/* 仮想化された行をレンダリング */}
           {virtualRows.map((virtualRow) => {
             const { index, start, items: rowItems, isExpanded } = virtualRow;
@@ -254,6 +272,13 @@ export const PaperList: FC<PaperListProps> = ({
               </div>
             );
           })}
+          </div>
+          {/* 0件時は EmptyMessage を絶対配置でオーバーレイ（グリッドの位置を変えずレイアウトを維持） */}
+          {papers.length === 0 ? (
+            <div className="absolute inset-0 pointer-events-none">
+              <EmptyMessage />
+            </div>
+          ) : null}
         </div>
       </div>
 

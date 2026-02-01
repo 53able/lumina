@@ -150,6 +150,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     setSearchResultPapers(initialPapers);
     clearAllFilters(); // URLフィルターもクリア
     onClear?.();
+    // モバイル: 検索結果→一覧に戻ったときメインのスクロール位置を先頭に戻す（レイアウト崩れ防止）
+    requestAnimationFrame(() => {
+      document.querySelector("main")?.scrollTo({ top: 0, behavior: "auto" });
+    });
   };
 
   // タイトルの決定
