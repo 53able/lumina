@@ -46,7 +46,7 @@ export const PaperSearch: FC<PaperSearchProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full gap-2 sm:gap-3 relative">
+    <form onSubmit={handleSubmit} className="flex items-center w-full gap-2 sm:gap-3 relative">
       <div className="flex-1 relative glow-effect min-w-0">
         <Input
           type="search"
@@ -62,10 +62,11 @@ export const PaperSearch: FC<PaperSearchProps> = ({
         type="submit"
         disabled={isLoading}
         size="lg"
-        className="group px-4 py-2 h-9 sm:h-10 lg:h-12 sm:px-6 sm:py-3 font-bold text-sm sm:text-base shadow-lg hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-110 hover:rotate-1 active:scale-95 active:rotate-[-1deg] glow-effect shrink-0"
+        aria-label="検索"
+        className="group size-9 shrink-0 sm:size-auto sm:px-6 sm:py-3 sm:h-10 sm:min-h-[40px] sm:min-w-[40px] lg:h-11 font-bold text-sm sm:text-base shadow-lg hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-110 hover:rotate-1 active:scale-95 active:-rotate-1 glow-effect"
       >
-        <Search className="mr-1.5 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-125" />
-        検索
+        <Search className="h-4 w-4 sm:mr-2 sm:h-5 sm:w-5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-125" />
+        <span className="hidden sm:inline">検索</span>
       </Button>
     </form>
   );
