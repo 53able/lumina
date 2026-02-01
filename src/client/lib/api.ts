@@ -112,8 +112,8 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
   return res.json();
 };
 
-/** バックエンドと共有: 未取得時は 1 req/10秒で控えめに（100 req/15分を下回る） */
-const FALLBACK_MIN_INTERVAL_MS = 10_000;
+/** 未取得時は 1 req/2秒で開始。429 時は EmbeddingRateLimitError で停止し次回再開。 */
+const FALLBACK_MIN_INTERVAL_MS = 2_000;
 
 /** レスポンスの RateLimit-* から更新する共有状態（sync / embedding 同一バケット） */
 let rateLimitRemaining: number | null = null;
@@ -243,6 +243,8 @@ type SyncApiInput = {
 
 /** sync 429 リトライ: 最大回数（embedding と同一バケットのため 429 になりうる） */
 const SYNC_RATE_LIMIT_MAX_RETRIES = 3;
+/** sync 429 リトライ: Retry-After が無い／無効なときの最小待機（ms） */
+const EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS = 2_000;
 
 /**
  * 同期API
