@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Paper, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
-import { embeddingApi, getDecryptedApiKey, syncApi } from "../lib/api";
+import { embeddingApi, embeddingBatchApi, getDecryptedApiKey, syncApi } from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -174,7 +174,6 @@ export const useSyncPapers = (
 
     if (timeSinceLastRequest < RATE_LIMIT_DELAY_MS) {
       const waitTime = RATE_LIMIT_DELAY_MS - timeSinceLastRequest;
-      console.log(`[useSyncPapers] Rate limit: waiting ${waitTime}ms`);
       await new Promise((resolve) => setTimeout(resolve, waitTime));
     }
 
@@ -246,7 +245,6 @@ export const useSyncPapers = (
 
     if (cachedData && !isStale) {
       // キャッシュが有効 → 再利用（APIを叩かない）
-      console.log("[useSyncPapers] Using cached data (within 5 min)");
       // 成功コールバックを呼ぶ
       if (cachedData.papers.length > 0) {
         addPapers(cachedData.papers);
@@ -258,7 +256,6 @@ export const useSyncPapers = (
     }
 
     // キャッシュが古いか存在しない → APIを叩く
-    console.log("[useSyncPapers] Fetching fresh data from API");
     setNextStart(0);
     setTotalResults(null);
     refetch();
@@ -270,7 +267,6 @@ export const useSyncPapers = (
     // useState の setIsLoadingMore(true) は React のバッチ更新で遅延するため、
     // IntersectionObserver の連続発火を防げない
     if (isLoadingMoreRef.current) {
-      console.log("[useSyncPapers] syncMore already in progress, skipping");
       return;
     }
 
@@ -280,14 +276,12 @@ export const useSyncPapers = (
       nextStart === 0 && storePapers.length > 0 ? storePapers.length : nextStart;
 
     if (totalResults !== null && effectiveStart >= totalResults) {
-      console.log("[useSyncPapers] No more papers to fetch");
       return;
     }
 
     // 同期フラグを即座に立てる（レースコンディション防止）
     isLoadingMoreRef.current = true;
     setIsLoadingMore(true); // UI更新用
-    console.log(`[useSyncPapers] Fetching more papers from start=${effectiveStart}`);
 
     try {
       // レートリミットを考慮して待機
@@ -356,7 +350,6 @@ export const useSyncPapers = (
 
       const fetchNextRound = async (): Promise<void> => {
         if (abortController.signal.aborted) {
-          console.log("[useSyncPapers] Incremental sync aborted");
           completeIncrementalSync();
           return;
         }
@@ -388,7 +381,6 @@ export const useSyncPapers = (
           const mergedPapers = responses.flatMap((r) => r.papers);
 
           if (mergedPapers.length === 0) {
-            console.log("[useSyncPapers] Incremental sync completed: no more papers");
             completeIncrementalSync();
             onComplete?.();
             return;
@@ -408,6 +400,8 @@ export const useSyncPapers = (
           if (withoutEmbedding.length > 0 && apiKey) {
             runBackfillEmbeddings(withoutEmbedding, {
               fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
+              fetchEmbeddingBatch: (texts) =>
+                embeddingBatchApi({ texts }, { apiKey }).then((r) => r.embeddings),
               addPaper,
             }).catch(() => {});
           }
@@ -416,7 +410,9 @@ export const useSyncPapers = (
           currentStart += roundFetchedCount;
 
           const remaining = Math.max(0, totalRemaining - currentStart);
-          const maxReasonable = effectivePeriod ? MAX_REASONABLE_TOTAL_BY_PERIOD[effectivePeriod] : 0;
+          const maxReasonable = effectivePeriod
+            ? MAX_REASONABLE_TOTAL_BY_PERIOD[effectivePeriod]
+            : 0;
           const displayTotal =
             maxReasonable > 0 && totalRemaining > maxReasonable ? 0 : totalRemaining;
           const progressData = {
@@ -428,7 +424,6 @@ export const useSyncPapers = (
           onProgress?.(progressData);
 
           if (currentStart >= totalRemaining) {
-            console.log("[useSyncPapers] Incremental sync completed: all papers fetched");
             setLastSyncedAt(now());
             completeIncrementalSync();
             onComplete?.();
@@ -439,11 +434,9 @@ export const useSyncPapers = (
         } catch (err) {
           const isAbort = err instanceof DOMException && err.name === "AbortError";
           if (isAbort) {
-            console.log("[useSyncPapers] Incremental sync aborted by user");
             return;
           }
           const error = err instanceof Error ? err : new Error(String(err));
-          console.error("[useSyncPapers] Incremental sync error:", error);
           errorIncrementalSync();
           onError?.(error);
           onErrorRef.current?.(error);
@@ -453,11 +446,9 @@ export const useSyncPapers = (
       fetchNextRound().catch((err) => {
         const isAbort = err instanceof DOMException && err.name === "AbortError";
         if (isAbort) {
-          console.log("[useSyncPapers] Incremental sync aborted by user");
           return;
         }
         const error = err instanceof Error ? err : new Error(String(err));
-        console.error("[useSyncPapers] Incremental sync fatal error:", error);
         errorIncrementalSync();
         onError?.(error);
         onErrorRef.current?.(error);
@@ -490,9 +481,7 @@ export const useSyncPapers = (
       typeof usePaperStore.getState === "function"
         ? usePaperStore.getState().papers
         : storePapersRef.current;
-    const withoutEmbedding = papers.filter(
-      (p) => !p.embedding || p.embedding.length === 0
-    );
+    const withoutEmbedding = papers.filter((p) => !p.embedding || p.embedding.length === 0);
     if (withoutEmbedding.length === 0) return;
 
     // クリック直後に「取得中」を表示する（getDecryptedApiKey の完了を待たない）
@@ -508,8 +497,9 @@ export const useSyncPapers = (
 
     try {
       await runBackfillEmbeddings(withoutEmbedding, {
-        fetchEmbedding: (text) =>
-          embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
+        fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
+        fetchEmbeddingBatch: (texts) =>
+          embeddingBatchApi({ texts }, { apiKey }).then((r) => r.embeddings),
         addPaper,
         onProgress: (completed, total) => {
           setEmbeddingBackfillProgress({ completed, total });

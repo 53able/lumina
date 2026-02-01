@@ -122,11 +122,9 @@ describe("useSyncPapers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     papersRef.current = [];
-    mockAddPapers.mockImplementation(
-      (newPapers: Array<{ id: string; embedding?: number[] }>) => {
-        papersRef.current = [...papersRef.current, ...newPapers];
-      }
-    );
+    mockAddPapers.mockImplementation((newPapers: Array<{ id: string; embedding?: number[] }>) => {
+      papersRef.current = [...papersRef.current, ...newPapers];
+    });
     mockGetDecryptedApiKey.mockResolvedValue("test-api-key");
     mockRunBackfillEmbeddings.mockResolvedValue(undefined);
     vi.useFakeTimers();
