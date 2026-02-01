@@ -73,109 +73,123 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           : "mb-6 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 backdrop-blur-sm"
       }
     >
+      {/* 近接の法則: ステータス群（左）とアクション群（右）を分離し、グループ間の余白を広く */}
       <div
         className={
           compact
-            ? "flex flex-wrap items-center gap-x-3 gap-y-2"
+            ? "flex flex-wrap items-center gap-x-4 gap-y-2"
             : "flex flex-wrap items-center gap-x-6 gap-y-3"
         }
       >
-        {/* 最終同期（compact時は短い日付で幅を抑え、水平スクロールを避ける） */}
+        {/* ステータス群: 同期日時・件数・Embedding未設定（ブロック単位で折り返し、揃えを統一） */}
         <div
           className={
             compact
-              ? "flex items-center gap-1.5 text-xs shrink-0"
-              : "flex items-center gap-2 text-sm"
+              ? "flex flex-wrap items-center content-start gap-x-2 gap-y-2"
+              : "flex flex-wrap items-center content-start gap-x-4 gap-y-2"
           }
         >
-          <Calendar
+          {/* 最終同期（1ブロックとして折り返し、分割しない） */}
+          <div
             className={
               compact
-                ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                : "h-4 w-4 shrink-0 text-muted-foreground"
+                ? "flex items-center gap-1.5 text-xs shrink-0"
+                : "flex items-center gap-2 text-sm shrink-0"
             }
-          />
-          <span className="text-muted-foreground shrink-0">{compact ? "同期:" : "最終同期:"}</span>
-          <span className={compact ? "whitespace-nowrap" : "truncate"}>
-            {lastSyncedAt
-              ? compact
-                ? `${lastSyncedAt.getMonth() + 1}/${lastSyncedAt.getDate()} ${lastSyncedAt.getHours().toString().padStart(2, "0")}:${lastSyncedAt.getMinutes().toString().padStart(2, "0")}`
-                : lastSyncedAt.toLocaleString("ja-JP", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-              : "未同期"}
-          </span>
-        </div>
-
-        {/* 取得済み論文数 */}
-        <div
-          className={
-            compact
-              ? "flex items-center gap-1.5 text-xs shrink-0"
-              : "flex items-center gap-2 text-sm"
-          }
-        >
-          <FileText
-            className={
-              compact
-                ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                : "h-4 w-4 shrink-0 text-muted-foreground"
-            }
-          />
-          <span className="text-muted-foreground shrink-0">{compact ? "" : "取得済み:"}</span>
-          <span className="font-medium">{paperCount.toLocaleString("ja-JP")}件</span>
-        </div>
-
-        {/* Embedding 未設定件数（取得中は「Embedding取得中」。手動で「Embeddingを補完」可能） */}
-        <div
-          className={
-            compact
-              ? "flex items-center gap-1.5 text-xs shrink-0"
-              : "flex items-center gap-2 text-sm"
-          }
-        >
-          <SearchX
-            className={
-              compact
-                ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                : "h-4 w-4 shrink-0 text-muted-foreground"
-            }
-          />
-          {!compact && <span className="text-muted-foreground">Embedding未設定:</span>}
-          <span className="font-medium">
-            {papersWithoutEmbeddingCount.toLocaleString("ja-JP")}件
-          </span>
-          {isEmbeddingBackfilling && (
-            <span
+          >
+            <Calendar
               className={
-                compact ? "text-[10px] text-muted-foreground" : "text-muted-foreground text-xs"
+                compact
+                  ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  : "h-4 w-4 shrink-0 text-muted-foreground"
               }
-              aria-live="polite"
-            >
-              （取得中
-              {embeddingBackfillProgress &&
-                ` ${embeddingBackfillProgress.completed}/${embeddingBackfillProgress.total}`}
-              ）
+            />
+            <span className="text-muted-foreground shrink-0">{compact ? "同期:" : "最終同期:"}</span>
+            <span className={compact ? "whitespace-nowrap" : "truncate"}>
+              {lastSyncedAt
+                ? compact
+                  ? `${lastSyncedAt.getMonth() + 1}/${lastSyncedAt.getDate()} ${lastSyncedAt.getHours().toString().padStart(2, "0")}:${lastSyncedAt.getMinutes().toString().padStart(2, "0")}`
+                  : lastSyncedAt.toLocaleString("ja-JP", {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                : "未同期"}
             </span>
-          )}
-          {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onRunEmbeddingBackfill}
-              aria-label="Embedding未設定の論文を補完"
-              className={compact ? "h-7 px-2 text-xs" : ""}
-            >
-              Embeddingを補完
-            </Button>
-          )}
+          </div>
+
+          {/* 取得済み論文数（1ブロックとして折り返し） */}
+          <div
+            className={
+              compact
+                ? "flex items-center gap-1.5 text-xs shrink-0"
+                : "flex items-center gap-2 text-sm shrink-0"
+            }
+          >
+            <FileText
+              className={
+                compact
+                  ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  : "h-4 w-4 shrink-0 text-muted-foreground"
+              }
+            />
+            <span className="text-muted-foreground shrink-0">{compact ? "" : "取得済み:"}</span>
+            <span className="font-bold">{paperCount.toLocaleString("ja-JP")}件</span>
+          </div>
+
+          {/* Embedding 未設定件数＋ボタン（1ブロックとして折り返し） */}
+          <div
+            className={
+              compact
+                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0"
+                : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0"
+            }
+          >
+            <SearchX
+              className={
+                compact
+                  ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  : "h-4 w-4 shrink-0 text-muted-foreground"
+              }
+            />
+            {!compact && <span className="text-muted-foreground">Embedding未設定:</span>}
+            <span className="font-bold">
+              {papersWithoutEmbeddingCount.toLocaleString("ja-JP")}件
+            </span>
+            {isEmbeddingBackfilling && (
+              <span
+                className={
+                  compact ? "text-[10px] text-muted-foreground" : "text-muted-foreground text-xs"
+                }
+                aria-live="polite"
+              >
+                （取得中
+                {embeddingBackfillProgress &&
+                  ` ${embeddingBackfillProgress.completed}/${embeddingBackfillProgress.total}`}
+                ）
+              </span>
+            )}
+            {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRunEmbeddingBackfill}
+                aria-label="Embedding未設定の論文を補完"
+                className={
+                  compact
+                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                }
+              >
+                Embeddingを補完
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* 順次取得: ボタン or 進捗・中断（compact時は最小表示） */}
+        {/* アクション群: 順次取得 or 進捗・中断（1画面1プライマリで「追加取得」が主アクション） */}
         <div
           className={
             compact
@@ -188,7 +202,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               {!compact && progress && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">進捗</span>
-                  <span className="font-medium">
+                  <span className="font-bold">
                     {progress.total > 0
                       ? `${progress.fetchedThisRun}件 / 期間内${progress.total}件`
                       : `${progress.fetchedThisRun}件取得済み`}
@@ -207,10 +221,14 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               )}
               <Button
                 variant="outline"
-                size={compact ? "sm" : "sm"}
+                size="sm"
                 onClick={handleAbortIncrementalSync}
                 aria-label="順次取得を中断"
-                className={compact ? "h-7 px-2 text-xs" : ""}
+                className={
+                  compact
+                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                }
               >
                 <Square className={compact ? "h-3.5 w-3.5" : "h-4 w-4 mr-1.5"} />
                 {!compact && "中断"}
@@ -223,7 +241,11 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               onClick={handleStartIncrementalSync}
               disabled={selectedCategories.length === 0}
               aria-label="同期期間内の未取得論文を順次取得"
-              className={compact ? "h-7 px-2 text-xs" : ""}
+              className={
+                compact
+                  ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                  : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+              }
             >
               <Play className={compact ? "h-3.5 w-3.5" : "h-4 w-4 mr-1.5"} />
               {compact ? "追加取得" : "順次取得を開始"}
