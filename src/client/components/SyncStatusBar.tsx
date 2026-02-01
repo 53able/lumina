@@ -162,19 +162,17 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               ）
             </span>
           )}
-          {!compact &&
-            onRunEmbeddingBackfill &&
-            papersWithoutEmbeddingCount > 0 &&
-            !isEmbeddingBackfilling && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onRunEmbeddingBackfill}
-                aria-label="Embedding未設定の論文を補完"
-              >
-                Embeddingを補完
-              </Button>
-            )}
+          {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRunEmbeddingBackfill}
+              aria-label="Embedding未設定の論文を補完"
+              className={compact ? "h-7 px-2 text-xs" : ""}
+            >
+              Embeddingを補完
+            </Button>
+          )}
         </div>
 
         {/* 順次取得: ボタン or 進捗・中断（compact時は最小表示） */}
