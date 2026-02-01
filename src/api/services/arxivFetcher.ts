@@ -1,4 +1,4 @@
-import { format, parseISO, subDays } from "date-fns";
+import { parseISO, subDays } from "date-fns";
 import type { Paper, SyncPeriod } from "../../shared/schemas/index";
 
 /**
@@ -21,7 +21,7 @@ export interface ArxivQueryOptions {
 export interface ArxivFetchResult {
   /** 取得した論文データ */
   papers: Paper[];
-  /** 全件数 */
+  /** クエリ（カテゴリ・期間）に一致する総件数（opensearch:totalResults） */
   totalResults: number;
 }
 
@@ -117,15 +117,6 @@ export const parseArxivEntry = (entryXml: string): Paper => {
 };
 
 /**
- * 日付をarXiv API形式（YYYYMMDDHHMMSS）に変換する
- * @param date 変換対象の日付
- * @returns arXiv API形式の日付文字列（例: "20260127*"）
- */
-const formatArxivDate = (date: Date): string => {
-  return format(date, "yyyyMMdd") + "*";
-};
-
-/**
  * 同期期間から開始日を計算する
  * @param period 同期期間（日数）
  * @returns 開始日のDateオブジェクト
@@ -133,6 +124,20 @@ const formatArxivDate = (date: Date): string => {
 const getPeriodStartDate = (period: SyncPeriod): Date => {
   const days = Number.parseInt(period, 10);
   return subDays(new Date(), days);
+};
+
+/**
+ * submittedDate 範囲クエリ用に日付を GMT で YYYYMMDDHHmm にフォーマットする
+ * @param date 変換対象の日付
+ * @returns arXiv API の submittedDate 用文字列（GMT）
+ */
+const formatForSubmittedDate = (date: Date): string => {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  const h = String(date.getUTCHours()).padStart(2, "0");
+  const min = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${y}${m}${d}${h}${min}`;
 };
 
 /**
@@ -156,20 +161,32 @@ const encodeArxivQuery = (query: string): string => {
 
 /**
  * arXiv API用のクエリ文字列を構築する
+ * period 指定時は submittedDate 範囲を AND で追加し、totalResults を期間内件数にする
  * @param categories カテゴリ配列
- * @param period 同期期間（オプショナル、現在は使用しない - arXiv APIの日付範囲クエリが不安定なため）
+ * @param period 同期期間（オプショナル。指定時はクエリに日付範囲を含める）
  * @returns arXiv API用のクエリ文字列
  */
 const buildSearchQuery = (categories: string[], period?: SyncPeriod): string => {
   // カテゴリをOR条件で結合
-  // cat:cs.AI OR cat:cs.LG
   const categoryQuery = categories.map((cat) => `cat:${cat}`).join("+OR+");
 
-  // 注意: arXiv APIの日付範囲クエリは不安定なため、日付フィルタは使用しない
-  // 代わりに、クライアント側で publishedAt または updatedAt でフィルタリングする
-  // これにより、arXiv APIの制限を回避しつつ、期間内の論文を取得できる
+  if (!period) {
+    return categoryQuery;
+  }
 
-  return categoryQuery;
+  // submittedDate 範囲を AND で追加（arXiv API User's Manual: [YYYYMMDDHHmm+TO+YYYYMMDDHHmm] は GMT）
+  const startDate = getPeriodStartDate(period);
+  const endDate = new Date();
+  const fromStr = formatForSubmittedDate(new Date(Date.UTC(
+    startDate.getUTCFullYear(),
+    startDate.getUTCMonth(),
+    startDate.getUTCDate(),
+    0,
+    0
+  )));
+  const toStr = formatForSubmittedDate(endDate);
+  const dateRangeQuery = `submittedDate:[${fromStr}+TO+${toStr}]`;
+  return `${categoryQuery}+AND+${dateRangeQuery}`;
 };
 
 /**
