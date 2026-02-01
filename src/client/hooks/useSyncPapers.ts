@@ -329,6 +329,9 @@ export const useSyncPapers = (
    * レートリミットを考慮しながら、全ての論文を取得するまで繰り返す。
    * 進捗の total は同期期間・選択カテゴリで絞った件数（API の totalResults）である。
    *
+   * 契約: 開始オフセットは store 件数（既取得範囲をリクエストしない）。
+   * addPapers に渡すのは API 返却のうち ID が既存でないもののみ（IndexedDB に新規のみ保存）。
+   *
    * @param onProgress 進捗コールバック（fetched, remaining, total）。total は同期期間・カテゴリで絞った件数
    * @param onComplete 完了コールバック - オプショナル
    * @param onError エラーコールバック - オプショナル
@@ -342,7 +345,9 @@ export const useSyncPapers = (
     ): Promise<AbortController> => {
       const abortController = new AbortController();
       const existingPaperIds = new Set(storePapers.map((p) => p.id));
-      let currentStart = 0;
+      // 既に store にある件数以降から取得する（0 からだと既存と重複して newPapers が空になり取得済みが増えない）
+      const initialStoreCount = storePapers.length;
+      let currentStart = initialStoreCount;
       let totalRemaining: number | null = null;
 
       // syncStoreで状態を開始
@@ -388,7 +393,7 @@ export const useSyncPapers = (
 
           const newPapers = mergedPapers.filter((p) => !existingPaperIds.has(p.id));
           if (newPapers.length > 0) {
-            addPapers(newPapers);
+            await addPapers(newPapers);
             for (const paper of newPapers) {
               existingPaperIds.add(paper.id);
             }
@@ -417,6 +422,7 @@ export const useSyncPapers = (
             maxReasonable > 0 && totalRemaining > maxReasonable ? 0 : totalRemaining;
           const progressData = {
             fetched: currentStart,
+            fetchedThisRun: currentStart - initialStoreCount,
             remaining,
             total: displayTotal,
           };

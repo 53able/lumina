@@ -81,8 +81,20 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
         }
       >
         {/* 最終同期（compact時は短い日付で幅を抑え、水平スクロールを避ける） */}
-        <div className={compact ? "flex items-center gap-1.5 text-xs shrink-0" : "flex items-center gap-2 text-sm"}>
-          <Calendar className={compact ? "h-3.5 w-3.5 shrink-0 text-muted-foreground" : "h-4 w-4 shrink-0 text-muted-foreground"} />
+        <div
+          className={
+            compact
+              ? "flex items-center gap-1.5 text-xs shrink-0"
+              : "flex items-center gap-2 text-sm"
+          }
+        >
+          <Calendar
+            className={
+              compact
+                ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                : "h-4 w-4 shrink-0 text-muted-foreground"
+            }
+          />
           <span className="text-muted-foreground shrink-0">{compact ? "同期:" : "最終同期:"}</span>
           <span className={compact ? "whitespace-nowrap" : "truncate"}>
             {lastSyncedAt
@@ -100,41 +112,79 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
         </div>
 
         {/* 取得済み論文数 */}
-        <div className={compact ? "flex items-center gap-1.5 text-xs shrink-0" : "flex items-center gap-2 text-sm"}>
-          <FileText className={compact ? "h-3.5 w-3.5 shrink-0 text-muted-foreground" : "h-4 w-4 shrink-0 text-muted-foreground"} />
+        <div
+          className={
+            compact
+              ? "flex items-center gap-1.5 text-xs shrink-0"
+              : "flex items-center gap-2 text-sm"
+          }
+        >
+          <FileText
+            className={
+              compact
+                ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                : "h-4 w-4 shrink-0 text-muted-foreground"
+            }
+          />
           <span className="text-muted-foreground shrink-0">{compact ? "" : "取得済み:"}</span>
           <span className="font-medium">{paperCount.toLocaleString("ja-JP")}件</span>
         </div>
 
         {/* Embedding 未設定件数（取得中は「Embedding取得中」。手動で「Embeddingを補完」可能） */}
-        <div className={compact ? "flex items-center gap-1.5 text-xs shrink-0" : "flex items-center gap-2 text-sm"}>
-          <SearchX className={compact ? "h-3.5 w-3.5 shrink-0 text-muted-foreground" : "h-4 w-4 shrink-0 text-muted-foreground"} />
+        <div
+          className={
+            compact
+              ? "flex items-center gap-1.5 text-xs shrink-0"
+              : "flex items-center gap-2 text-sm"
+          }
+        >
+          <SearchX
+            className={
+              compact
+                ? "h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                : "h-4 w-4 shrink-0 text-muted-foreground"
+            }
+          />
           {!compact && <span className="text-muted-foreground">Embedding未設定:</span>}
           <span className="font-medium">
             {papersWithoutEmbeddingCount.toLocaleString("ja-JP")}件
           </span>
           {isEmbeddingBackfilling && (
-            <span className={compact ? "text-[10px] text-muted-foreground" : "text-muted-foreground text-xs"} aria-live="polite">
+            <span
+              className={
+                compact ? "text-[10px] text-muted-foreground" : "text-muted-foreground text-xs"
+              }
+              aria-live="polite"
+            >
               （取得中
               {embeddingBackfillProgress &&
                 ` ${embeddingBackfillProgress.completed}/${embeddingBackfillProgress.total}`}
               ）
             </span>
           )}
-          {!compact && onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onRunEmbeddingBackfill}
-              aria-label="Embedding未設定の論文を補完"
-            >
-              Embeddingを補完
-            </Button>
-          )}
+          {!compact &&
+            onRunEmbeddingBackfill &&
+            papersWithoutEmbeddingCount > 0 &&
+            !isEmbeddingBackfilling && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRunEmbeddingBackfill}
+                aria-label="Embedding未設定の論文を補完"
+              >
+                Embeddingを補完
+              </Button>
+            )}
         </div>
 
         {/* 順次取得: ボタン or 進捗・中断（compact時は最小表示） */}
-        <div className={compact ? "ml-auto flex shrink-0 items-center gap-2" : "ml-auto flex flex-wrap items-center gap-3"}>
+        <div
+          className={
+            compact
+              ? "ml-auto flex shrink-0 items-center gap-2"
+              : "ml-auto flex flex-wrap items-center gap-3"
+          }
+        >
           {isIncrementalSyncing ? (
             <>
               {!compact && progress && (
@@ -142,8 +192,8 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   <span className="text-muted-foreground">進捗</span>
                   <span className="font-medium">
                     {progress.total > 0
-                      ? `${progress.fetched}件 / 期間内${progress.total}件`
-                      : `${progress.fetched}件取得済み`}
+                      ? `${progress.fetchedThisRun}件 / 期間内${progress.total}件`
+                      : `${progress.fetchedThisRun}件取得済み`}
                   </span>
                   {progress.total > 0 && (
                     <div className="w-24 bg-muted rounded-full h-1.5">

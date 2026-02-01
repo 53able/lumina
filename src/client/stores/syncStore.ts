@@ -5,8 +5,10 @@ import { devtools } from "zustand/middleware";
  * 同期進捗情報
  */
 export interface SyncProgress {
-  /** 取得済み論文数 */
+  /** 取得済み論文数（累積オフセット。プログレスバー用） */
   fetched: number;
+  /** 今回の順次取得で取得した論文数（開始時点からの増分） */
+  fetchedThisRun: number;
   /** 残り論文数 */
   remaining: number;
   /** 同期期間・選択カテゴリ内の総件数（arXiv の該当クエリの totalResults） */
@@ -68,7 +70,7 @@ export const useSyncStore = create<SyncStore>()(
       startIncrementalSync: (abortController) => {
         set({
           isIncrementalSyncing: true,
-          progress: { fetched: 0, remaining: 0, total: 0 },
+          progress: { fetched: 0, fetchedThisRun: 0, remaining: 0, total: 0 },
           abortController,
         });
       },

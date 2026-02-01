@@ -36,11 +36,12 @@ export const SyncButton: FC<SyncButtonProps> = ({ isSyncing, onSync }) => {
   // 表示テキストを決定
   const getButtonText = (): string => {
     if (isIncrementalSyncing && progress) {
-      // 順次取得中で進捗情報がある場合
+      // 順次取得中で進捗情報がある場合（今回の実行で取得した件数を表示）
+      const count = progress.fetchedThisRun;
       if (progress.total > 0) {
-        return `同期中 (${progress.fetched}/${progress.total})`;
+        return `同期中 (${count}/${progress.total})`;
       }
-      return `同期中 (${progress.fetched}件)`;
+      return `同期中 (${count}件)`;
     }
     if (isAnySyncing) {
       return "同期中";
