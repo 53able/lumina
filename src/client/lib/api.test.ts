@@ -3,7 +3,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
-import { embeddingApi, EmbeddingRateLimitError, getDecryptedApiKey, getRecommendedConcurrency } from "./api";
+import {
+  EmbeddingRateLimitError,
+  embeddingApi,
+  getDecryptedApiKey,
+  getRecommendedConcurrency,
+} from "./api";
 
 vi.mock("@/client/stores/settingsStore", () => ({
   useSettingsStore: {
@@ -72,8 +77,8 @@ describe("getRecommendedConcurrency", () => {
     vi.clearAllMocks();
   });
 
-  it("レスポンスに RateLimit-Remaining が無いときは 1 を返す", () => {
-    expect(getRecommendedConcurrency()).toBe(1);
+  it("レスポンスに RateLimit-Remaining が無いときは 3 を返す（未取得時のデフォルト並列数）", () => {
+    expect(getRecommendedConcurrency()).toBe(3);
   });
 
   it("embeddingApi が RateLimit-Remaining: 50 で返したあとは 10 にクリップされる", async () => {

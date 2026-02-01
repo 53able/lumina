@@ -112,8 +112,8 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
   return res.json();
 };
 
-/** 未取得時は 1 req/2秒で開始。429 時は EmbeddingRateLimitError で停止し次回再開。 */
-const FALLBACK_MIN_INTERVAL_MS = 2_000;
+/** 未取得時は 1 req/秒で開始（保守的だった 2秒から短縮）。429 時は EmbeddingRateLimitError で停止し次回再開。 */
+const FALLBACK_MIN_INTERVAL_MS = 1_000;
 
 /** レスポンスの RateLimit-* から更新する共有状態（sync / embedding 同一バケット） */
 let rateLimitRemaining: number | null = null;
@@ -137,18 +137,17 @@ const updateRateLimitFromResponse = (res: Response): void => {
     if (!Number.isNaN(resetSec)) {
       // 絶対時刻(Unix秒)なら 1e9 以上。それ未満は「残り秒数」として now + 秒 に解釈する
       const asAbsoluteMs = resetSec < 1e10 ? resetSec * 1000 : resetSec;
-      rateLimitResetAtMs =
-        resetSec < 1e9 ? Date.now() + resetSec * 1000 : asAbsoluteMs;
+      rateLimitResetAtMs = resetSec < 1e9 ? Date.now() + resetSec * 1000 : asAbsoluteMs;
     }
   }
 };
 
 /**
  * レートリミット残り枠に応じた推奨並列数（1〜10）。
- * backfill の並列オートスケール用。未取得時は 1 で控えめにする。
+ * backfill の並列オートスケール用。未取得時は 3 で開始（従来の 1 より速く、429 を避けやすい）。
  */
 export const getRecommendedConcurrency = (): number =>
-  Math.min(10, Math.max(1, rateLimitRemaining ?? 1));
+  Math.min(10, Math.max(1, rateLimitRemaining ?? 3));
 
 /**
  * 次の embedding 送信までに待つべき ms。
@@ -186,7 +185,9 @@ const waitForEmbeddingInterval = async (): Promise<void> => {
 export class EmbeddingRateLimitError extends Error {
   readonly status = 429;
 
-  constructor(message = "Embeddingのレート制限に達しました。次回「Embeddingを補完」で続きから取得できます。") {
+  constructor(
+    message = "Embeddingのレート制限に達しました。次回「Embeddingを補完」で続きから取得できます。"
+  ) {
     super(message);
     this.name = "EmbeddingRateLimitError";
   }
@@ -212,6 +213,43 @@ export const embeddingApi = async (
 
   await waitForEmbeddingInterval();
   const res = await client.api.v1.embedding.$post({ json: request }, opts);
+  updateRateLimitFromResponse(res);
+
+  if (!res.ok && res.status === 429) {
+    throw new EmbeddingRateLimitError();
+  }
+
+  if (!res.ok) {
+    const error = await res.json();
+    const message =
+      error && typeof error === "object" && "error" in error
+        ? String((error as { error: unknown }).error)
+        : "Embeddingの取得に失敗しました";
+    throw new Error(message);
+  }
+
+  return res.json();
+};
+
+/**
+ * バッチ Embedding API
+ *
+ * 複数テキストを1リクエストで Embedding に変換する。429 のときはリトライせず EmbeddingRateLimitError を投げる。
+ *
+ * @param request { texts: string[] } 対象テキスト配列（1〜EMBEDDING_BATCH_MAX_SIZE 件）
+ * @param options APIオプション
+ * @returns embeddings 配列（入力順、各要素は 1536 次元）
+ * @throws EmbeddingRateLimitError 429 時
+ * @throws Error その他の API エラー時
+ */
+export const embeddingBatchApi = async (
+  request: { texts: string[] },
+  options?: ApiOptions
+): Promise<{ embeddings: number[][] }> => {
+  const opts = withApiKey(options);
+
+  await waitForEmbeddingInterval();
+  const res = await client.api.v1.embedding.batch.$post({ json: request }, opts);
   updateRateLimitFromResponse(res);
 
   if (!res.ok && res.status === 429) {
