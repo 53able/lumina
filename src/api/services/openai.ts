@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { embed, generateText } from "ai";
+import { embed, embedMany, generateText } from "ai";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Env } from "../types/env";
@@ -122,6 +122,37 @@ export const createEmbedding = async (
 
   return {
     embedding,
+    tokensUsed: usage.tokens,
+  };
+};
+
+/**
+ * 複数テキストを1リクエストで Embedding に変換する（バッチ）
+ *
+ * @param texts 対象テキスト配列（1件以上、推奨は 20 件以下）
+ * @param config OpenAI 設定
+ * @returns 入力順の Embedding 配列と合計トークン数
+ */
+export const createEmbeddingsBatch = async (
+  texts: string[],
+  config: OpenAIConfig
+): Promise<{ embeddings: number[][]; tokensUsed: number }> => {
+  if (texts.length === 0) {
+    return { embeddings: [], tokensUsed: 0 };
+  }
+
+  const provider = createProvider(config);
+
+  const { embeddings, usage } = await embedMany({
+    model: provider.embedding("text-embedding-3-small"),
+    values: texts,
+  });
+
+  const vectors: number[][] = embeddings.map((e) =>
+    Array.isArray(e) ? e : (e as { values: number[] }).values
+  );
+  return {
+    embeddings: vectors,
     tokensUsed: usage.tokens,
   };
 };
