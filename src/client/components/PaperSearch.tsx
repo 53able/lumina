@@ -46,8 +46,8 @@ export const PaperSearch: FC<PaperSearchProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full gap-3 relative">
-      <div className="flex-1 relative glow-effect">
+    <form onSubmit={handleSubmit} className="flex w-full gap-2 sm:gap-3 relative">
+      <div className="flex-1 relative glow-effect min-w-0">
         <Input
           type="search"
           role="searchbox"
@@ -55,16 +55,16 @@ export const PaperSearch: FC<PaperSearchProps> = ({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={isLoading}
-          className="w-full"
+          className="w-full h-9 sm:h-10 lg:h-11"
         />
       </div>
       <Button
         type="submit"
         disabled={isLoading}
         size="lg"
-        className="group px-6 py-3 h-12 font-bold text-base shadow-lg hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-110 hover:rotate-1 active:scale-95 active:rotate-[-1deg] glow-effect"
+        className="group px-4 py-2 h-9 sm:h-10 lg:h-12 sm:px-6 sm:py-3 font-bold text-sm sm:text-base shadow-lg hover:shadow-xl hover:shadow-primary/30 transition-all duration-300 hover:scale-110 hover:rotate-1 active:scale-95 active:rotate-[-1deg] glow-effect shrink-0"
       >
-        <Search className="mr-2 h-5 w-5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-125" />
+        <Search className="mr-1.5 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-125" />
         検索
       </Button>
     </form>
