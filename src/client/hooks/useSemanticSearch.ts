@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ExpandedQuery, Paper } from "../../shared/schemas/index";
 import { getDecryptedApiKey, searchApi } from "../lib/api";
 
@@ -99,17 +99,35 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 /** 類似度スコアのデフォルト閾値 */
 const DEFAULT_SCORE_THRESHOLD = 0.3;
 
+/** 検索結果の内部 state（paper は papers から解決するため id + score のみ保持） */
+interface ResultEntry {
+  paperId: string;
+  score: number;
+}
+
 export const useSemanticSearch = ({
   papers,
   limit = 20,
   scoreThreshold = DEFAULT_SCORE_THRESHOLD,
 }: UseSemanticSearchOptions): UseSemanticSearchReturn => {
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [resultEntries, setResultEntries] = useState<ResultEntry[]>([]);
   const [papersExcludedFromSearch, setPapersExcludedFromSearch] = useState<Paper[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [expandedQuery, setExpandedQuery] = useState<ExpandedQuery | null>(null);
   const [queryEmbedding, setQueryEmbedding] = useState<number[] | null>(null);
+
+  // ストア（papers）から paper を解決し、リアクティブに results を導出
+  const results = useMemo(
+    () =>
+      resultEntries
+        .map((e) => {
+          const paper = papers.find((p) => p.id === e.paperId);
+          return paper ? ({ paper, score: e.score } as SearchResult) : null;
+        })
+        .filter((r): r is SearchResult => r != null),
+    [resultEntries, papers]
+  );
 
   const search = useCallback(
     async (query: string): Promise<SearchResult[]> => {
@@ -135,7 +153,7 @@ export const useSemanticSearch = ({
 
         // queryEmbeddingがない場合は結果を空にする
         if (embedding.length === 0) {
-          setResults([]);
+          setResultEntries([]);
           const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
           setPapersExcludedFromSearch(excluded);
           return [];
@@ -180,13 +198,17 @@ export const useSemanticSearch = ({
         // 7. limitを適用して上位N件に絞り込む
         const limitedResults = filteredResults.slice(0, limit);
 
-        // 8. 結果を保存して返す
-        setResults(limitedResults);
-        return limitedResults;
+        // 8. 結果を保存（id + score のみ）して、返り値は papers から解決した SearchResult[] を返す
+        setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
+        const resolved = limitedResults.map((r) => ({
+          paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
+          score: r.score,
+        }));
+        return resolved;
       } catch (e) {
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
-        setResults([]);
+        setResultEntries([]);
         return [];
       } finally {
         setIsLoading(false);
@@ -214,7 +236,7 @@ export const useSemanticSearch = ({
 
         // queryEmbeddingがない場合は結果を空にする
         if (savedQueryEmbedding.length === 0) {
-          setResults([]);
+          setResultEntries([]);
           const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
           setPapersExcludedFromSearch(excluded);
           return [];
@@ -258,13 +280,17 @@ export const useSemanticSearch = ({
         // limitを適用して上位N件に絞り込む
         const limitedResults = filteredResults.slice(0, limit);
 
-        // 結果を保存して返す
-        setResults(limitedResults);
-        return limitedResults;
+        // 結果を保存（id + score のみ）して、返り値は papers から解決した SearchResult[] を返す
+        setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
+        const resolved = limitedResults.map((r) => ({
+          paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
+          score: r.score,
+        }));
+        return resolved;
       } catch (e) {
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
-        setResults([]);
+        setResultEntries([]);
         return [];
       } finally {
         setIsLoading(false);
@@ -274,7 +300,7 @@ export const useSemanticSearch = ({
   );
 
   const reset = useCallback(() => {
-    setResults([]);
+    setResultEntries([]);
     setPapersExcludedFromSearch([]);
     setExpandedQuery(null);
     setQueryEmbedding(null);

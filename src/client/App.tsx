@@ -254,7 +254,7 @@ const HomePage: FC = () => {
     [deleteHistory]
   );
 
-  // 検索結果の論文リスト（関連度順）
+  // 検索結果の論文リスト（関連度順）。results.paper は useSemanticSearch 内で papers から解決されるためストア由来
   const searchResultPapers = results.map((r) => r.paper);
 
   // 検索中かどうかを判定（expandedQueryがあれば検索後）
