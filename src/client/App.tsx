@@ -389,15 +389,17 @@ const HomePage: FC = () => {
           </div>
         </aside>
 
-        {/* Main Content - 論文リスト */}
+        {/* Main Content - 論文リスト（モバイルはオブジェクトファーストで一覧を上に） */}
         <main className="flex-1 overflow-y-auto min-w-0 relative z-10">
-          <div className="px-6 py-8 lg:px-12 lg:py-10">
-            {/* 同期ステータス（最終同期・論文数・Embedding未設定・順次取得） - メイン画面で把握 */}
-            <SyncStatusBar
-              isEmbeddingBackfilling={isEmbeddingBackfilling}
-              embeddingBackfillProgress={embeddingBackfillProgress}
-              onRunEmbeddingBackfill={runEmbeddingBackfill}
-            />
+          <div className="px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-10">
+            {/* デスクトップ: 同期ステータスは一覧の上。モバイル: 一覧の下に回すのでここでは出さない */}
+            {isDesktop && (
+              <SyncStatusBar
+                isEmbeddingBackfilling={isEmbeddingBackfilling}
+                embeddingBackfillProgress={embeddingBackfillProgress}
+                onRunEmbeddingBackfill={runEmbeddingBackfill}
+              />
+            )}
 
             {/* 拡張クエリ情報の表示 - ロジック駆動: 関連要素は近くに */}
             {expandedQuery && (
@@ -458,6 +460,16 @@ const HomePage: FC = () => {
                   <p className="text-sm text-muted-foreground font-bold">検索中...</p>
                 </div>
               </div>
+            )}
+
+            {/* モバイル: 同期ステータスは一覧の下（論文一覧をファーストビューに） */}
+            {!isDesktop && (
+              <SyncStatusBar
+                compact
+                isEmbeddingBackfilling={isEmbeddingBackfilling}
+                embeddingBackfillProgress={embeddingBackfillProgress}
+                onRunEmbeddingBackfill={runEmbeddingBackfill}
+              />
             )}
           </div>
         </main>
