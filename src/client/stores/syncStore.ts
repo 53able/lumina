@@ -9,7 +9,7 @@ export interface SyncProgress {
   fetched: number;
   /** 残り論文数 */
   remaining: number;
-  /** 全論文数 */
+  /** 同期期間・選択カテゴリ内の総件数（arXiv の該当クエリの totalResults） */
   total: number;
 }
 

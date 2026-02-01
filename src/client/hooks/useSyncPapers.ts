@@ -70,6 +70,19 @@ const INCREMENTAL_BATCH_SIZE = 50;
 const INCREMENTAL_PARALLEL_COUNT = 5;
 
 /**
+ * 同期期間ごとの「期間内として妥当な母数」の上限。
+ * arXiv API は submittedDate 付きクエリでも totalResults を日付無視で返すことがあるため、
+ * これを超える場合は表示用母数を 0（未確定）とする。
+ */
+const MAX_REASONABLE_TOTAL_BY_PERIOD: Record<string, number> = {
+  "7": 10_000,
+  "30": 30_000,
+  "90": 80_000,
+  "180": 150_000,
+  "365": 300_000,
+};
+
+/**
  * 同期APIの入力パラメータ
  */
 interface SyncParams {
@@ -319,9 +332,10 @@ export const useSyncPapers = (
 
   /**
    * 同期期間内の未取得論文を順次取得する（バックグラウンド実行）
-   * レートリミットを考慮しながら、全ての論文を取得するまで繰り返す
+   * レートリミットを考慮しながら、全ての論文を取得するまで繰り返す。
+   * 進捗の total は同期期間・選択カテゴリで絞った件数（API の totalResults）である。
    *
-   * @param onProgress 進捗コールバック（取得した論文数、残り件数など）- オプショナル、syncStoreでも管理される
+   * @param onProgress 進捗コールバック（fetched, remaining, total）。total は同期期間・カテゴリで絞った件数
    * @param onComplete 完了コールバック - オプショナル
    * @param onError エラーコールバック - オプショナル
    * @returns 中断用のAbortController
@@ -353,10 +367,11 @@ export const useSyncPapers = (
 
           const apiKey = await getDecryptedApiKey();
 
-          // 50件×5並列: start = currentStart, currentStart+50, ... の5リクエストを同時に発行
+          // 50件×5並列: start = currentStart, currentStart+50, ... の5リクエストを同時に発行（period は必ず渡し、母数を同期期間・カテゴリで絞る）
+          const effectivePeriod = params.period ?? "30";
           const requests = Array.from({ length: INCREMENTAL_PARALLEL_COUNT }, (_, i) => ({
             categories: params.categories,
-            period: params.period,
+            period: effectivePeriod,
             start: currentStart + i * INCREMENTAL_BATCH_SIZE,
             maxResults: INCREMENTAL_BATCH_SIZE,
           }));
@@ -401,10 +416,13 @@ export const useSyncPapers = (
           currentStart += roundFetchedCount;
 
           const remaining = Math.max(0, totalRemaining - currentStart);
+          const maxReasonable = effectivePeriod ? MAX_REASONABLE_TOTAL_BY_PERIOD[effectivePeriod] : 0;
+          const displayTotal =
+            maxReasonable > 0 && totalRemaining > maxReasonable ? 0 : totalRemaining;
           const progressData = {
             fetched: currentStart,
             remaining,
-            total: totalRemaining,
+            total: displayTotal,
           };
           updateProgress(progressData);
           onProgress?.(progressData);

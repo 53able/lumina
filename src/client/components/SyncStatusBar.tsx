@@ -132,14 +132,12 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           {isIncrementalSyncing ? (
             <>
               {progress && (
-                <div
-                  className="flex items-center gap-2 text-sm"
-                  title="件数は選択カテゴリ全体です。実際の取得は同期期間内のみです。"
-                >
+                <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">進捗</span>
                   <span className="font-medium">
-                    {progress.fetched}件 / 残り{progress.remaining}件
-                    <span className="text-muted-foreground font-normal">（カテゴリ全体）</span>
+                    {progress.total > 0
+                      ? `${progress.fetched}件 / 期間内${progress.total}件`
+                      : `${progress.fetched}件取得済み`}
                   </span>
                   {progress.total > 0 && (
                     <div className="w-24 bg-muted rounded-full h-1.5">
