@@ -8,10 +8,11 @@ vi.mock("../services/openai", async (importOriginal) => {
   return {
     ...original,
     createEmbedding: vi.fn(),
+    createEmbeddingsBatch: vi.fn(),
   };
 });
 
-import { createEmbedding } from "../services/openai";
+import { createEmbedding, createEmbeddingsBatch } from "../services/openai";
 
 describe("Embedding API", () => {
   const app = createApp();
@@ -25,6 +26,12 @@ describe("Embedding API", () => {
       embedding: Array(EMBEDDING_DIMENSION).fill(0.1),
       tokensUsed: 10,
     });
+
+    // createEmbeddingsBatch のモック
+    vi.mocked(createEmbeddingsBatch).mockImplementation(async (texts: string[]) => ({
+      embeddings: texts.map(() => Array(EMBEDDING_DIMENSION).fill(0.1)),
+      tokensUsed: texts.length * 10,
+    }));
   });
 
   afterEach(() => {
@@ -159,6 +166,69 @@ describe("Embedding API", () => {
       expect(response.status).toBe(500);
       const body = await response.json();
       expect(body.error).toContain("API key");
+    });
+  });
+
+  describe("POST /api/v1/embedding/batch", () => {
+    it("正常系: 複数テキストからEmbeddingを一括生成できる", async () => {
+      const request = new Request("http://localhost/api/v1/embedding/batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenAI-API-Key": openAIKeyHeader,
+        },
+        body: JSON.stringify({
+          texts: ["text one", "text two"],
+        }),
+      });
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toHaveProperty("embeddings");
+      expect(body).toHaveProperty("model");
+      expect(body).toHaveProperty("took");
+      expect(Array.isArray(body.embeddings)).toBe(true);
+      expect(body.embeddings).toHaveLength(2);
+      expect(body.embeddings[0]).toHaveLength(EMBEDDING_DIMENSION);
+      expect(body.embeddings[1]).toHaveLength(EMBEDDING_DIMENSION);
+    });
+
+    it("正常系: createEmbeddingsBatch が正しいパラメータで呼ばれる", async () => {
+      const request = new Request("http://localhost/api/v1/embedding/batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenAI-API-Key": openAIKeyHeader,
+        },
+        body: JSON.stringify({
+          texts: ["a", "b", "c"],
+        }),
+      });
+
+      await app.request(request);
+
+      expect(createEmbeddingsBatch).toHaveBeenCalledTimes(1);
+      expect(createEmbeddingsBatch).toHaveBeenCalledWith(
+        ["a", "b", "c"],
+        expect.objectContaining({ apiKey: openAIKeyHeader })
+      );
+    });
+
+    it("異常系: texts が空の場合は400エラー", async () => {
+      const request = new Request("http://localhost/api/v1/embedding/batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenAI-API-Key": openAIKeyHeader,
+        },
+        body: JSON.stringify({ texts: [] }),
+      });
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(400);
     });
   });
 });
