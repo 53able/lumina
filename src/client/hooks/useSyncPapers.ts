@@ -511,7 +511,6 @@ export const useSyncPapers = (
         fetchEmbedding: (text) =>
           embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
         addPaper,
-        getRecommendedConcurrency: () => 1,
         onProgress: (completed, total) => {
           setEmbeddingBackfillProgress({ completed, total });
         },

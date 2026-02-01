@@ -1,15 +1,17 @@
 /**
  * Embedding が無い論文をバックグラウンドで Embedding API で補完する処理
  *
- * 並列数は RateLimit-Remaining に応じて 1〜10 でオートスケールする。
+ * 並列数は Semaphore で制限する（開始時に getRecommendedConcurrency で 1〜10 を取得）。
  * 429 が出た時点で新規の取得を止め、完了した分だけ addPaper する。残りは次回「Embeddingを補完」で続きから再開する。
+ *
+ * ## async-mutex 利用指針（今後の設計）
+ * - **共有リソースへの同時アクセスを防ぎたい** → Mutex で排他する。
+ * - **同時実行数を N に厳密に制限したい** → Semaphore(N) でスロット取得・解放に統一する。
+ * - 独立タスクの並列実行だけなら Promise.all のままでよい（async-mutex は不要）。
  */
-import { Mutex } from "async-mutex";
+import { Semaphore } from "async-mutex";
 import type { Paper } from "../../shared/schemas/index";
 import { EmbeddingRateLimitError, getRecommendedConcurrency as getApiRecommendedConcurrency } from "./api";
-
-/** 並列取得のポーリング間隔（ms） */
-const POLL_INTERVAL_MS = 100;
 
 /** runBackfillEmbeddings の依存（テストで注入可能） */
 export interface BackfillEmbeddingsDeps {
@@ -39,40 +41,22 @@ export const runBackfillEmbeddings = async (
 
   const { fetchEmbedding, addPaper, onProgress } = deps;
   const getRecommendedConcurrency = deps.getRecommendedConcurrency ?? getApiRecommendedConcurrency;
-  const mutex = new Mutex();
-  let currentRunning = 0;
+  /** 並列数制限。開始時の推奨値で Semaphore を初期化（実行中の動的変更はしない） */
+  const limit = Math.max(1, getRecommendedConcurrency());
+  const semaphore = new Semaphore(limit);
   let completedCount = 0;
   const total = toProcess.length;
   /** 429 が一度でも出たら true。新規の fetchEmbedding は行わず、次回再開に回す */
   let rateLimitHit = false;
 
-  const acquireSlot = async (): Promise<void> => {
-    for (;;) {
-      if (rateLimitHit) return;
-      const acquired = await mutex.runExclusive((): boolean => {
-        if (rateLimitHit) return false;
-        const limit = getRecommendedConcurrency();
-        if (currentRunning < limit) {
-          currentRunning += 1;
-          return true;
-        }
-        return false;
-      });
-      if (acquired) return;
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    }
-  };
-
-  const releaseSlot = (): Promise<void> =>
-    mutex.runExclusive(() => {
-      currentRunning -= 1;
-    });
-
   const results = await Promise.allSettled(
     toProcess.map((paper) =>
       (async () => {
-        await acquireSlot();
-        if (rateLimitHit) return;
+        const [, release] = await semaphore.acquire(1);
+        if (rateLimitHit) {
+          release();
+          return;
+        }
         try {
           const text = `${paper.title}\n\n${paper.abstract}`;
           const embedding = await fetchEmbedding(text);
@@ -85,7 +69,7 @@ export const runBackfillEmbeddings = async (
           }
           throw e;
         } finally {
-          await releaseSlot();
+          release();
         }
       })()
     )
