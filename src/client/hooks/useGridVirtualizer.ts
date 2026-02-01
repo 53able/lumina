@@ -3,10 +3,8 @@ import { type RefObject, useCallback, useEffect, useMemo, useState } from "react
 
 /** グリッド仮想化の設定オプション */
 interface UseGridVirtualizerOptions<T> {
-  /** スクロールコンテナへの参照 */
+  /** スクロールコンテナへの参照（幅の取得・ResizeObserver の監視対象） */
   scrollContainerRef: RefObject<HTMLElement | null>;
-  /** グリッドコンテナへの参照（幅計算用） */
-  gridContainerRef: RefObject<HTMLElement | null>;
   /** アイテムの配列 */
   items: T[];
   /** アイテムのIDを取得する関数 */
@@ -67,7 +65,6 @@ interface UseGridVirtualizerResult<T> {
  * ```tsx
  * const { virtualRows, totalSize, columnCount, measureElement } = useGridVirtualizer({
  *   scrollContainerRef: scrollRef,
- *   gridContainerRef: containerRef,
  *   items: papers,
  *   getItemId: (paper) => paper.id,
  *   expandedItemId: selectedPaperId,
@@ -76,7 +73,6 @@ interface UseGridVirtualizerResult<T> {
  */
 export const useGridVirtualizer = <T>({
   scrollContainerRef,
-  gridContainerRef,
   items,
   getItemId,
   expandedItemId,
@@ -87,54 +83,43 @@ export const useGridVirtualizer = <T>({
   estimatedExpandedRowHeight = 500,
   overscan = 3,
 }: UseGridVirtualizerOptions<T>): UseGridVirtualizerResult<T> => {
-  // コンテナ幅の状態
+  // コンテナ幅の状態（列数計算用。スクロールコンテナの表示幅を監視）
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // ResizeObserverでコンテナ幅を監視
+  // ResizeObserverでスクロールコンテナ幅を監視（幅はスクロールコンテナ基準で確実に取得）
   useEffect(() => {
-    const element = gridContainerRef.current;
+    const element = scrollContainerRef.current;
     if (!element) {
-      // refが設定されていない場合は、次のレンダリングサイクルで再試行
       const timer = setTimeout(() => {
-        if (gridContainerRef.current) {
-          const width = gridContainerRef.current.clientWidth;
-          if (width > 0) {
-            setContainerWidth(width);
-          }
+        if (scrollContainerRef.current) {
+          const width = scrollContainerRef.current.clientWidth;
+          if (width > 0) setContainerWidth(width);
         }
       }, 0);
       return () => clearTimeout(timer);
     }
 
-    // 初期幅を即座に設定（ハイドレーション直後の正しい幅を取得）
     const initialWidth = element.clientWidth;
-    if (initialWidth > 0) {
-      setContainerWidth(initialWidth);
-    }
+    if (initialWidth > 0) setContainerWidth(initialWidth);
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
         const w = entry.contentRect.width;
-        // アンマウント時などに 0 が報告されることがあるため、0 で上書きしない（レイアウト崩れ防止）
         if (w > 0) setContainerWidth(w);
       }
     });
-
     observer.observe(element);
-
     return () => observer.disconnect();
-    // refオブジェクト自体は安定しているため、マウント時のみ実行される
-  }, [gridContainerRef]);
+  }, [scrollContainerRef]);
 
   // 列数とアイテム幅を計算
-  // containerWidthが0のときは ref から直接読む（初回レンダや検索0件→一覧復帰直後）
+  // containerWidthが0のときは scrollContainerRef から直接読む（初回レンダや検索0件→一覧復帰直後）
   const { columnCount, itemWidth } = useMemo(() => {
     let effectiveWidth = containerWidth;
-    if (effectiveWidth === 0 && gridContainerRef.current) {
-      effectiveWidth = gridContainerRef.current.clientWidth;
+    if (effectiveWidth === 0 && scrollContainerRef.current) {
+      effectiveWidth = scrollContainerRef.current.clientWidth;
     }
-    // それでも0の場合は幅未確定。モバイルファーストで1列を仮定（400px）
     if (effectiveWidth === 0) {
       effectiveWidth = 400;
     }
@@ -153,7 +138,7 @@ export const useGridVirtualizer = <T>({
     const itemWidth = cols === 1 ? width : Math.max(width, minItemWidth);
 
     return { columnCount: cols, itemWidth };
-  }, [containerWidth, minItemWidth, columnGap, gridContainerRef]); // containerWidthが更新されたときに再計算
+  }, [containerWidth, minItemWidth, columnGap, scrollContainerRef]);
 
   // アイテムを行に分割（展開アイテムは専用行）
   const rows = useMemo(() => {

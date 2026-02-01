@@ -26,6 +26,8 @@ interface PaperListProps {
   papers: Paper[];
   /** ローディング状態 */
   isLoading?: boolean;
+  /** 0件時に表示するメッセージ（未指定時はデフォルトの「論文が見つかりません」） */
+  emptyMessage?: ReactNode;
   /** 論文数を表示するか */
   showCount?: boolean;
   /** カードクリック時のコールバック */
@@ -61,16 +63,21 @@ const LoadingSkeleton: FC = () => (
 
 /**
  * 空の状態メッセージ - Super Centered
+ * @param customMessage 未指定時はデフォルトの「論文が見つかりません」を表示
  */
-const EmptyMessage: FC = () => (
+const EmptyMessage: FC<{ customMessage?: ReactNode }> = ({ customMessage }) => (
   <div className="grid place-items-center min-h-[300px]">
     <div className="flex flex-col items-center gap-3 text-center">
       <div className="h-16 w-16 rounded-full bg-muted/50 grid place-items-center">
         <Search className="h-8 w-8 text-muted-foreground/50" />
       </div>
       <div className="space-y-1">
-        <p className="text-lg text-muted-foreground">論文が見つかりません</p>
-        <p className="text-sm text-muted-foreground/70">検索条件を変更してお試しください</p>
+        {customMessage ?? (
+          <>
+            <p className="text-lg text-muted-foreground">論文が見つかりません</p>
+            <p className="text-sm text-muted-foreground/70">検索条件を変更してお試しください</p>
+          </>
+        )}
       </div>
     </div>
   </div>
@@ -93,6 +100,7 @@ const EmptyMessage: FC = () => (
 export const PaperList: FC<PaperListProps> = ({
   papers,
   isLoading = false,
+  emptyMessage: emptyMessageProp,
   showCount = false,
   onPaperClick,
   whyReadMap = new Map(),
@@ -109,7 +117,6 @@ export const PaperList: FC<PaperListProps> = ({
   // 仮想スクロール用フック
   const { virtualRows, totalSize, columnCount, measureElement } = useGridVirtualizer({
     scrollContainerRef,
-    gridContainerRef,
     items: papers,
     getItemId: (paper) => paper.id,
     expandedItemId: expandedPaperId,
@@ -276,7 +283,7 @@ export const PaperList: FC<PaperListProps> = ({
           {/* 0件時は EmptyMessage を絶対配置でオーバーレイ（グリッドの位置を変えずレイアウトを維持） */}
           {papers.length === 0 ? (
             <div className="absolute inset-0 pointer-events-none">
-              <EmptyMessage />
+              <EmptyMessage customMessage={emptyMessageProp} />
             </div>
           ) : null}
         </div>
