@@ -12,6 +12,8 @@ import { Button } from "./ui/button";
  * SyncStatusBar の Props
  */
 interface SyncStatusBarProps {
+  /** モバイル向けコンパクト表示（論文一覧までの距離を短くする） */
+  compact?: boolean;
   /** Embedding バックフィル実行中か（App の useSyncPapers から渡す。取得中は「Embedding取得中」を表示） */
   isEmbeddingBackfilling?: boolean;
   /** Embedding バックフィル進捗（取得中のみ。「N/M件」表示） */
@@ -30,6 +32,7 @@ interface SyncStatusBarProps {
  * - 順次取得を開始 / 進捗・中断
  */
 export const SyncStatusBar: FC<SyncStatusBarProps> = ({
+  compact = false,
   isEmbeddingBackfilling = false,
   embeddingBackfillProgress = null,
   onRunEmbeddingBackfill,
@@ -70,48 +73,62 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   }, [shouldWarmupApiKey]);
 
   return (
-    <div className="mb-6 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 backdrop-blur-sm">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        {/* 最終同期 */}
-        <div className="flex items-center gap-2 text-sm">
-          <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-muted-foreground">最終同期:</span>
-          <span>
+    <div
+      className={
+        compact
+          ? "mb-3 min-w-0 rounded-lg border border-border/50 bg-muted/15 px-3 py-2 backdrop-blur-sm overflow-hidden"
+          : "mb-6 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 backdrop-blur-sm"
+      }
+    >
+      <div
+        className={
+          compact
+            ? "flex flex-wrap items-center gap-x-3 gap-y-2"
+            : "flex flex-wrap items-center gap-x-6 gap-y-3"
+        }
+      >
+        {/* 最終同期（compact時は短い日付で幅を抑え、水平スクロールを避ける） */}
+        <div className={compact ? "flex items-center gap-1.5 text-xs shrink-0" : "flex items-center gap-2 text-sm"}>
+          <Calendar className={compact ? "h-3.5 w-3.5 shrink-0 text-muted-foreground" : "h-4 w-4 shrink-0 text-muted-foreground"} />
+          <span className="text-muted-foreground shrink-0">{compact ? "同期:" : "最終同期:"}</span>
+          <span className={compact ? "whitespace-nowrap" : "truncate"}>
             {lastSyncedAt
-              ? lastSyncedAt.toLocaleString("ja-JP", {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
+              ? compact
+                ? `${lastSyncedAt.getMonth() + 1}/${lastSyncedAt.getDate()} ${lastSyncedAt.getHours().toString().padStart(2, "0")}:${lastSyncedAt.getMinutes().toString().padStart(2, "0")}`
+                : lastSyncedAt.toLocaleString("ja-JP", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
               : "未同期"}
           </span>
         </div>
 
         {/* 取得済み論文数 */}
-        <div className="flex items-center gap-2 text-sm">
-          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-muted-foreground">取得済み:</span>
+        <div className={compact ? "flex items-center gap-1.5 text-xs shrink-0" : "flex items-center gap-2 text-sm"}>
+          <FileText className={compact ? "h-3.5 w-3.5 shrink-0 text-muted-foreground" : "h-4 w-4 shrink-0 text-muted-foreground"} />
+          <span className="text-muted-foreground shrink-0">{compact ? "" : "取得済み:"}</span>
           <span className="font-medium">{paperCount.toLocaleString("ja-JP")}件</span>
         </div>
 
         {/* Embedding 未設定件数（取得中は「Embedding取得中」。手動で「Embeddingを補完」可能） */}
-        <div className="flex items-center gap-2 text-sm">
-          <SearchX className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-muted-foreground">Embedding未設定:</span>
+        <div className={compact ? "flex items-center gap-1.5 text-xs shrink-0" : "flex items-center gap-2 text-sm"}>
+          <SearchX className={compact ? "h-3.5 w-3.5 shrink-0 text-muted-foreground" : "h-4 w-4 shrink-0 text-muted-foreground"} />
+          {!compact && <span className="text-muted-foreground">Embedding未設定:</span>}
           <span className="font-medium">
             {papersWithoutEmbeddingCount.toLocaleString("ja-JP")}件
           </span>
           {isEmbeddingBackfilling && (
-            <span className="text-muted-foreground text-xs" aria-live="polite">
-              （Embedding取得中
+            <span className={compact ? "text-[10px] text-muted-foreground" : "text-muted-foreground text-xs"} aria-live="polite">
+              （取得中
               {embeddingBackfillProgress &&
-                ` ${embeddingBackfillProgress.completed}/${embeddingBackfillProgress.total}件`}
+                ` ${embeddingBackfillProgress.completed}/${embeddingBackfillProgress.total}`}
               ）
             </span>
           )}
-          {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
+          {!compact && onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !isEmbeddingBackfilling && (
             <Button
               variant="outline"
               size="sm"
@@ -123,11 +140,11 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           )}
         </div>
 
-        {/* 順次取得: ボタン or 進捗・中断 */}
-        <div className="ml-auto flex flex-wrap items-center gap-3">
+        {/* 順次取得: ボタン or 進捗・中断（compact時は最小表示） */}
+        <div className={compact ? "ml-auto flex shrink-0 items-center gap-2" : "ml-auto flex flex-wrap items-center gap-3"}>
           {isIncrementalSyncing ? (
             <>
-              {progress && (
+              {!compact && progress && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">進捗</span>
                   <span className="font-medium">
@@ -149,12 +166,13 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               )}
               <Button
                 variant="outline"
-                size="sm"
+                size={compact ? "sm" : "sm"}
                 onClick={handleAbortIncrementalSync}
                 aria-label="順次取得を中断"
+                className={compact ? "h-7 px-2 text-xs" : ""}
               >
-                <Square className="h-4 w-4 mr-1.5" />
-                中断
+                <Square className={compact ? "h-3.5 w-3.5" : "h-4 w-4 mr-1.5"} />
+                {!compact && "中断"}
               </Button>
             </>
           ) : (
@@ -164,16 +182,19 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               onClick={handleStartIncrementalSync}
               disabled={selectedCategories.length === 0}
               aria-label="同期期間内の未取得論文を順次取得"
+              className={compact ? "h-7 px-2 text-xs" : ""}
             >
-              <Play className="h-4 w-4 mr-1.5" />
-              順次取得を開始
+              <Play className={compact ? "h-3.5 w-3.5" : "h-4 w-4 mr-1.5"} />
+              {compact ? "追加取得" : "順次取得を開始"}
             </Button>
           )}
         </div>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground/70">
-        24時間以上経過すると自動で同期が実行されます
-      </p>
+      {!compact && (
+        <p className="mt-2 text-xs text-muted-foreground/70">
+          24時間以上経過すると自動で同期が実行されます
+        </p>
+      )}
     </div>
   );
 };
