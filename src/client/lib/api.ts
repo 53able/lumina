@@ -155,6 +155,8 @@ const FALLBACK_MIN_INTERVAL_MS = 1_000;
 let rateLimitRemaining: number | null = null;
 /** ウィンドウリセット時刻（Unix ms）。draft-6 の RateLimit-Reset は秒で返る想定 */
 let rateLimitResetAtMs: number | null = null;
+/** 直近で embedding リクエストを送った時刻（ms）。未送信時は null。初回は待機スキップ用。 */
+let lastEmbeddingSentAtMs: number | null = null;
 
 /**
  * レスポンスヘッダーから RateLimit-* をパースし共有状態を更新する。
@@ -203,14 +205,22 @@ const getEmbeddingDelayMs = (): number => {
 
 /**
  * 送信間隔を守る。バックエンドの RateLimit-* に応じて待機時間をオートスケールする。
+ * 初回（lastEmbeddingSentAtMs === null）は待機せず即 return し、最初の 1 本を早く発火させる。
+ *
+ * @param slotsUsed この送信で消費するスロット数。省略時は getRecommendedConcurrency() を使う（単一並列用）。
+ * バッチ API は 1 リクエスト = 1 スロットなので 1 を渡すと 2 回目以降の待ちが短くなる。
  */
-const waitForEmbeddingInterval = async (): Promise<void> => {
+const waitForEmbeddingInterval = async (slotsUsed?: number): Promise<void> => {
+  if (lastEmbeddingSentAtMs === null) return;
+
   const intervalMs = getEmbeddingDelayMs();
-  const concurrency = getRecommendedConcurrency();
-  // 並列 N で「1リクエスト/interval」を守るため、バッチ間隔は N * interval にする
-  const delayMs = intervalMs * concurrency;
-  if (delayMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  const slots =
+    slotsUsed !== undefined ? slotsUsed : getRecommendedConcurrency();
+  const delayMs = intervalMs * slots;
+  const waitUntil = lastEmbeddingSentAtMs + delayMs;
+  const now = Date.now();
+  if (now < waitUntil) {
+    await new Promise((resolve) => setTimeout(resolve, waitUntil - now));
   }
 };
 
@@ -264,6 +274,7 @@ export const embeddingApi = async (
     throw new Error(message);
   }
 
+  lastEmbeddingSentAtMs = Date.now();
   return res.json();
 };
 
@@ -284,7 +295,8 @@ export const embeddingBatchApi = async (
 ): Promise<{ embeddings: number[][] }> => {
   const opts = withApiKey(options);
 
-  await waitForEmbeddingInterval();
+  // バッチ 1 リクエスト = 1 スロット。2 回目以降の待ちを短くする
+  await waitForEmbeddingInterval(1);
   const res = await client.api.v1.embedding.batch.$post({ json: request }, opts);
   updateRateLimitFromResponse(res);
 
@@ -301,6 +313,7 @@ export const embeddingBatchApi = async (
     throw new Error(message);
   }
 
+  lastEmbeddingSentAtMs = Date.now();
   return res.json();
 };
 

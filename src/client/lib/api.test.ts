@@ -1,11 +1,12 @@
 /**
- * クライアント API（embeddingApi の 429 リトライ・getRecommendedConcurrency・getDecryptedApiKey）のユニットテスト
+ * クライアント API（embeddingApi / embeddingBatchApi の 429 リトライ・getRecommendedConcurrency・getDecryptedApiKey）のユニットテスト
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import {
   EmbeddingRateLimitError,
   embeddingApi,
+  embeddingBatchApi,
   getDecryptedApiKey,
   getRecommendedConcurrency,
 } from "./api";
@@ -30,6 +31,21 @@ describe("embeddingApi", () => {
     vi.clearAllMocks();
   });
 
+  it("初回呼び出しでは待機せずすぐに fetch が 1 回呼ばれる", async () => {
+    const embedding = Array(EMBEDDING_DIMENSION).fill(0.1);
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ embedding, model: "text-embedding-3-small", took: 100 }), {
+        status: 200,
+        headers: new Headers(),
+      })
+    );
+
+    const p = embeddingApi({ text: "test" }, { apiKey: "key" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await p;
+  });
+
   it("429 のときはリトライせず EmbeddingRateLimitError を投げる", async () => {
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: "Too Many Requests" }), {
@@ -40,9 +56,67 @@ describe("embeddingApi", () => {
 
     const p = embeddingApi({ text: "test" }, { apiKey: "key" });
     const expectReject = expect(p).rejects.toThrow(EmbeddingRateLimitError);
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.runAllTimersAsync();
     await expectReject;
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("embeddingBatchApi", () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  /**
+   * Design Doc: embedding-backfill-as-is-analysis.md
+   * 契約: バッチ API は 1 リクエスト = 1 スロット。2 回目以降は intervalMs * 1 だけ待つ（concurrency 倍ではない）。
+   * フォールバック時 intervalMs=1000, concurrency=3 なので、1.1s 経過後に 2 回目を送れる（3 スロットなら 3s 必要）。
+   */
+  it("2回目呼び出しは 1*intervalMs 経過後に送る（concurrency倍ではない）", async () => {
+    const embedding = Array(EMBEDDING_DIMENSION).fill(0.1);
+    const embeddings = [embedding];
+    mockFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            embeddings,
+            model: "text-embedding-3-small",
+            took: 100,
+          }),
+          { status: 200, headers: new Headers() }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            embeddings,
+            model: "text-embedding-3-small",
+            took: 100,
+          }),
+          { status: 200, headers: new Headers() }
+        )
+      );
+
+    const p1 = embeddingBatchApi({ texts: ["a"] }, { apiKey: "key" });
+    await vi.runAllTimersAsync();
+    await p1;
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1_100);
+
+    const p2 = embeddingBatchApi({ texts: ["b"] }, { apiKey: "key" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await p2;
   });
 });
 
@@ -94,7 +168,7 @@ describe("getRecommendedConcurrency", () => {
     );
 
     const p = embeddingApi({ text: "test" }, { apiKey: "key" });
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.runAllTimersAsync();
     await p;
 
     expect(getRecommendedConcurrency()).toBe(10);
@@ -113,7 +187,7 @@ describe("getRecommendedConcurrency", () => {
     );
 
     const p = embeddingApi({ text: "test" }, { apiKey: "key" });
-    // 前テストで remaining=50 のため intervalMs = windowLeft/50。並列10のため delayMs = intervalMs * 10
+    // 前テストで remaining=50 のため intervalMs = windowLeft/50。並列10のため delayMs = intervalMs * 10。初回は待機スキップ済みなので 2 本目は待機する
     await vi.advanceTimersByTimeAsync(200_000);
     await p;
 
