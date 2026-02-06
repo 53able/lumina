@@ -43,6 +43,8 @@ interface PaperExplorerProps {
   renderExpandedDetail?: (paper: Paper) => ReactNode;
   /** 検索0件時に表示するメッセージ（APIキー未設定など理由がある場合） */
   emptySearchMessage?: ReactNode;
+  /** 検索処理中のローディング状態（useSemanticSearchのisLoading） */
+  isSearchLoading?: boolean;
 }
 
 /**
@@ -67,6 +69,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   expandedPaperId = null,
   renderExpandedDetail,
   emptySearchMessage,
+  isSearchLoading = false,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { likedPaperIds, bookmarkedPaperIds } = useInteractionContext();
@@ -416,8 +419,11 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
       <PaperList
         papers={filteredPapers}
         isLoading={isLoading}
+        isSearchLoading={isSearchLoading}
         emptyMessage={
-          hasSearched && !isLoading && filteredPapers.length === 0 ? emptySearchMessage : undefined
+          hasSearched && !isLoading && !isSearchLoading && filteredPapers.length === 0
+            ? emptySearchMessage
+            : undefined
         }
         showCount={hasSearched && !isLoading && filteredPapers.length > 0}
         onPaperClick={onPaperClick}

@@ -1,6 +1,6 @@
 import { Settings, Sparkles } from "lucide-react";
-import { type FC, useCallback, useEffect, useRef, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { type FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Route, Routes, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { Paper, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
 import { PaperDetail } from "./components/PaperDetail";
@@ -20,8 +20,11 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
+import { useSearchFromUrl } from "./hooks/useSearchFromUrl";
+import { useSearchHistorySync } from "./hooks/useSearchHistorySync";
 import { useSemanticSearch } from "./hooks/useSemanticSearch";
 import { useSyncPapers } from "./hooks/useSyncPapers";
+import { getEmptySearchMessage } from "./lib/emptySearchMessage";
 import { PaperPage } from "./pages/PaperPage";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
@@ -83,6 +86,10 @@ const HomePage: FC = () => {
   // 検索入力欄の値（履歴クリックで反映・クリアで空にする）
   const [searchInputValue, setSearchInputValue] = useState("");
 
+  // URL の q を読み取り（Phase 2: ロード時の自動検索用。依存はプリミティブ値で無限ループ防止）
+  const [searchParams] = useSearchParams();
+  const urlQuery = searchParams.get("q") ?? "";
+
   // 画面サイズ判定（lg = 1024px以上）
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
@@ -113,10 +120,15 @@ const HomePage: FC = () => {
 
   // whyReadMap を生成（論文ID → whyRead のマップ）
   // summaryLanguage に合わせた言語の whyRead を取得
-  const whyReadMap = new Map(
-    summaries
-      .filter((s) => s.language === summaryLanguage && s.whyRead)
-      .map((s) => [s.paperId, s.whyRead as string])
+  // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
+  const whyReadMap = useMemo(
+    () =>
+      new Map(
+        summaries
+          .filter((s) => s.language === summaryLanguage && s.whyRead)
+          .map((s) => [s.paperId, s.whyRead as string])
+      ),
+    [summaries, summaryLanguage]
   );
 
   // 検索履歴（searchHistoryStore経由で永続化）
@@ -126,23 +138,15 @@ const HomePage: FC = () => {
   // 最後に検索したクエリを追跡（履歴追加用）
   const lastSearchQueryRef = useRef<string | null>(null);
 
-  // 検索成功時に履歴を追加（ヒット総数＝totalMatchCount を保存し、20件固定表示を防ぐ）
-  useEffect(() => {
-    // expandedQueryとqueryEmbeddingがあり、検索クエリが記録されている場合のみ
-    if (expandedQuery && queryEmbedding && lastSearchQueryRef.current) {
-      const history = {
-        id: crypto.randomUUID(),
-        originalQuery: lastSearchQueryRef.current,
-        expandedQuery,
-        queryEmbedding,
-        resultCount: totalMatchCount,
-        createdAt: new Date(),
-      };
-      addHistory(history);
-      // 追加後にリセット（重複防止）
-      lastSearchQueryRef.current = null;
-    }
-  }, [expandedQuery, queryEmbedding, totalMatchCount, addHistory]);
+  useSearchHistorySync(
+    expandedQuery,
+    queryEmbedding,
+    totalMatchCount,
+    lastSearchQueryRef,
+    addHistory
+  );
+
+  useSearchFromUrl(urlQuery, search, setSearchInputValue, lastSearchQueryRef);
 
   // 検索ハンドラー
   const handleSearch = useCallback(
@@ -270,41 +274,21 @@ const HomePage: FC = () => {
   // 検索結果の論文リスト（関連度順）。results.paper は useSemanticSearch 内で papers から解決されるためストア由来
   const searchResultPapers = results.map((r) => r.paper);
 
-  // 検索中かどうかを判定（expandedQueryがあれば検索後）
   const isSearchActive = expandedQuery !== null;
-
-  // 検索0件時の理由別メッセージ（スマホとPCで結果が違う原因の切り分け）
-  const emptySearchMessage =
-    isSearchActive && results.length === 0 ? (
-      searchError?.name === "OperationError" ? (
-        <>
-          <p className="text-lg text-muted-foreground">APIキーの復号に失敗しました</p>
-          <p className="text-sm text-muted-foreground/70">
-            別のブラウザやアドレス（http/https
-            など）で保存した可能性があります。設定でAPIキーを再入力してください。
-          </p>
-        </>
-      ) : queryEmbedding === null ? (
-        <>
-          <p className="text-lg text-muted-foreground">検索にはAPIキーが必要です</p>
-          <p className="text-sm text-muted-foreground/70">
-            設定でOpenAI APIキーを入力してください。別デバイスでは設定が同期されません。
-          </p>
-        </>
-      ) : (
-        <>
-          <p className="text-lg text-muted-foreground">該当する論文がありませんでした</p>
-          <p className="text-sm text-muted-foreground/70">
-            このデバイスに論文データが同期されていないか、Embeddingが未設定の可能性があります。同期ボタンや「Embeddingを補完」を試してください。
-          </p>
-        </>
-      )
-    ) : undefined;
+  const emptySearchMessage = getEmptySearchMessage(
+    isSearchActive,
+    results.length,
+    searchError,
+    queryEmbedding,
+    isLoading
+  );
 
   // 初期表示用の論文（検索後は検索結果＋検索対象外を常時可視化、それ以外はストアから）
-  const displayPapers = isSearchActive
-    ? [...searchResultPapers, ...papersExcludedFromSearch]
-    : papers;
+  // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
+  const displayPapers = useMemo(
+    () => (isSearchActive ? [...searchResultPapers, ...papersExcludedFromSearch] : papers),
+    [isSearchActive, searchResultPapers, papersExcludedFromSearch, papers]
+  );
 
   return (
     <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-bold bg-particles">
@@ -477,6 +461,7 @@ const HomePage: FC = () => {
               onRequestSync={hasMorePapers ? syncMore : undefined}
               isSyncing={isSyncing}
               emptySearchMessage={emptySearchMessage}
+              isSearchLoading={isLoading}
               // インライン展開（デスクトップのみ）
               expandedPaperId={isDesktop ? (selectedPaper?.id ?? null) : null}
               renderExpandedDetail={

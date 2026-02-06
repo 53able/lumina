@@ -24,8 +24,10 @@ const ESTIMATED_EXPANDED_ROW_HEIGHT = 400;
 interface PaperListProps {
   /** 論文データの配列 */
   papers: Paper[];
-  /** ローディング状態 */
+  /** ローディング状態（検索入力欄のローディングなど） */
   isLoading?: boolean;
+  /** 検索処理中のローディング状態（useSemanticSearchのisLoading） */
+  isSearchLoading?: boolean;
   /** 0件時に表示するメッセージ（未指定時はデフォルトの「論文が見つかりません」） */
   emptyMessage?: ReactNode;
   /** 論文数を表示するか */
@@ -100,6 +102,7 @@ const EmptyMessage: FC<{ customMessage?: ReactNode }> = ({ customMessage }) => (
 export const PaperList: FC<PaperListProps> = ({
   papers,
   isLoading = false,
+  isSearchLoading = false,
   emptyMessage: emptyMessageProp,
   showCount = false,
   onPaperClick,
@@ -276,7 +279,8 @@ export const PaperList: FC<PaperListProps> = ({
             })}
           </div>
           {/* 0件時は EmptyMessage を絶対配置でオーバーレイ（グリッドの位置を変えずレイアウトを維持） */}
-          {papers.length === 0 ? (
+          {/* ローディング中は EmptyMessage を表示しない（ローディングインジケータと重複しないように） */}
+          {papers.length === 0 && !isLoading && !isSearchLoading ? (
             <div className="absolute inset-0 pointer-events-none">
               <EmptyMessage customMessage={emptyMessageProp} />
             </div>
