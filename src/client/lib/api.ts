@@ -163,6 +163,8 @@ let rateLimitRemaining: number | null = null;
 let rateLimitResetAtMs: number | null = null;
 /** 直近で embedding リクエストを送った時刻（ms）。未送信時は null。初回は待機スキップ用。 */
 let lastEmbeddingSentAtMs: number | null = null;
+/** 直近で sync リクエストを送った時刻（ms）。未送信時は null。初回は待機スキップ用。 */
+let lastSyncSentAtMs: number | null = null;
 
 /**
  * レスポンスヘッダーから RateLimit-* をパースし共有状態を更新する。
@@ -227,6 +229,44 @@ const waitForEmbeddingInterval = async (slotsUsed?: number): Promise<void> => {
   if (now < waitUntil) {
     await new Promise((resolve) => setTimeout(resolve, waitUntil - now));
   }
+};
+
+/**
+ * sync API の次の送信までに待つべき ms。
+ * ヘッダーがある場合は remaining / (reset までの時間) で均等に割り、なければ固定間隔。
+ */
+const getSyncDelayMs = (): number => {
+  const now = Date.now();
+  if (rateLimitRemaining === null || rateLimitResetAtMs === null) {
+    return FALLBACK_MIN_INTERVAL_MS;
+  }
+  const windowLeftMs = rateLimitResetAtMs - now;
+  if (windowLeftMs <= 0) return FALLBACK_MIN_INTERVAL_MS;
+  if (rateLimitRemaining <= 0) return windowLeftMs;
+  const intervalMs = windowLeftMs / rateLimitRemaining;
+  return Math.min(Math.max(intervalMs, 0), 60_000);
+};
+
+/**
+ * sync API の送信間隔を守る。バックエンドの RateLimit-* に応じて待機時間をオートスケールする。
+ * 初回（lastSyncSentAtMs === null）は待機せず即 return し、最初のラウンドを早く発火させる。
+ *
+ * @param parallelCount この送信で消費する並列リクエスト数
+ */
+export const waitForSyncInterval = async (parallelCount: number): Promise<void> => {
+  if (lastSyncSentAtMs === null) {
+    lastSyncSentAtMs = Date.now();
+    return;
+  }
+
+  const intervalMs = getSyncDelayMs();
+  const delayMs = intervalMs * parallelCount;
+  const waitUntil = lastSyncSentAtMs + delayMs;
+  const now = Date.now();
+  if (now < waitUntil) {
+    await new Promise((resolve) => setTimeout(resolve, waitUntil - now));
+  }
+  lastSyncSentAtMs = Date.now();
 };
 
 /**
@@ -382,6 +422,7 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
     throw new Error(`Sync failed: ${lastRes.status}`);
   }
 
+  lastSyncSentAtMs = Date.now();
   return lastRes.json();
 };
 
