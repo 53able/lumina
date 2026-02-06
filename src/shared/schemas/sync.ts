@@ -4,7 +4,7 @@ import { PaperSchema } from "./paper";
 /**
  * 同期期間（日数）
  */
-export const SyncPeriodSchema = z.enum(["7", "30", "90", "180", "365"]);
+export const SyncPeriodSchema = z.enum(["3", "7", "30", "90", "180", "365"]);
 
 export type SyncPeriod = z.infer<typeof SyncPeriodSchema>;
 

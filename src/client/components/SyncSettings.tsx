@@ -11,6 +11,7 @@ const SYNC_PERIOD_OPTIONS: {
   label: string;
   description: string;
 }[] = [
+  { value: "3", label: "3日", description: "過去3日間の論文を取得" },
   { value: "7", label: "7日", description: "過去1週間の論文を取得" },
   { value: "30", label: "30日", description: "過去1ヶ月の論文を取得" },
   { value: "90", label: "90日", description: "過去3ヶ月の論文を取得" },
@@ -42,7 +43,7 @@ export const SyncSettings: FC = () => {
           </Tooltip>
         </div>
 
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-2">
           {SYNC_PERIOD_OPTIONS.map((option) => {
             const isSelected = syncPeriodDays === option.value;
 
