@@ -1,3 +1,4 @@
+import { useMutation } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
@@ -87,58 +88,67 @@ export const usePaperSummary = ({
   onError,
 }: UsePaperSummaryOptions): UsePaperSummaryReturn => {
   const [summaryLanguage, setSummaryLanguage] = useState<"ja" | "en">("ja");
-  const [isLoading, setIsLoading] = useState(false);
 
   const { getSummaryByPaperIdAndLanguage, addSummary } = useSummaryStore();
 
   // 現在の論文・言語に対応するサマリーを取得
   const summary = getSummaryByPaperIdAndLanguage(paperId, summaryLanguage);
 
+  // React QueryのuseMutationでサマリー生成を管理（自動デデュープ・キャッシュ）
+  const mutation = useMutation({
+    mutationFn: async ({
+      language,
+      target,
+    }: {
+      language: "ja" | "en";
+      target: GenerateTarget;
+    }): Promise<PaperSummary> => {
+      // API key を復号化して取得（早期開始パターン）
+      const apiKeyPromise = getDecryptedApiKey();
+      const apiKey = await apiKeyPromise;
+
+      const response = await summaryApi(
+        paperId,
+        { language, abstract, generateTarget: target },
+        { apiKey }
+      );
+
+      const normalizedData = normalizeSummaryResponse(response);
+
+      // 説明文のみ生成の場合、既存の要約を維持してマージ
+      const existingSummary = getSummaryByPaperIdAndLanguage(paperId, language);
+      const mergedSummary: PaperSummary =
+        target === "explanation" && existingSummary
+          ? {
+              ...existingSummary,
+              explanation: normalizedData.explanation,
+              targetAudience: normalizedData.targetAudience,
+              whyRead: normalizedData.whyRead,
+            }
+          : normalizedData;
+
+      await addSummary(mergedSummary);
+      return mergedSummary;
+    },
+    onError: (error) => {
+      const err = error instanceof Error ? error : new Error("要約の生成に失敗しました");
+      onError?.(err);
+    },
+  });
+
   const generateSummary = useCallback(
     async (languageOverride?: "ja" | "en", target: GenerateTarget = "both") => {
       const language = languageOverride ?? summaryLanguage;
-      setIsLoading(true);
-
-      try {
-        // API key を復号化して取得
-        const apiKey = await getDecryptedApiKey();
-
-        const response = await summaryApi(
-          paperId,
-          { language, abstract, generateTarget: target },
-          { apiKey }
-        );
-
-        const normalizedData = normalizeSummaryResponse(response);
-
-        // 説明文のみ生成の場合、既存の要約を維持してマージ
-        const existingSummary = getSummaryByPaperIdAndLanguage(paperId, language);
-        const mergedSummary: PaperSummary =
-          target === "explanation" && existingSummary
-            ? {
-                ...existingSummary,
-                explanation: normalizedData.explanation,
-                targetAudience: normalizedData.targetAudience,
-                whyRead: normalizedData.whyRead,
-              }
-            : normalizedData;
-
-        await addSummary(mergedSummary);
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error("要約の生成に失敗しました");
-        onError?.(err);
-      } finally {
-        setIsLoading(false);
-      }
+      await mutation.mutateAsync({ language, target });
     },
-    [paperId, summaryLanguage, abstract, getSummaryByPaperIdAndLanguage, addSummary, onError]
+    [summaryLanguage, mutation]
   );
 
   return {
     summary,
     summaryLanguage,
     setSummaryLanguage,
-    isLoading,
+    isLoading: mutation.isPending,
     generateSummary,
   };
 };

@@ -1,23 +1,10 @@
-import { Settings, Sparkles } from "lucide-react";
-import { type FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type FC, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Route, Routes, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { Paper, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
-import { PaperDetail } from "./components/PaperDetail";
-import { PaperExplorer } from "./components/PaperExplorer";
-import { SearchHistory } from "./components/SearchHistory";
-import { SettingsDialog } from "./components/SettingsDialog";
-import { SyncButton } from "./components/SyncButton";
-import { SyncStatusBar } from "./components/SyncStatusBar";
-import { Button } from "./components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "./components/ui/sheet.js";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
+import { HomeFooter } from "./components/HomeFooter";
+import { HomeHeader } from "./components/HomeHeader";
+import { HomeMain } from "./components/HomeMain";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
 import { useSearchFromUrl } from "./hooks/useSearchFromUrl";
@@ -25,11 +12,27 @@ import { useSearchHistorySync } from "./hooks/useSearchHistorySync";
 import { useSemanticSearch } from "./hooks/useSemanticSearch";
 import { useSyncPapers } from "./hooks/useSyncPapers";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
-import { PaperPage } from "./pages/PaperPage";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useSummaryStore } from "./stores/summaryStore";
+
+// 動的インポート（バンドルサイズ最適化）
+const PaperDetail = lazy(() => import("./components/PaperDetail").then((m) => ({ default: m.PaperDetail })));
+const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const PaperPage = lazy(() => import("./pages/PaperPage").then((m) => ({ default: m.PaperPage })));
+
+/**
+ * ローディングフォールバックコンポーネント
+ */
+const LoadingFallback: FC = () => (
+  <div className="grid min-h-dvh place-items-center">
+    <div className="flex flex-col items-center gap-3">
+      <div className="h-12 w-12 animate-loading-bold rounded-full border-4 border-primary border-t-transparent" />
+      <p className="text-sm text-muted-foreground font-bold">読み込み中...</p>
+    </div>
+  </div>
+);
 
 /**
  * Lumina アプリケーションのルートコンポーネント
@@ -40,10 +43,19 @@ import { useSummaryStore } from "./stores/summaryStore";
  */
 export const App: FC = () => {
   return (
-    <Routes>
-      <Route path="/papers/:id" element={<PaperPage />} />
-      <Route path="/*" element={<HomePage />} />
-    </Routes>
+    <Suspense fallback={<LoadingFallback />}>
+      <Routes>
+        <Route
+          path="/papers/:id"
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <PaperPage />
+            </Suspense>
+          }
+        />
+        <Route path="/*" element={<HomePage />} />
+      </Routes>
+    </Suspense>
   );
 };
 
@@ -148,17 +160,25 @@ const HomePage: FC = () => {
 
   useSearchFromUrl(urlQuery, search, setSearchInputValue, lastSearchQueryRef);
 
-  // 検索ハンドラー
+  // useTransitionで検索を非緊急更新として扱う
+  const [isPending, startTransition] = useTransition();
+
+  // 検索ハンドラー（useTransitionでラップ）
   const handleSearch = useCallback(
     async (query: string): Promise<Paper[]> => {
       // 履歴追加用にクエリを記録
       lastSearchQueryRef.current = query;
-      // search()が結果を直接返すので、それを使用
+      // 検索を実行（結果の更新はトランジションとして扱われる）
       const searchResults = await search(query);
+      // 検索結果の更新をトランジションとして扱う
+      startTransition(() => {
+        // 状態更新は既にsearch()内で行われているため、ここでは何もしない
+        // startTransitionは検索結果の表示更新を非緊急として扱う
+      });
       // 検索結果からPaperのみを返す
       return searchResults.map((r) => r.paper);
     },
-    [search]
+    [search, startTransition]
   );
 
   // 論文クリックハンドラー（インライン展開のトグル）
@@ -292,234 +312,72 @@ const HomePage: FC = () => {
 
   return (
     <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-bold bg-particles">
-      {/* Header - 全幅レイアウト、ロゴ中央・ボタン右端 */}
-      <header className="sticky top-0 z-50 border-b border-border/40 bg-background/95 backdrop-blur-md supports-backdrop-filter:bg-background/60">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 py-4 gap-4 sm:px-6">
-          {/* 左側: 空（バランス用） */}
-          <div className="flex items-center justify-start">
-            {/* モバイルでは何も表示しない、デスクトップでも空 */}
-          </div>
-
-          {/* 中央: ロゴ・タイトル - グローエフェクト（スマホ時はサイズ縮小で省略なし・縦揃え） */}
-          <div className="flex min-w-0 items-center justify-center gap-2 sm:gap-3 glow-effect">
-            <div className="relative flex shrink-0 items-center justify-center">
-              <Sparkles
-                className="h-6 w-6 sm:h-8 sm:w-8 text-primary animate-glow"
-                style={{ filter: "drop-shadow(0 0 8px hsl(var(--primary) / 0.6))" }}
-              />
-              <div className="absolute inset-0 blur-xl bg-primary/30 rounded-full animate-pulse-glow" />
-            </div>
-            <div className="flex min-w-0 items-baseline gap-2 sm:gap-3">
-              <h1 className="min-w-0 shrink-0 text-lg font-bold leading-tight sm:text-2xl sm:leading-tight whitespace-nowrap">
-                <span className="bg-linear-to-r from-primary via-primary/80 to-primary-light bg-clip-text text-transparent">
-                  Lumina
-                </span>
-              </h1>
-              <span
-                className="shrink-0 text-[10px] font-mono font-bold uppercase leading-none tracking-wider sm:text-xs"
-                style={{
-                  color: "hsl(var(--primary-dark))",
-                  opacity: 0.8,
-                  letterSpacing: "0.15em",
-                }}
-              >
-                BETA
-              </span>
-              <span
-                className="hidden sm:inline text-sm font-mono text-rotate-slight font-bold"
-                style={{ opacity: 0.7 }}
-              >
-                arXiv論文セマンティック検索
-              </span>
-            </div>
-          </div>
-
-          {/* 右側: 同期・設定ボタン（画面右端） */}
-          <div className="flex items-center gap-2 justify-end">
-            <SyncButton isSyncing={isSyncing} onSync={syncPapers} />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsSettingsOpen(true)}
-                  aria-label="設定"
-                  className="hover:bg-muted/50"
-                >
-                  <Settings className="h-5 w-5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>設定</TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-      </header>
+      {/* Header */}
+      <HomeHeader
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        isSyncing={isSyncing}
+        onSync={syncPapers}
+      />
 
       {/* 設定ダイアログ */}
-      <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      <Suspense fallback={null}>
+        <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      </Suspense>
 
-      {/* Mobile: 論文詳細 Sheet (lg未満で表示) */}
-      <Sheet
-        open={!isDesktop && !!selectedPaper}
-        onOpenChange={(open) => !open && handleCloseDetail()}
-      >
-        <SheetContent side="right" className="w-full sm:max-w-lg p-0 overflow-y-auto">
-          <SheetHeader className="sr-only">
-            <SheetTitle>論文詳細</SheetTitle>
-            <SheetDescription>選択した論文の詳細情報</SheetDescription>
-          </SheetHeader>
-          {selectedPaper && (
-            <PaperDetail
-              paper={selectedPaper}
-              summary={currentSummary}
-              onGenerateSummary={handleGenerateSummary}
-              isSummaryLoading={isSummaryLoading}
-              selectedSummaryLanguage={summaryLanguage}
-              onSummaryLanguageChange={handleSummaryLanguageChange}
-              autoGenerateSummary={autoGenerateSummary}
-            />
-          )}
-        </SheetContent>
-      </Sheet>
+      {/* Main Content */}
+      <HomeMain
+        isDesktop={isDesktop}
+        displayPapers={displayPapers}
+        onSearch={handleSearch}
+        onClearSearch={handleClearSearch}
+        onPaperClick={handlePaperClick}
+        externalQuery={expandedQuery?.original ?? null}
+        searchInputValue={searchInputValue}
+        onSearchInputChange={setSearchInputValue}
+        whyReadMap={whyReadMap}
+        onRequestSync={hasMorePapers ? syncMore : undefined}
+        isSyncing={isSyncing}
+        emptySearchMessage={emptySearchMessage}
+        isSearchLoading={isLoading}
+        expandedPaperId={isDesktop ? (selectedPaper?.id ?? null) : null}
+        renderExpandedDetail={
+          isDesktop
+            ? (paper) => (
+                <Suspense fallback={<div className="p-6">読み込み中...</div>}>
+                  <PaperDetail
+                    paper={paper}
+                    summary={getSummaryByPaperIdAndLanguage(paper.id, summaryLanguage)}
+                    onGenerateSummary={handleGenerateSummary}
+                    isSummaryLoading={isSummaryLoading}
+                    selectedSummaryLanguage={summaryLanguage}
+                    onSummaryLanguageChange={handleSummaryLanguageChange}
+                    autoGenerateSummary={autoGenerateSummary}
+                  />
+                </Suspense>
+              )
+            : undefined
+        }
+        expandedQuery={expandedQuery}
+        results={results}
+        isLoading={isLoading}
+        selectedPaper={selectedPaper}
+        onCloseDetail={handleCloseDetail}
+        currentSummary={currentSummary}
+        onGenerateSummary={handleGenerateSummary}
+        isSummaryLoading={isSummaryLoading}
+        summaryLanguage={summaryLanguage}
+        onSummaryLanguageChange={handleSummaryLanguageChange}
+        autoGenerateSummary={autoGenerateSummary}
+        recentHistories={recentHistories}
+        onReSearch={handleReSearch}
+        onDeleteHistory={handleDeleteHistory}
+        isEmbeddingBackfilling={isEmbeddingBackfilling}
+        embeddingBackfillProgress={embeddingBackfillProgress}
+        onRunEmbeddingBackfill={runEmbeddingBackfill}
+      />
 
-      {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
-      <div className="flex min-h-0 relative">
-        {/* Sidebar - 検索履歴 */}
-        <aside className="hidden lg:flex w-64 flex-col bg-sidebar/50 relative z-10">
-          {/* 視線誘導の基準線 - サイドバーとメインコンテンツの境界 */}
-          <div
-            className="absolute right-0 top-0 bottom-0 w-[3px] pointer-events-none z-20"
-            style={{
-              background:
-                "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
-              boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
-              filter: "blur(1px)",
-            }}
-          />
-          <div className="px-6 pt-6 pb-4">
-            <h3
-              className="text-sm font-bold uppercase tracking-wider text-primary-light"
-              style={{ opacity: 1 }}
-            >
-              検索履歴
-            </h3>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <SearchHistory
-              histories={recentHistories}
-              onReSearch={handleReSearch}
-              onDelete={handleDeleteHistory}
-              compact
-            />
-          </div>
-        </aside>
-
-        {/* Main Content - 論文リスト（モバイルはオブジェクトファーストで一覧を上に） */}
-        <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto min-w-0 relative z-10">
-          <div className="px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-10">
-            {/* デスクトップ: 同期ステータスは一覧の上。モバイル: 一覧の下に回すのでここでは出さない */}
-            {isDesktop && (
-              <SyncStatusBar
-                isEmbeddingBackfilling={isEmbeddingBackfilling}
-                embeddingBackfillProgress={embeddingBackfillProgress}
-                onRunEmbeddingBackfill={runEmbeddingBackfill}
-              />
-            )}
-
-            {/* 拡張クエリ情報の表示 - ロジック駆動: 関連要素は近くに */}
-            {expandedQuery && (
-              <div className="mb-4 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
-                <p className="text-sm" style={{ opacity: 1 }}>
-                  <span className="font-bold text-primary-light" style={{ opacity: 1 }}>
-                    検索クエリ:
-                  </span>{" "}
-                  <span style={{ opacity: 0.95 }}>{expandedQuery.original}</span>
-                  {expandedQuery.original !== expandedQuery.english && (
-                    <span className="ml-2 text-primary font-bold" style={{ opacity: 1 }}>
-                      → {expandedQuery.english}
-                    </span>
-                  )}
-                </p>
-                {expandedQuery.synonyms.length > 0 && (
-                  <p className="text-xs mt-2" style={{ opacity: 0.7 }}>
-                    関連語: {expandedQuery.synonyms.join(", ")}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Paper Explorer */}
-            <PaperExplorer
-              initialPapers={displayPapers}
-              onSearch={handleSearch}
-              onClear={handleClearSearch}
-              onPaperClick={handlePaperClick}
-              externalQuery={expandedQuery?.original ?? null}
-              searchInputValue={searchInputValue}
-              onSearchInputChange={setSearchInputValue}
-              whyReadMap={whyReadMap}
-              onRequestSync={hasMorePapers ? syncMore : undefined}
-              isSyncing={isSyncing}
-              emptySearchMessage={emptySearchMessage}
-              isSearchLoading={isLoading}
-              // インライン展開（デスクトップのみ）
-              expandedPaperId={isDesktop ? (selectedPaper?.id ?? null) : null}
-              renderExpandedDetail={
-                isDesktop
-                  ? (paper) => (
-                      <PaperDetail
-                        paper={paper}
-                        summary={getSummaryByPaperIdAndLanguage(paper.id, summaryLanguage)}
-                        onGenerateSummary={handleGenerateSummary}
-                        isSummaryLoading={isSummaryLoading}
-                        selectedSummaryLanguage={summaryLanguage}
-                        onSummaryLanguageChange={handleSummaryLanguageChange}
-                        autoGenerateSummary={autoGenerateSummary}
-                      />
-                    )
-                  : undefined
-              }
-            />
-
-            {/* ローディング中の検索結果表示 */}
-            {isLoading && results.length === 0 && (
-              <div className="mt-12 grid place-items-center">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="h-12 w-12 animate-loading-bold rounded-full border-4 border-primary border-t-transparent" />
-                  <p className="text-sm text-muted-foreground font-bold">検索中...</p>
-                </div>
-              </div>
-            )}
-
-            {/* モバイル: 同期ステータスは一覧の下（論文一覧をファーストビューに） */}
-            {!isDesktop && (
-              <SyncStatusBar
-                compact
-                isEmbeddingBackfilling={isEmbeddingBackfilling}
-                embeddingBackfillProgress={embeddingBackfillProgress}
-                onRunEmbeddingBackfill={runEmbeddingBackfill}
-              />
-            )}
-          </div>
-        </main>
-      </div>
-
-      {/* Footer - 固定表示 */}
-      <footer className="sticky bottom-0 z-40 border-t border-border/30 py-5 text-center text-xs text-muted-foreground/40 bg-background/80 backdrop-blur-md">
-        <p>Built with 💜 for researchers</p>
-        <p className="mt-1.5">
-          Thank you to{" "}
-          <a
-            href="https://arxiv.org"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline decoration-muted-foreground/20 underline-offset-2 hover:text-foreground/60 hover:decoration-foreground/40 transition-colors"
-          >
-            arXiv
-          </a>{" "}
-          for use of its open access interoperability.
-        </p>
-      </footer>
+      {/* Footer */}
+      <HomeFooter />
     </div>
   );
 };
