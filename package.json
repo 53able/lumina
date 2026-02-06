@@ -16,6 +16,7 @@
     "typecheck": "tsgo --noEmit",
     "lint": "biome check --write .",
     "lint:check": "biome check .",
+    "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "pnpm typecheck && pnpm lint:check"

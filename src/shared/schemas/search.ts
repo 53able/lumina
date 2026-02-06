@@ -36,12 +36,15 @@ export const SearchHistorySchema = z.object({
 
 export type SearchHistory = z.infer<typeof SearchHistorySchema>;
 
+/** 検索クエリの最大長（SearchRequestSchema の query.max と一致） */
+export const MAX_QUERY_LENGTH = 500;
+
 /**
  * 検索リクエストのスキーマ
  */
 export const SearchRequestSchema = z.object({
   /** 検索クエリ */
-  query: z.string().min(1).max(500),
+  query: z.string().min(1).max(MAX_QUERY_LENGTH),
   /** 取得件数 */
   limit: z.number().int().min(1).max(100).default(20),
   /** カテゴリフィルタ */
