@@ -2,9 +2,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Paper, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
-import { embeddingApi, embeddingBatchApi, getDecryptedApiKey, syncApi } from "../lib/api";
+import {
+  embeddingApi,
+  embeddingBatchApi,
+  getDecryptedApiKey,
+  getRecommendedConcurrency,
+  syncApi,
+  waitForSyncInterval,
+} from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
-import { getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
+import { getGapSize, getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
@@ -59,18 +66,10 @@ const normalizeSyncResponse = (response: {
 /** キャッシュの有効期間（5分） */
 const SYNC_STALE_TIME = 5 * 60 * 1000;
 
-/** レートリミット: 100リクエスト/15分 */
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15分
-const RATE_LIMIT_MAX_REQUESTS = 100;
-/** 安全マージンを考慮した1リクエストあたりの待機時間（ミリ秒） */
-const RATE_LIMIT_DELAY_MS = Math.ceil((RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX_REQUESTS) * 1.1); // 約10秒
-
 /** 順次取得: 1リクエストあたりの最大取得件数 */
 const INCREMENTAL_BATCH_SIZE = 50;
 /** syncMore の1リクエストあたりの取得件数（APIデフォルトと一致） */
 const SYNC_MORE_BATCH_SIZE = 50;
-/** 順次取得: 1ラウンドあたりの並列リクエスト数 */
-const INCREMENTAL_PARALLEL_COUNT = 5;
 
 /**
  * 同期期間ごとの「期間内として妥当な母数」の上限。
@@ -161,27 +160,9 @@ export const useSyncPapers = (
   // 同期フラグ（レースコンディション防止用）
   // useState は非同期バッチ更新のため、連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
-  // レートリミット管理: 最後のリクエスト時刻を記録
-  const lastRequestTimeRef = useRef<number>(0);
   /** effect 内で getState が使えない場合（テスト等）のフォールバック用。常に最新の storePapers を指す */
   const storePapersRef = useRef(storePapers);
   storePapersRef.current = storePapers;
-
-  /**
-   * レートリミットを考慮して待機する
-   * 最後のリクエストから一定時間経過するまで待機
-   */
-  const waitForRateLimitRef = useRef(async (): Promise<void> => {
-    const now = timestamp();
-    const timeSinceLastRequest = now - lastRequestTimeRef.current;
-
-    if (timeSinceLastRequest < RATE_LIMIT_DELAY_MS) {
-      const waitTime = RATE_LIMIT_DELAY_MS - timeSinceLastRequest;
-      await new Promise((resolve) => setTimeout(resolve, waitTime));
-    }
-
-    lastRequestTimeRef.current = timestamp();
-  });
 
   const queryKey = createSyncQueryKey(params);
 
@@ -366,6 +347,25 @@ export const useSyncPapers = (
       // syncStoreで状態を開始
       startIncrementalSync(abortController);
 
+      /**
+       * 動的並列数を計算する
+       * レートリミット残りとギャップサイズの両方を考慮
+       */
+      const calculateOptimalParallelCount = (
+        currentStart: number,
+        ranges: [number, number][],
+        total: number
+      ): number => {
+        const gapSize = getGapSize(ranges, total, currentStart);
+        const recommendedConcurrency = getRecommendedConcurrency();
+        // ギャップサイズとレートリミット残りの両方を考慮
+        // ギャップサイズが0の場合（連続取得）は、レートリミット残りに応じた最大並列数を使用
+        if (gapSize === 0) {
+          return recommendedConcurrency;
+        }
+        return Math.min(recommendedConcurrency, Math.ceil(gapSize / INCREMENTAL_BATCH_SIZE));
+      };
+
       const fetchNextRound = async (): Promise<void> => {
         if (abortController.signal.aborted) {
           completeIncrementalSync();
@@ -373,9 +373,6 @@ export const useSyncPapers = (
         }
 
         try {
-          // レートリミットを考慮して待機（1ラウンドに1回）
-          await waitForRateLimitRef.current();
-
           // API key を復号化して取得（早期開始パターン）
           const apiKeyPromise = getDecryptedApiKey();
           const apiKey = await apiKeyPromise;
@@ -390,9 +387,19 @@ export const useSyncPapers = (
                   INCREMENTAL_BATCH_SIZE
                 );
 
-          // 50件×5並列: start = currentStart, currentStart+50, ... の5リクエストを同時に発行（period は必ず渡し、母数を同期期間・カテゴリで絞る）
+          // 動的並列数を計算
+          const parallelCount = calculateOptimalParallelCount(
+            currentStart,
+            localRanges,
+            totalRemaining ?? Number.MAX_SAFE_INTEGER
+          );
+
+          // レートリミットを考慮して待機（1ラウンドに1回、並列数を考慮）
+          await waitForSyncInterval(parallelCount);
+
+          // 動的並列数でリクエストを作成: start = currentStart, currentStart+50, ... のリクエストを同時に発行（period は必ず渡し、母数を同期期間・カテゴリで絞る）
           const effectivePeriod = params.period ?? "30";
-          const requests = Array.from({ length: INCREMENTAL_PARALLEL_COUNT }, (_, i) => ({
+          const requests = Array.from({ length: parallelCount }, (_, i) => ({
             categories: params.categories,
             period: effectivePeriod,
             start: currentStart + i * INCREMENTAL_BATCH_SIZE,
@@ -404,17 +411,24 @@ export const useSyncPapers = (
           );
 
           const responses = rawResponses.map(normalizeSyncResponse);
-          const firstTotal = responses[0]?.totalResults ?? 0;
-          totalRemaining = firstTotal;
+          // 空のレスポンスを除外
+          const validResponses = responses.filter((r) => r.papers.length > 0);
 
-          // レスポンスを start 順に並べた論文リスト（重複なし・順序保持）
-          const mergedPapers = responses.flatMap((r) => r.papers);
-
-          if (mergedPapers.length === 0) {
+          if (validResponses.length === 0) {
             completeIncrementalSync();
             onComplete?.();
             return;
           }
+
+          // totalResults の更新を最初のラウンドのみに制限
+          if (totalRemaining === null) {
+            const firstTotal = validResponses[0]?.totalResults ?? 0;
+            totalRemaining = firstTotal;
+            setTotalResults(totalRemaining);
+          }
+
+          // レスポンスを start 順に並べた論文リスト（重複なし・順序保持）
+          const mergedPapers = validResponses.flatMap((r) => r.papers);
 
           const newPapers = mergedPapers.filter((p) => !existingPaperIds.has(p.id));
           if (newPapers.length > 0) {
@@ -436,11 +450,10 @@ export const useSyncPapers = (
             }).catch(() => {});
           }
 
-          const roundFetchedCount = responses.reduce((sum, r) => sum + r.fetchedCount, 0);
+          const roundFetchedCount = validResponses.reduce((sum, r) => sum + r.fetchedCount, 0);
           const rangeEnd = currentStart + roundFetchedCount;
           localRanges = mergeRanges([...localRanges, [currentStart, rangeEnd]]);
           setRequestedRanges(localRanges);
-          setTotalResults(totalRemaining);
 
           const fetchedLeadingEdge =
             localRanges.length > 0 ? Math.max(...localRanges.map(([, end]) => end)) : 0;

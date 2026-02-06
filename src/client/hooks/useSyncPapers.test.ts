@@ -11,17 +11,19 @@ import { useSyncPapers } from "./useSyncPapers";
 
 /** 1リクエストあたりの最大取得件数（仕様） */
 const BATCH_SIZE = 50;
-/** 順次取得の並列数（仕様） */
-const PARALLEL_COUNT = 5;
 
 const mockSyncApi = vi.fn();
 const mockGetDecryptedApiKey = vi.fn();
+const mockWaitForSyncInterval = vi.fn().mockResolvedValue(undefined);
+const mockGetRecommendedConcurrency = vi.fn().mockReturnValue(5);
 
 const mockEmbeddingApi = vi.fn();
 vi.mock("../lib/api", () => ({
   syncApi: (...args: unknown[]) => mockSyncApi(...args),
   getDecryptedApiKey: () => mockGetDecryptedApiKey(),
   embeddingApi: (...args: unknown[]) => mockEmbeddingApi(...args),
+  waitForSyncInterval: (...args: unknown[]) => mockWaitForSyncInterval(...args),
+  getRecommendedConcurrency: () => mockGetRecommendedConcurrency(),
 }));
 
 const mockRunBackfillEmbeddings = vi.fn();
@@ -127,6 +129,8 @@ describe("useSyncPapers", () => {
     });
     mockGetDecryptedApiKey.mockResolvedValue("test-api-key");
     mockRunBackfillEmbeddings.mockResolvedValue(undefined);
+    mockGetRecommendedConcurrency.mockReturnValue(5); // デフォルトは5並列
+    mockWaitForSyncInterval.mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -135,8 +139,9 @@ describe("useSyncPapers", () => {
   });
 
   describe("syncIncremental（順次取得）", () => {
-    it("順次取得開始時に、1ラウンドで syncApi が 50件×5並列 で呼ばれる", async () => {
+    it("順次取得開始時に、1ラウンドで syncApi が動的並列数で呼ばれる（getRecommendedConcurrency=5の場合）", async () => {
       const totalResults = 250;
+      mockGetRecommendedConcurrency.mockReturnValue(5);
       mockSyncApi.mockImplementation((req: { start?: number }) =>
         Promise.resolve(createMockResponse(req.start ?? 0, totalResults))
       );
@@ -154,8 +159,9 @@ describe("useSyncPapers", () => {
         await vi.advanceTimersByTimeAsync(15_000);
       });
 
-      // 仕様: 50件×5並列 → 1ラウンドで syncApi が5回呼ばれる
-      expect(mockSyncApi).toHaveBeenCalledTimes(PARALLEL_COUNT);
+      // 動的並列数: getRecommendedConcurrency=5 の場合、5並列で呼ばれる
+      expect(mockSyncApi).toHaveBeenCalledTimes(5);
+      expect(mockWaitForSyncInterval).toHaveBeenCalledWith(5);
 
       const expectedStarts = [0, 50, 100, 150, 200];
       const calls = mockSyncApi.mock.calls;
@@ -177,6 +183,7 @@ describe("useSyncPapers", () => {
     it("store に N 件あるとき、最初のラウンドで syncApi に渡す start は N から始まり既取得範囲をリクエストしない", async () => {
       const storeCount = 100;
       const totalResults = 500;
+      mockGetRecommendedConcurrency.mockReturnValue(5);
       const basePaper = createMockResponse(0, 1).papers[0];
       papersRef.current = Array.from({ length: storeCount }, (_, i) => ({
         ...basePaper,
@@ -199,7 +206,7 @@ describe("useSyncPapers", () => {
       });
 
       const calls = mockSyncApi.mock.calls;
-      const firstRoundCalls = calls.slice(0, PARALLEL_COUNT);
+      const firstRoundCalls = calls.slice(0, 5); // 動的並列数=5
       const actualStarts = firstRoundCalls
         .map((c) => c[0] as { start?: number })
         .map((r) => r.start ?? 0)
