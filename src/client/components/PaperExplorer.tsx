@@ -198,27 +198,27 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 {title}
               </span>
             </h2>
-            {hasSearched && (
+            {hasSearched ? (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleClear}
                 className={cn(
                   "h-7 px-2 text-muted-foreground hover:text-foreground",
-                  !isDesktop && "h-6 px-1.5"
+                  !isDesktop ? "h-6 px-1.5" : ""
                 )}
               >
-                <X className={cn("mr-2 h-4 w-4", !isDesktop && "mr-1 h-3.5 w-3.5")} />
+                <X className={cn("mr-2 h-4 w-4", !isDesktop ? "mr-1 h-3.5 w-3.5" : "")} />
                 {isDesktop ? "クリア" : ""}
               </Button>
-            )}
+            ) : null}
           </div>
           {/* モバイルでは説明を非表示にして一覧を上に */}
-          {!hasSearched && isDesktop && (
+          {!hasSearched && isDesktop ? (
             <p className="text-muted-foreground/50 text-xs lg:text-sm">
               キーワードや質問を入力して、関連する論文を見つけましょう
             </p>
-          )}
+          ) : null}
         </div>
 
         {/* 検索ボックス（モバイルでも1行のまま） */}

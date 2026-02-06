@@ -143,6 +143,9 @@ export const useSemanticSearch = ({
       const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
       setPapersExcludedFromSearch(excluded);
 
+      // 論文ID → Paper のマップを作成（O(1)ルックアップ用）
+      const paperMap = new Map(papers.map((p) => [p.id, p]));
+
       // ローカルの論文とコサイン類似度を計算
       const searchResults: SearchResult[] = [];
 
@@ -183,9 +186,9 @@ export const useSemanticSearch = ({
       setTotalMatchCount(filteredResults.length);
       setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
 
-      // ストアから最新のpaperを解決して返す
+      // ストアから最新のpaperを解決して返す（MapでO(1)ルックアップ）
       return limitedResults.map((r) => ({
-        paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
+        paper: paperMap.get(r.paper.id) ?? r.paper,
         score: r.score,
       }));
     },
@@ -204,8 +207,9 @@ export const useSemanticSearch = ({
       setTotalMatchCount(0);
 
       try {
-        // API key を復号化して取得
-        const apiKey = await getDecryptedApiKey();
+        // API key を復号化して取得（早期開始パターン）
+        const apiKeyPromise = getDecryptedApiKey();
+        const apiKey = await apiKeyPromise;
 
         // 1. 検索APIを呼び出す（型安全なfetchラッパー経由）
         const data = await searchApi({ query, limit }, { apiKey });

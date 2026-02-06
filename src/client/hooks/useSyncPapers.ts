@@ -188,8 +188,9 @@ export const useSyncPapers = (
   const { data, isFetching, error, refetch } = useQuery({
     queryKey,
     queryFn: async (): Promise<SyncResponse> => {
-      // API key を復号化して取得
-      const apiKey = await getDecryptedApiKey();
+      // API key を復号化して取得（早期開始パターン）
+      const apiKeyPromise = getDecryptedApiKey();
+      const apiKey = await apiKeyPromise;
 
       const response = await syncApi(
         {
@@ -296,8 +297,9 @@ export const useSyncPapers = (
       // レートリミットを考慮して待機
       await waitForRateLimitRef.current();
 
-      // API key を復号化して取得
-      const apiKey = await getDecryptedApiKey();
+      // API key を復号化して取得（早期開始パターン）
+      const apiKeyPromise = getDecryptedApiKey();
+      const apiKey = await apiKeyPromise;
 
       const rawResponse = await syncApi(
         {
@@ -374,7 +376,9 @@ export const useSyncPapers = (
           // レートリミットを考慮して待機（1ラウンドに1回）
           await waitForRateLimitRef.current();
 
-          const apiKey = await getDecryptedApiKey();
+          // API key を復号化して取得（早期開始パターン）
+          const apiKeyPromise = getDecryptedApiKey();
+          const apiKey = await apiKeyPromise;
 
           // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
           const currentStart =
@@ -529,7 +533,9 @@ export const useSyncPapers = (
     setIsEmbeddingBackfilling(true);
     setEmbeddingBackfillProgress({ completed: 0, total: withoutEmbedding.length });
 
-    const apiKey = await getDecryptedApiKey();
+    // API key を復号化して取得（早期開始パターン）
+    const apiKeyPromise = getDecryptedApiKey();
+    const apiKey = await apiKeyPromise;
     if (!apiKey) {
       setIsEmbeddingBackfilling(false);
       setEmbeddingBackfillProgress(null);
