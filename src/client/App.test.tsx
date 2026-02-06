@@ -115,9 +115,11 @@ vi.mock("@/client/stores/paperStore", () => ({
   }),
 }));
 
-// usePaperFilterをモック
+// usePaperFilterをモック（searchQuery: null で「検索未実行」にし、一覧表示になる）
 vi.mock("@/client/hooks/usePaperFilter", () => ({
   usePaperFilter: () => ({
+    searchQuery: null as string | null,
+    setSearchQuery: vi.fn(),
     filterMode: "all" as const,
     selectedCategories: new Set<string>(),
     toggleFilterMode: vi.fn(),
