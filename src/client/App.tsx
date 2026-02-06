@@ -1,4 +1,14 @@
-import { lazy, Suspense, type FC, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  type FC,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Route, Routes, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { Paper, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
@@ -18,8 +28,12 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useSummaryStore } from "./stores/summaryStore";
 
 // 動的インポート（バンドルサイズ最適化）
-const PaperDetail = lazy(() => import("./components/PaperDetail").then((m) => ({ default: m.PaperDetail })));
-const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const PaperDetail = lazy(() =>
+  import("./components/PaperDetail").then((m) => ({ default: m.PaperDetail }))
+);
+const SettingsDialog = lazy(() =>
+  import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog }))
+);
 const PaperPage = lazy(() => import("./pages/PaperPage").then((m) => ({ default: m.PaperPage })));
 
 /**

@@ -1,17 +1,15 @@
-import { lazy, Suspense, type FC, type ReactNode } from "react";
-import type { ExpandedQuery, Paper, SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
+import { type FC, lazy, type ReactNode, Suspense } from "react";
+import type {
+  ExpandedQuery,
+  Paper,
+  PaperSummary,
+  SearchHistory as SearchHistoryType,
+} from "../../shared/schemas/index";
+import type { GenerateTarget } from "../lib/api";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SyncStatusBar } from "./SyncStatusBar";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "./ui/sheet.js";
-import type { PaperSummary } from "../../shared/schemas/index";
-import type { GenerateTarget } from "../lib/api";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet.js";
 
 // 動的インポート（バンドルサイズ最適化）
 const PaperDetail = lazy(() => import("./PaperDetail").then((m) => ({ default: m.PaperDetail })));
@@ -63,7 +61,11 @@ interface HomeMainProps {
   /** 現在のサマリー */
   currentSummary: PaperSummary | undefined;
   /** サマリー生成ハンドラー */
-  onGenerateSummary: (paperId: string, language: "ja" | "en", target?: GenerateTarget) => Promise<void>;
+  onGenerateSummary: (
+    paperId: string,
+    language: "ja" | "en",
+    target?: GenerateTarget
+  ) => Promise<void>;
   /** サマリーローディング中かどうか */
   isSummaryLoading: boolean;
   /** 選択中のサマリー言語 */
@@ -118,10 +120,10 @@ export const HomeMain: FC<HomeMainProps> = ({
   currentSummary,
   onGenerateSummary,
   isSummaryLoading,
-    summaryLanguage,
-    onSummaryLanguageChange,
-    autoGenerateSummary,
-    recentHistories,
+  summaryLanguage,
+  onSummaryLanguageChange,
+  autoGenerateSummary,
+  recentHistories,
   onReSearch,
   onDeleteHistory,
   isEmbeddingBackfilling,
@@ -176,7 +178,9 @@ export const HomeMain: FC<HomeMainProps> = ({
             </h3>
           </div>
           <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}>
+            <Suspense
+              fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
+            >
               <SearchHistory
                 histories={recentHistories}
                 onReSearch={onReSearch}
