@@ -132,10 +132,76 @@ export const useSemanticSearch = ({
     [resultEntries, papers]
   );
 
+  /**
+   * 共通の検索ロジック: Embeddingベクトルから検索結果を計算する
+   * @param queryEmbedding クエリのEmbeddingベクトル
+   * @returns 検索結果の配列
+   */
+  const computeSearchResults = useCallback(
+    (queryEmbedding: number[]): SearchResult[] => {
+      // Embeddingなし論文を検索対象外として保持（常時可視化用）
+      const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
+      setPapersExcludedFromSearch(excluded);
+
+      // ローカルの論文とコサイン類似度を計算
+      const searchResults: SearchResult[] = [];
+
+      for (const paper of papers) {
+        // embeddingがない論文はスキップ
+        if (!paper.embedding || paper.embedding.length === 0) {
+          continue;
+        }
+
+        const score = cosineSimilarity(queryEmbedding, paper.embedding);
+        searchResults.push({
+          paper: {
+            id: paper.id,
+            title: paper.title,
+            abstract: paper.abstract,
+            authors: paper.authors,
+            categories: paper.categories,
+            publishedAt: paper.publishedAt,
+            updatedAt: paper.updatedAt,
+            pdfUrl: paper.pdfUrl,
+            arxivUrl: paper.arxivUrl,
+          },
+          score,
+        });
+      }
+
+      // 類似度順にソート（降順）
+      // React Best Practice: スプレッド演算子でイミュータブルにソート（元の配列を変更しない）
+      const sortedResults = [...searchResults].sort((a, b) => b.score - a.score);
+
+      // 閾値でフィルタリング（関連性の低い結果を除外）
+      const filteredResults = sortedResults.filter((r) => r.score >= scoreThreshold);
+
+      // limitを適用して上位N件に絞り込む
+      const limitedResults = filteredResults.slice(0, limit);
+
+      // ヒット総数（limit適用前）を保存し、結果を保存（id + score のみ）
+      setTotalMatchCount(filteredResults.length);
+      setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
+
+      // ストアから最新のpaperを解決して返す
+      return limitedResults.map((r) => ({
+        paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
+        score: r.score,
+      }));
+    },
+    [papers, limit, scoreThreshold]
+  );
+
   const search = useCallback(
     async (query: string): Promise<SearchResult[]> => {
       setIsLoading(true);
       setError(null);
+      // 検索開始時に前回の検索結果をクリア（検索中に「該当する論文がありませんでした」が表示されないようにする）
+      setExpandedQuery(null);
+      setQueryEmbedding(null);
+      setResultEntries([]);
+      setPapersExcludedFromSearch([]);
+      setTotalMatchCount(0);
 
       try {
         // API key を復号化して取得
@@ -163,53 +229,8 @@ export const useSemanticSearch = ({
           return [];
         }
 
-        // Embeddingなし論文を検索対象外として保持（常時可視化用）
-        const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
-        setPapersExcludedFromSearch(excluded);
-
-        // 4. ローカルの論文とコサイン類似度を計算
-        const searchResults: SearchResult[] = [];
-
-        for (const paper of papers) {
-          // embeddingがない論文はスキップ
-          if (!paper.embedding || paper.embedding.length === 0) {
-            continue;
-          }
-
-          const score = cosineSimilarity(embedding, paper.embedding);
-          searchResults.push({
-            paper: {
-              id: paper.id,
-              title: paper.title,
-              abstract: paper.abstract,
-              authors: paper.authors,
-              categories: paper.categories,
-              publishedAt: paper.publishedAt,
-              updatedAt: paper.updatedAt,
-              pdfUrl: paper.pdfUrl,
-              arxivUrl: paper.arxivUrl,
-            },
-            score,
-          });
-        }
-
-        // 5. 類似度順にソート（降順）
-        searchResults.sort((a, b) => b.score - a.score);
-
-        // 6. 閾値でフィルタリング（関連性の低い結果を除外）
-        const filteredResults = searchResults.filter((r) => r.score >= scoreThreshold);
-
-        // 7. limitを適用して上位N件に絞り込む
-        const limitedResults = filteredResults.slice(0, limit);
-
-        // 8. ヒット総数（limit適用前）を保存し、結果を保存（id + score のみ）して返す
-        setTotalMatchCount(filteredResults.length);
-        setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
-        const resolved = limitedResults.map((r) => ({
-          paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
-          score: r.score,
-        }));
-        return resolved;
+        // 4. 共通ロジックで検索結果を計算
+        return computeSearchResults(embedding);
       } catch (e) {
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
@@ -230,7 +251,7 @@ export const useSemanticSearch = ({
         setIsLoading(false);
       }
     },
-    [papers, limit, scoreThreshold]
+    [papers, limit, computeSearchResults]
   );
 
   /**
@@ -244,6 +265,10 @@ export const useSemanticSearch = ({
     ): Promise<SearchResult[]> => {
       setIsLoading(true);
       setError(null);
+      // 検索開始時に前回の検索結果をクリア（検索中に「該当する論文がありませんでした」が表示されないようにする）
+      setResultEntries([]);
+      setPapersExcludedFromSearch([]);
+      setTotalMatchCount(0);
 
       try {
         // 保存済みデータを状態に設定
@@ -259,52 +284,8 @@ export const useSemanticSearch = ({
           return [];
         }
 
-        const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
-        setPapersExcludedFromSearch(excluded);
-
-        // ローカルの論文とコサイン類似度を計算
-        const searchResults: SearchResult[] = [];
-
-        for (const paper of papers) {
-          // embeddingがない論文はスキップ
-          if (!paper.embedding || paper.embedding.length === 0) {
-            continue;
-          }
-
-          const score = cosineSimilarity(savedQueryEmbedding, paper.embedding);
-          searchResults.push({
-            paper: {
-              id: paper.id,
-              title: paper.title,
-              abstract: paper.abstract,
-              authors: paper.authors,
-              categories: paper.categories,
-              publishedAt: paper.publishedAt,
-              updatedAt: paper.updatedAt,
-              pdfUrl: paper.pdfUrl,
-              arxivUrl: paper.arxivUrl,
-            },
-            score,
-          });
-        }
-
-        // 類似度順にソート（降順）
-        searchResults.sort((a, b) => b.score - a.score);
-
-        // 閾値でフィルタリング（関連性の低い結果を除外）
-        const filteredResults = searchResults.filter((r) => r.score >= scoreThreshold);
-
-        // limitを適用して上位N件に絞り込む
-        const limitedResults = filteredResults.slice(0, limit);
-
-        // ヒット総数を保存し、結果を保存（id + score のみ）して返す
-        setTotalMatchCount(filteredResults.length);
-        setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
-        const resolved = limitedResults.map((r) => ({
-          paper: papers.find((p) => p.id === r.paper.id) ?? r.paper,
-          score: r.score,
-        }));
-        return resolved;
+        // 共通ロジックで検索結果を計算
+        return computeSearchResults(savedQueryEmbedding);
       } catch (e) {
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
@@ -315,7 +296,7 @@ export const useSemanticSearch = ({
         setIsLoading(false);
       }
     },
-    [papers, limit, scoreThreshold]
+    [papers, computeSearchResults]
   );
 
   const reset = useCallback(() => {
