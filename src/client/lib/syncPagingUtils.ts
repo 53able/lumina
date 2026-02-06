@@ -58,3 +58,49 @@ export const getNextStartToRequest = (
   if (pos < totalResults) return pos;
   return pos;
 };
+
+/**
+ * 現在のギャップサイズを計算する。
+ * currentStart から次の取得済み範囲までの距離、または totalResults までの距離を返す。
+ *
+ * @param ranges - 取得済み範囲の配列 [start, end)
+ * @param totalResults - 同期期間・カテゴリで絞った総件数
+ * @param currentStart - 現在のリクエスト開始位置
+ * @returns ギャップサイズ（件数）
+ */
+export const getGapSize = (ranges: Range[], totalResults: number, currentStart: number): number => {
+  if (totalResults <= 0) return 0;
+
+  const merged = mergeRanges(ranges);
+  if (merged.length === 0) {
+    // 取得済み範囲がない場合、totalResults までの距離
+    return Math.max(0, totalResults - currentStart);
+  }
+
+  // currentStart を含む範囲または次の範囲を探す
+  for (const [start, end] of merged) {
+    if (currentStart < start) {
+      // ギャップがある場合、次の取得済み範囲の start までの距離
+      return Math.min(start - currentStart, totalResults - currentStart);
+    }
+    if (currentStart >= start && currentStart < end) {
+      // currentStart が取得済み範囲内の場合、次のギャップを探す
+      // この範囲の end から次の範囲の start までの距離
+      const nextRange = merged.find(([s]) => s > end);
+      if (nextRange) {
+        return Math.min(nextRange[0] - end, totalResults - end);
+      }
+      // 次の範囲がない場合、totalResults までの距離
+      return Math.max(0, totalResults - end);
+    }
+  }
+
+  // currentStart が全ての取得済み範囲より後ろにある場合
+  const lastEnd = merged[merged.length - 1][1];
+  if (currentStart >= lastEnd) {
+    return Math.max(0, totalResults - currentStart);
+  }
+
+  // フォールバック: totalResults までの距離
+  return Math.max(0, totalResults - currentStart);
+};
