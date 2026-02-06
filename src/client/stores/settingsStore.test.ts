@@ -175,7 +175,10 @@ describe("settingsStore", () => {
     it("正常系: 有効な同期期間のみ設定できる", async () => {
       const { useSettingsStore } = await import("./settingsStore");
 
-      // Act - 有効な値（SyncPeriod型: "7" | "30" | "90" | "180" | "365"）
+      // Act - 有効な値（SyncPeriod型: "3" | "7" | "30" | "90" | "180" | "365"）
+      useSettingsStore.getState().setSyncPeriodDays("3");
+      expect(useSettingsStore.getState().syncPeriodDays).toBe("3");
+
       useSettingsStore.getState().setSyncPeriodDays("7");
       expect(useSettingsStore.getState().syncPeriodDays).toBe("7");
 
