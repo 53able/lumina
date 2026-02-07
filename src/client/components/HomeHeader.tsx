@@ -24,11 +24,7 @@ interface HomeHeaderProps {
  * - 同期ボタン
  * - 設定ボタン
  */
-export const HomeHeader: FC<HomeHeaderProps> = ({
-  onOpenSettings,
-  isSyncing,
-  onSync,
-}) => {
+export const HomeHeader: FC<HomeHeaderProps> = ({ onOpenSettings, isSyncing, onSync }) => {
   return (
     <header className="sticky top-0 z-50 border-b border-border/40 bg-background/95 backdrop-blur-md supports-backdrop-filter:bg-background/60">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 py-4 gap-4 sm:px-6">

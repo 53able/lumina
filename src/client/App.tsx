@@ -1,4 +1,14 @@
-import { lazy, Suspense, type FC, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  type FC,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Route, Routes, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { Paper, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
@@ -18,8 +28,12 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useSummaryStore } from "./stores/summaryStore";
 
 // 動的インポート（バンドルサイズ最適化）
-const PaperDetail = lazy(() => import("./components/PaperDetail").then((m) => ({ default: m.PaperDetail })));
-const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const PaperDetail = lazy(() =>
+  import("./components/PaperDetail").then((m) => ({ default: m.PaperDetail }))
+);
+const SettingsDialog = lazy(() =>
+  import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog }))
+);
 const PaperPage = lazy(() => import("./pages/PaperPage").then((m) => ({ default: m.PaperPage })));
 
 /**
@@ -161,7 +175,7 @@ const HomePage: FC = () => {
   useSearchFromUrl(urlQuery, search, setSearchInputValue, lastSearchQueryRef);
 
   // useTransitionで検索を非緊急更新として扱う
-  const [isPending, startTransition] = useTransition();
+  const [_isPending, startTransition] = useTransition();
 
   // 検索ハンドラー（useTransitionでラップ）
   const handleSearch = useCallback(
@@ -178,7 +192,7 @@ const HomePage: FC = () => {
       // 検索結果からPaperのみを返す
       return searchResults.map((r) => r.paper);
     },
-    [search, startTransition]
+    [search]
   );
 
   // 論文クリックハンドラー（インライン展開のトグル）
@@ -214,10 +228,10 @@ const HomePage: FC = () => {
   const {
     sync: syncPapers,
     syncMore,
+    syncAll,
+    stopSync,
     runEmbeddingBackfill,
     isSyncing,
-    isEmbeddingBackfilling,
-    embeddingBackfillProgress,
     hasMore: hasMorePapers,
   } = useSyncPapers(
     {
@@ -241,6 +255,12 @@ const HomePage: FC = () => {
       },
     }
   );
+
+  /** 同期停止時に即座にフィードバックを返す（UX: 操作結果を明確に伝える） */
+  const handleStopSync = useCallback(() => {
+    stopSync();
+    toast.success("同期を停止しました");
+  }, [stopSync]);
 
   // 初回自動同期フラグ（一度だけ実行するため）
   const hasAutoSyncedRef = useRef(false);
@@ -336,7 +356,6 @@ const HomePage: FC = () => {
         onSearchInputChange={setSearchInputValue}
         whyReadMap={whyReadMap}
         onRequestSync={hasMorePapers ? syncMore : undefined}
-        isSyncing={isSyncing}
         emptySearchMessage={emptySearchMessage}
         isSearchLoading={isLoading}
         expandedPaperId={isDesktop ? (selectedPaper?.id ?? null) : null}
@@ -371,9 +390,10 @@ const HomePage: FC = () => {
         recentHistories={recentHistories}
         onReSearch={handleReSearch}
         onDeleteHistory={handleDeleteHistory}
-        isEmbeddingBackfilling={isEmbeddingBackfilling}
-        embeddingBackfillProgress={embeddingBackfillProgress}
+        hasMore={hasMorePapers}
+        onSyncAll={syncAll}
         onRunEmbeddingBackfill={runEmbeddingBackfill}
+        onStopSync={handleStopSync}
       />
 
       {/* Footer */}

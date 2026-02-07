@@ -1,17 +1,15 @@
-import { lazy, Suspense, type FC, type ReactNode } from "react";
-import type { ExpandedQuery, Paper, SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
+import { type FC, lazy, memo, type ReactNode, Suspense } from "react";
+import type {
+  ExpandedQuery,
+  Paper,
+  PaperSummary,
+  SearchHistory as SearchHistoryType,
+} from "../../shared/schemas/index";
+import type { GenerateTarget } from "../lib/api";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SyncStatusBar } from "./SyncStatusBar";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "./ui/sheet.js";
-import type { PaperSummary } from "../../shared/schemas/index";
-import type { GenerateTarget } from "../lib/api";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet.js";
 
 // 動的インポート（バンドルサイズ最適化）
 const PaperDetail = lazy(() => import("./PaperDetail").then((m) => ({ default: m.PaperDetail })));
@@ -40,8 +38,6 @@ interface HomeMainProps {
   whyReadMap: Map<string, string>;
   /** 追加同期リクエスト */
   onRequestSync?: () => void;
-  /** 同期中かどうか */
-  isSyncing: boolean;
   /** 空検索メッセージ */
   emptySearchMessage?: ReactNode;
   /** 検索ローディング中かどうか */
@@ -63,7 +59,11 @@ interface HomeMainProps {
   /** 現在のサマリー */
   currentSummary: PaperSummary | undefined;
   /** サマリー生成ハンドラー */
-  onGenerateSummary: (paperId: string, language: "ja" | "en", target?: GenerateTarget) => Promise<void>;
+  onGenerateSummary: (
+    paperId: string,
+    language: "ja" | "en",
+    target?: GenerateTarget
+  ) => Promise<void>;
   /** サマリーローディング中かどうか */
   isSummaryLoading: boolean;
   /** 選択中のサマリー言語 */
@@ -78,12 +78,14 @@ interface HomeMainProps {
   onReSearch: (history: SearchHistoryType) => void;
   /** 履歴削除ハンドラー */
   onDeleteHistory: (id: string) => void;
-  /** Embeddingバックフィル中かどうか */
-  isEmbeddingBackfilling: boolean;
-  /** Embeddingバックフィル進捗 */
-  embeddingBackfillProgress: { completed: number; total: number } | null;
+  /** まだ取得可能な論文があるか */
+  hasMore?: boolean;
+  /** 同期期間の論文をすべて取得する */
+  onSyncAll?: () => void | Promise<void>;
   /** Embeddingバックフィル実行 */
   onRunEmbeddingBackfill: () => void;
+  /** 同期を停止する（取得中のみ有効）。SyncStatusBar の停止ボタンから呼ぶ */
+  onStopSync?: () => void;
 }
 
 /**
@@ -93,8 +95,10 @@ interface HomeMainProps {
  * - サイドバー（検索履歴）
  * - メインコンテンツ（PaperExplorer、詳細パネル）
  * - モバイル用Sheet（論文詳細）
+ *
+ * React Best Practice: memo でラップし、App の不要な再レンダー時にサブツリーの再描画を抑制する（rerender-memo）。
  */
-export const HomeMain: FC<HomeMainProps> = ({
+const HomeMainInner: FC<HomeMainProps> = ({
   isDesktop,
   displayPapers,
   onSearch,
@@ -105,7 +109,6 @@ export const HomeMain: FC<HomeMainProps> = ({
   onSearchInputChange,
   whyReadMap,
   onRequestSync,
-  isSyncing,
   emptySearchMessage,
   isSearchLoading,
   expandedPaperId,
@@ -118,15 +121,16 @@ export const HomeMain: FC<HomeMainProps> = ({
   currentSummary,
   onGenerateSummary,
   isSummaryLoading,
-    summaryLanguage,
-    onSummaryLanguageChange,
-    autoGenerateSummary,
-    recentHistories,
+  summaryLanguage,
+  onSummaryLanguageChange,
+  autoGenerateSummary,
+  recentHistories,
   onReSearch,
   onDeleteHistory,
-  isEmbeddingBackfilling,
-  embeddingBackfillProgress,
+  hasMore,
+  onSyncAll,
   onRunEmbeddingBackfill,
+  onStopSync,
 }) => {
   return (
     <>
@@ -176,7 +180,9 @@ export const HomeMain: FC<HomeMainProps> = ({
             </h3>
           </div>
           <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}>
+            <Suspense
+              fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
+            >
               <SearchHistory
                 histories={recentHistories}
                 onReSearch={onReSearch}
@@ -193,9 +199,10 @@ export const HomeMain: FC<HomeMainProps> = ({
             {/* デスクトップ: 同期ステータスは一覧の上。モバイル: 一覧の下に回すのでここでは出さない */}
             {isDesktop && (
               <SyncStatusBar
-                isEmbeddingBackfilling={isEmbeddingBackfilling}
-                embeddingBackfillProgress={embeddingBackfillProgress}
+                hasMore={hasMore}
+                onSyncAll={onSyncAll}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
+                onStopSync={onStopSync}
               />
             )}
 
@@ -232,7 +239,6 @@ export const HomeMain: FC<HomeMainProps> = ({
               onSearchInputChange={onSearchInputChange}
               whyReadMap={whyReadMap}
               onRequestSync={onRequestSync}
-              isSyncing={isSyncing}
               emptySearchMessage={emptySearchMessage}
               isSearchLoading={isSearchLoading}
               // インライン展開（デスクトップのみ）
@@ -254,9 +260,10 @@ export const HomeMain: FC<HomeMainProps> = ({
             {!isDesktop && (
               <SyncStatusBar
                 compact
-                isEmbeddingBackfilling={isEmbeddingBackfilling}
-                embeddingBackfillProgress={embeddingBackfillProgress}
+                hasMore={hasMore}
+                onSyncAll={onSyncAll}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
+                onStopSync={onStopSync}
               />
             )}
           </div>
@@ -265,3 +272,5 @@ export const HomeMain: FC<HomeMainProps> = ({
     </>
   );
 };
+
+export const HomeMain = memo(HomeMainInner);

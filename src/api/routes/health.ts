@@ -15,8 +15,11 @@ export const HealthResponseSchema = z.object({
  * ヘルスチェック用 Hono アプリ
  */
 export const healthApp = new Hono<{ Bindings: Env }>().get("/health", (c) => {
-  return c.json({
-    status: "ok" as const,
-    timestamp: toISOString(now()),
-  });
+  return c.json(
+    {
+      status: "ok" as const,
+      timestamp: toISOString(now()),
+    },
+    200
+  );
 });

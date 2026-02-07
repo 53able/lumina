@@ -1,8 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Paper, SyncResponse } from "../../shared/schemas/index";
+import { useCallback, useEffect, useRef } from "react";
+import type { Paper, SyncPeriod, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
-import { embeddingApi, embeddingBatchApi, getDecryptedApiKey, syncApi } from "../lib/api";
+import {
+  embeddingApi,
+  embeddingBatchApi,
+  getDecryptedApiKey,
+  SyncRateLimitError,
+  syncApi,
+} from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
 import { getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
 import { usePaperStore } from "../stores/paperStore";
@@ -59,31 +65,8 @@ const normalizeSyncResponse = (response: {
 /** キャッシュの有効期間（5分） */
 const SYNC_STALE_TIME = 5 * 60 * 1000;
 
-/** レートリミット: 100リクエスト/15分 */
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15分
-const RATE_LIMIT_MAX_REQUESTS = 100;
-/** 安全マージンを考慮した1リクエストあたりの待機時間（ミリ秒） */
-const RATE_LIMIT_DELAY_MS = Math.ceil((RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX_REQUESTS) * 1.1); // 約10秒
-
-/** 順次取得: 1リクエストあたりの最大取得件数 */
-const INCREMENTAL_BATCH_SIZE = 50;
 /** syncMore の1リクエストあたりの取得件数（APIデフォルトと一致） */
 const SYNC_MORE_BATCH_SIZE = 50;
-/** 順次取得: 1ラウンドあたりの並列リクエスト数 */
-const INCREMENTAL_PARALLEL_COUNT = 5;
-
-/**
- * 同期期間ごとの「期間内として妥当な母数」の上限。
- * arXiv API は submittedDate 付きクエリでも totalResults を日付無視で返すことがあるため、
- * これを超える場合は表示用母数を 0（未確定）とする。
- */
-const MAX_REASONABLE_TOTAL_BY_PERIOD: Record<string, number> = {
-  "7": 10_000,
-  "30": 30_000,
-  "90": 80_000,
-  "180": 150_000,
-  "365": 300_000,
-};
 
 /**
  * 同期APIの入力パラメータ
@@ -91,8 +74,8 @@ const MAX_REASONABLE_TOTAL_BY_PERIOD: Record<string, number> = {
 interface SyncParams {
   /** 同期対象のカテゴリ */
   categories: string[];
-  /** 同期期間（日数） */
-  period?: "7" | "30" | "90" | "180" | "365";
+  /** 同期期間（日数）。共有スキーマ SyncPeriod に合わせる */
+  period?: SyncPeriod;
 }
 
 /**
@@ -114,7 +97,7 @@ const createSyncQueryKey = (params: SyncParams) =>
  *
  * @param params - 同期パラメータ（categories, period, apiKey）
  * @param options - コールバックオプション
- * @returns { sync, isSyncing, isEmbeddingBackfilling, error } - 同期関数と状態（isSyncing は論文取得中のみ）
+ * @returns sync, syncMore, syncAll, isSyncing, isSyncingAll, syncAllProgress, hasMore, totalResults, error など。syncAll は同期期間内の論文を全件取得する。
  *
  * @example
  * ```tsx
@@ -137,8 +120,6 @@ export const useSyncPapers = (
 ) => {
   const { addPaper, addPapers, papers: storePapers } = usePaperStore();
   const { setLastSyncedAt } = useSettingsStore();
-  const { startIncrementalSync, updateProgress, completeIncrementalSync, errorIncrementalSync } =
-    useSyncStore();
   const queryClient = useQueryClient();
 
   // コールバックをrefで安定化（依存配列での無限ループを防ぐ）
@@ -147,47 +128,39 @@ export const useSyncPapers = (
   onSuccessRef.current = options?.onSuccess;
   onErrorRef.current = options?.onError;
 
-  // ページング状態（取得済み範囲 [start, end) でギャップ補填に対応）
-  const [requestedRanges, setRequestedRanges] = useState<[number, number][]>([]);
-  const [totalResults, setTotalResults] = useState<number | null>(null);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  /** Embedding バックフィル実行中（ボタン「同期中」表示用） */
-  const [isEmbeddingBackfilling, setIsEmbeddingBackfilling] = useState(false);
-  /** Embedding バックフィル進捗（取得中は「N/M件」表示用） */
-  const [embeddingBackfillProgress, setEmbeddingBackfillProgress] = useState<{
-    completed: number;
-    total: number;
-  } | null>(null);
-  // 同期フラグ（レースコンディション防止用）
-  // useState は非同期バッチ更新のため、連続呼び出しを防げない
+  /** 同期状態は syncStore に集約。フックは store を購読して返り値に反映する */
+  const requestedRanges = useSyncStore((s) => s.requestedRanges);
+  const totalResults = useSyncStore((s) => s.totalResults);
+  const isLoadingMore = useSyncStore((s) => s.isLoadingMore);
+  const isSyncingAll = useSyncStore((s) => s.isSyncingAll);
+  const syncAllProgress = useSyncStore((s) => s.syncAllProgress);
+  const isEmbeddingBackfilling = useSyncStore((s) => s.isEmbeddingBackfilling);
+  const embeddingBackfillProgress = useSyncStore((s) => s.embeddingBackfillProgress);
+  const lastSyncError = useSyncStore((s) => s.lastSyncError);
+
+  // 同期フラグ（レースコンディション防止用）。useState は非同期バッチ更新のため連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
-  // レートリミット管理: 最後のリクエスト時刻を記録
-  const lastRequestTimeRef = useRef<number>(0);
   /** effect 内で getState が使えない場合（テスト等）のフォールバック用。常に最新の storePapers を指す */
   const storePapersRef = useRef(storePapers);
   storePapersRef.current = storePapers;
+  /** syncMore 用のレートリミット待機（現状は no-op） */
+  const waitForRateLimitRef = useRef<() => Promise<void>>(async () => {});
 
-  /**
-   * レートリミットを考慮して待機する
-   * 最後のリクエストから一定時間経過するまで待機
-   */
-  const waitForRateLimitRef = useRef(async (): Promise<void> => {
-    const now = timestamp();
-    const timeSinceLastRequest = now - lastRequestTimeRef.current;
+  /** syncAll 停止用。abort すると syncMore のリクエストとループが止まる */
+  const syncAllAbortRef = useRef<AbortController | null>(null);
 
-    if (timeSinceLastRequest < RATE_LIMIT_DELAY_MS) {
-      const waitTime = RATE_LIMIT_DELAY_MS - timeSinceLastRequest;
-      await new Promise((resolve) => setTimeout(resolve, waitTime));
-    }
-
-    lastRequestTimeRef.current = timestamp();
-  });
+  /** ストアの論文配列を取得（effect 内やテストで getState が使えない場合は ref を使用） */
+  const getStorePapers = useCallback((): Paper[] => {
+    return typeof usePaperStore.getState === "function"
+      ? usePaperStore.getState().papers
+      : storePapersRef.current;
+  }, []);
 
   const queryKey = createSyncQueryKey(params);
 
   const { data, isFetching, error, refetch } = useQuery({
     queryKey,
-    queryFn: async (): Promise<SyncResponse> => {
+    queryFn: async ({ signal }): Promise<SyncResponse> => {
       // API key を復号化して取得（早期開始パターン）
       const apiKeyPromise = getDecryptedApiKey();
       const apiKey = await apiKeyPromise;
@@ -197,8 +170,9 @@ export const useSyncPapers = (
           categories: params.categories,
           period: params.period,
           start: 0, // 初回は常に0から
+          maxResults: 200,
         },
-        { apiKey }
+        { apiKey, signal }
       );
       // 日付文字列を Date オブジェクトに正規化
       return normalizeSyncResponse(response);
@@ -224,20 +198,31 @@ export const useSyncPapers = (
     if (newPapers.length > 0) {
       addPapers(newPapers);
     }
-    setRequestedRanges((prev) => mergeRanges([...prev, [0, data.fetchedCount]]));
-    setTotalResults(data.totalResults);
+    const store = useSyncStore.getState();
+    store.setRequestedRanges(mergeRanges([...store.requestedRanges, [0, data.fetchedCount]]));
+    store.setTotalResults(data.totalResults);
     setLastSyncedAt(now()); // 最終同期日時を更新
+    store.setLastSyncError(null); // 成功時にエラー表示をクリア
     onSuccessRef.current?.(data);
 
     // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」ボタンから実行する。
   }, [data, addPapers, setLastSyncedAt]);
 
-  // エラー時の処理
+  // エラー時の処理（query の error を保持し、onError コールバックを呼ぶ）
+  // ユーザーが停止した場合（AbortError）はエラー表示しない
   useEffect(() => {
-    if (error) {
-      onErrorRef.current?.(error instanceof Error ? error : new Error(String(error)));
-    }
+    if (!error) return;
+    const isAbort = error instanceof DOMException && error.name === "AbortError";
+    if (isAbort) return;
+    const err = error instanceof Error ? error : new Error(String(error));
+    useSyncStore.getState().setLastSyncError(err);
+    onErrorRef.current?.(err);
   }, [error]);
+
+  /** isFetching を syncStore に同期（子コンポーネントが store から isSyncing を導出できるようにする） */
+  useEffect(() => {
+    useSyncStore.getState().setIsFetching(isFetching);
+  }, [isFetching]);
 
   // 同期実行関数（最初から取得）
   const sync = useCallback(() => {
@@ -253,263 +238,110 @@ export const useSyncPapers = (
       if (cachedData.papers.length > 0) {
         addPapers(cachedData.papers);
       }
-      setRequestedRanges((prev) => mergeRanges([...prev, [0, cachedData.fetchedCount]]));
-      setTotalResults(cachedData.totalResults);
+      const store = useSyncStore.getState();
+      store.setRequestedRanges(
+        mergeRanges([...store.requestedRanges, [0, cachedData.fetchedCount]])
+      );
+      store.setTotalResults(cachedData.totalResults);
       onSuccessRef.current?.(cachedData);
       return;
     }
 
     // キャッシュが古いか存在しない → APIを叩く
-    setRequestedRanges([]);
-    setTotalResults(null);
-    refetch();
+    useSyncStore.getState().setRequestedRanges([]);
+    useSyncStore.getState().setTotalResults(null);
+    void refetch();
   }, [queryClient, queryKey, addPapers, refetch]);
 
-  // 追加同期実行関数（次のページを取得）
-  const syncMore = useCallback(async () => {
-    // useRef で同期的にチェック（レースコンディション防止）
-    // useState の setIsLoadingMore(true) は React のバッチ更新で遅延するため、
-    // IntersectionObserver の連続発火を防げない
-    if (isLoadingMoreRef.current) {
-      return;
-    }
-
-    // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
-    const nextStartComputed = getNextStartToRequest(
-      requestedRanges,
-      totalResults ?? 0,
-      SYNC_MORE_BATCH_SIZE
-    );
-    const effectiveStart =
-      requestedRanges.length === 0 && storePapers.length > 0
-        ? storePapers.length
-        : nextStartComputed;
-
-    if (totalResults !== null && effectiveStart >= totalResults) {
-      return;
-    }
-
-    // 同期フラグを即座に立てる（レースコンディション防止）
-    isLoadingMoreRef.current = true;
-    setIsLoadingMore(true); // UI更新用
-
-    try {
-      // レートリミットを考慮して待機
-      await waitForRateLimitRef.current();
-
-      // API key を復号化して取得（早期開始パターン）
-      const apiKeyPromise = getDecryptedApiKey();
-      const apiKey = await apiKeyPromise;
-
-      const rawResponse = await syncApi(
-        {
-          categories: params.categories,
-          period: params.period,
-          start: effectiveStart,
-        },
-        { apiKey }
-      );
-      // 日付文字列を Date オブジェクトに正規化
-      const response = normalizeSyncResponse(rawResponse);
-
-      if (response.papers.length > 0) {
-        // DBに既に存在する論文をスキップ
-        const existingPaperIds = new Set(storePapers.map((p) => p.id));
-        const newPapers = response.papers.filter((p) => !existingPaperIds.has(p.id));
-
-        if (newPapers.length > 0) {
-          addPapers(newPapers);
-        }
-        setRequestedRanges((prev) =>
-          mergeRanges([...prev, [effectiveStart, effectiveStart + response.fetchedCount]])
-        );
-        setTotalResults(response.totalResults);
-        setLastSyncedAt(now());
-        onSuccessRef.current?.(response);
-
-        // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」から実行する。
+  // 追加同期実行関数（次のページを取得）。syncAll ループから呼ばれても最新状態を参照するため ref を使用
+  /** @param abortSignal syncAll から呼ぶときに渡すと、停止ボタンでこのリクエストを中止できる */
+  const syncMore = useCallback(
+    async (abortSignal?: AbortSignal) => {
+      // useRef で同期的にチェック（レースコンディション防止）
+      // useState の setIsLoadingMore(true) は React のバッチ更新で遅延するため、
+      // IntersectionObserver の連続発火を防げない
+      if (isLoadingMoreRef.current) {
+        return;
       }
-    } catch (err) {
-      onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      isLoadingMoreRef.current = false;
-      setIsLoadingMore(false);
-    }
-  }, [totalResults, requestedRanges, storePapers, params, addPapers, setLastSyncedAt]);
 
-  /**
-   * 同期期間内の未取得論文を順次取得する（バックグラウンド実行）
-   * レートリミットを考慮しながら、全ての論文を取得するまで繰り返す。
-   * 進捗の total は同期期間・選択カテゴリで絞った件数（API の totalResults）である。
-   *
-   * 契約: 開始オフセットは store 件数（既取得範囲をリクエストしない）。
-   * addPapers に渡すのは API 返却のうち ID が既存でないもののみ（IndexedDB に新規のみ保存）。
-   *
-   * @param onProgress 進捗コールバック（fetched, remaining, total）。total は同期期間・カテゴリで絞った件数
-   * @param onComplete 完了コールバック - オプショナル
-   * @param onError エラーコールバック - オプショナル
-   * @returns 中断用のAbortController
-   */
-  const syncIncremental = useCallback(
-    async (
-      onProgress?: (progress: { fetched: number; remaining: number; total: number }) => void,
-      onComplete?: () => void,
-      onError?: (error: Error) => void
-    ): Promise<AbortController> => {
-      const abortController = new AbortController();
-      const existingPaperIds = new Set(storePapers.map((p) => p.id));
-      const initialStoreCount = storePapers.length;
-      // 取得済み範囲をローカルで管理（ギャップ補填: ギャップがあればその先頭から取得）
-      let localRanges: [number, number][] = [...requestedRanges];
-      let totalRemaining: number | null = totalResults;
+      const syncState = useSyncStore.getState();
+      const currentRanges = syncState.requestedRanges;
+      const currentTotal = syncState.totalResults ?? 0;
+      const currentStorePapers = storePapersRef.current;
 
-      // syncStoreで状態を開始
-      startIncrementalSync(abortController);
+      // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
+      const nextStartComputed = getNextStartToRequest(
+        currentRanges,
+        currentTotal,
+        SYNC_MORE_BATCH_SIZE
+      );
+      const useStoreCountAsStart = currentRanges.length === 0 && currentStorePapers.length > 0;
+      const effectiveStart = useStoreCountAsStart ? currentStorePapers.length : nextStartComputed;
 
-      const fetchNextRound = async (): Promise<void> => {
-        if (abortController.signal.aborted) {
-          completeIncrementalSync();
-          return;
-        }
+      if (currentTotal !== 0 && effectiveStart >= currentTotal) {
+        return;
+      }
 
-        try {
-          // レートリミットを考慮して待機（1ラウンドに1回）
-          await waitForRateLimitRef.current();
+      // 同期フラグを即座に立てる（レースコンディション防止）
+      isLoadingMoreRef.current = true;
+      useSyncStore.getState().setIsLoadingMore(true);
 
-          // API key を復号化して取得（早期開始パターン）
-          const apiKeyPromise = getDecryptedApiKey();
-          const apiKey = await apiKeyPromise;
+      try {
+        // レートリミットを考慮して待機
+        await waitForRateLimitRef.current();
 
-          // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
-          const currentStart =
-            localRanges.length === 0 && initialStoreCount > 0
-              ? initialStoreCount
-              : getNextStartToRequest(
-                  localRanges,
-                  totalRemaining ?? Number.MAX_SAFE_INTEGER,
-                  INCREMENTAL_BATCH_SIZE
-                );
+        // API key を復号化して取得（早期開始パターン）
+        const apiKeyPromise = getDecryptedApiKey();
+        const apiKey = await apiKeyPromise;
 
-          // 50件×5並列: start = currentStart, currentStart+50, ... の5リクエストを同時に発行（period は必ず渡し、母数を同期期間・カテゴリで絞る）
-          const effectivePeriod = params.period ?? "30";
-          const requests = Array.from({ length: INCREMENTAL_PARALLEL_COUNT }, (_, i) => ({
+        const rawResponse = await syncApi(
+          {
             categories: params.categories,
-            period: effectivePeriod,
-            start: currentStart + i * INCREMENTAL_BATCH_SIZE,
-            maxResults: INCREMENTAL_BATCH_SIZE,
-          }));
+            period: params.period,
+            start: effectiveStart,
+            maxResults: 200,
+          },
+          { apiKey, signal: abortSignal }
+        );
+        // 日付文字列を Date オブジェクトに正規化
+        const response = normalizeSyncResponse(rawResponse);
 
-          const rawResponses = await Promise.all(
-            requests.map((req) => syncApi(req, { apiKey, signal: abortController.signal }))
-          );
+        if (response.papers.length > 0) {
+          // DBに既に存在する論文をスキップ（syncAll ループ内では storePapersRef が最新）
+          const existingPaperIds = new Set(storePapersRef.current.map((p) => p.id));
+          const newPapers = response.papers.filter((p) => !existingPaperIds.has(p.id));
 
-          const responses = rawResponses.map(normalizeSyncResponse);
-          const firstTotal = responses[0]?.totalResults ?? 0;
-          totalRemaining = firstTotal;
-
-          // レスポンスを start 順に並べた論文リスト（重複なし・順序保持）
-          const mergedPapers = responses.flatMap((r) => r.papers);
-
-          if (mergedPapers.length === 0) {
-            completeIncrementalSync();
-            onComplete?.();
-            return;
-          }
-
-          const newPapers = mergedPapers.filter((p) => !existingPaperIds.has(p.id));
           if (newPapers.length > 0) {
-            await addPapers(newPapers);
-            for (const paper of newPapers) {
-              existingPaperIds.add(paper.id);
-            }
+            addPapers(newPapers);
           }
-
-          const withoutEmbedding = mergedPapers.filter(
-            (p) => !p.embedding || p.embedding.length === 0
+          const store = useSyncStore.getState();
+          store.setRequestedRanges(
+            mergeRanges([
+              ...store.requestedRanges,
+              [effectiveStart, effectiveStart + response.fetchedCount],
+            ])
           );
-          if (withoutEmbedding.length > 0 && apiKey) {
-            runBackfillEmbeddings(withoutEmbedding, {
-              fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
-              fetchEmbeddingBatch: (texts) =>
-                embeddingBatchApi({ texts }, { apiKey }).then((r) => r.embeddings),
-              addPaper,
-            }).catch(() => {});
-          }
+          store.setTotalResults(response.totalResults);
+          setLastSyncedAt(now());
+          store.setLastSyncError(null); // 成功時にエラー表示をクリア
+          onSuccessRef.current?.(response);
 
-          const roundFetchedCount = responses.reduce((sum, r) => sum + r.fetchedCount, 0);
-          const rangeEnd = currentStart + roundFetchedCount;
-          localRanges = mergeRanges([...localRanges, [currentStart, rangeEnd]]);
-          setRequestedRanges(localRanges);
-          setTotalResults(totalRemaining);
-
-          const fetchedLeadingEdge =
-            localRanges.length > 0 ? Math.max(...localRanges.map(([, end]) => end)) : 0;
-          const remaining = Math.max(0, totalRemaining - fetchedLeadingEdge);
-          const maxReasonable = effectivePeriod
-            ? MAX_REASONABLE_TOTAL_BY_PERIOD[effectivePeriod]
-            : 0;
-          const displayTotal =
-            maxReasonable > 0 && totalRemaining > maxReasonable ? 0 : totalRemaining;
-          const progressData = {
-            fetched: fetchedLeadingEdge,
-            fetchedThisRun: fetchedLeadingEdge - initialStoreCount,
-            remaining,
-            total: displayTotal,
-          };
-          updateProgress(progressData);
-          onProgress?.(progressData);
-
-          const nextStart = getNextStartToRequest(
-            localRanges,
-            totalRemaining,
-            INCREMENTAL_BATCH_SIZE
-          );
-          if (nextStart >= totalRemaining) {
-            setLastSyncedAt(now());
-            completeIncrementalSync();
-            onComplete?.();
-            return;
-          }
-
-          await fetchNextRound();
-        } catch (err) {
-          const isAbort = err instanceof DOMException && err.name === "AbortError";
-          if (isAbort) {
-            return;
-          }
-          const error = err instanceof Error ? err : new Error(String(err));
-          errorIncrementalSync();
-          onError?.(error);
-          onErrorRef.current?.(error);
+          // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」から実行する。
         }
-      };
-
-      fetchNextRound().catch((err) => {
+      } catch (err) {
+        // ユーザーが停止した場合はエラー扱いにしない
         const isAbort = err instanceof DOMException && err.name === "AbortError";
-        if (isAbort) {
-          return;
+        if (!isAbort) {
+          const e = err instanceof Error ? err : new Error(String(err));
+          useSyncStore.getState().setLastSyncError(e);
+          onErrorRef.current?.(e);
         }
-        const error = err instanceof Error ? err : new Error(String(err));
-        errorIncrementalSync();
-        onError?.(error);
-        onErrorRef.current?.(error);
-      });
-
-      return abortController;
+      } finally {
+        isLoadingMoreRef.current = false;
+        useSyncStore.getState().setIsLoadingMore(false);
+      }
     },
-    [
-      storePapers,
-      requestedRanges,
-      totalResults,
-      params,
-      addPaper,
-      addPapers,
-      setLastSyncedAt,
-      startIncrementalSync,
-      updateProgress,
-      completeIncrementalSync,
-      errorIncrementalSync,
-    ]
+    [params, addPapers, setLastSyncedAt]
   );
 
   // まだ論文があるかどうか（ギャップがあればその補填も含む）
@@ -518,27 +350,77 @@ export const useSyncPapers = (
     getNextStartToRequest(requestedRanges, totalResults, SYNC_MORE_BATCH_SIZE) < totalResults;
 
   /**
+   * 同期期間内の論文をすべて取得する（初回 sync のあと hasMore の間 syncMore を繰り返す）
+   * 初回 sync 完了は syncStore.totalResults のセットで判定（refetch の Promise はテスト環境で解決されない場合があるため）
+   * stopSync 呼び出しでループと進行中の syncMore を中止する。
+   */
+  const syncAll = useCallback(async (): Promise<void> => {
+    const ac = new AbortController();
+    syncAllAbortRef.current = ac;
+    useSyncStore.getState().setIsSyncingAll(true);
+    useSyncStore.getState().setSyncAllProgress(null);
+
+    try {
+      sync();
+
+      const deadline = Date.now() + 15_000;
+      while (useSyncStore.getState().totalResults === null && Date.now() < deadline) {
+        if (ac.signal.aborted) break;
+        await new Promise<void>((r) => setTimeout(r, 50));
+      }
+
+      for (;;) {
+        if (ac.signal.aborted) break;
+        const state = useSyncStore.getState();
+        const nextStart = getNextStartToRequest(
+          state.requestedRanges,
+          state.totalResults ?? 0,
+          SYNC_MORE_BATCH_SIZE
+        );
+        const total = state.totalResults ?? 0;
+        if (total !== 0 && nextStart >= total) break;
+        const fetched = getStorePapers().length;
+        useSyncStore.getState().setSyncAllProgress({ fetched, total });
+        await syncMore(ac.signal);
+        await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
+      }
+    } finally {
+      syncAllAbortRef.current = null;
+      useSyncStore.getState().setIsSyncingAll(false);
+      useSyncStore.getState().setSyncAllProgress(null);
+    }
+  }, [sync, syncMore, getStorePapers]);
+
+  /**
+   * 同期を停止する（初回 sync の refetch と syncAll の syncMore ループを中止）
+   */
+  const stopSync = useCallback(() => {
+    syncAllAbortRef.current?.abort();
+    queryClient.cancelQueries({ queryKey });
+  }, [queryClient, queryKey]);
+
+  /**
    * Embedding 未設定の論文を手動で補完する（同期ボタンから切り離した処理）
    * SyncStatusBar の「Embeddingを補完」ボタンから呼ぶ
    */
   const runEmbeddingBackfill = useCallback(async (): Promise<void> => {
-    const papers =
-      typeof usePaperStore.getState === "function"
-        ? usePaperStore.getState().papers
-        : storePapersRef.current;
+    const papers = getStorePapers();
     const withoutEmbedding = papers.filter((p) => !p.embedding || p.embedding.length === 0);
     if (withoutEmbedding.length === 0) return;
 
     // クリック直後に「取得中」を表示する（getDecryptedApiKey の完了を待たない）
-    setIsEmbeddingBackfilling(true);
-    setEmbeddingBackfillProgress({ completed: 0, total: withoutEmbedding.length });
+    useSyncStore.getState().setIsEmbeddingBackfilling(true);
+    useSyncStore.getState().setEmbeddingBackfillProgress({
+      completed: 0,
+      total: withoutEmbedding.length,
+    });
 
     // API key を復号化して取得（早期開始パターン）
     const apiKeyPromise = getDecryptedApiKey();
     const apiKey = await apiKeyPromise;
     if (!apiKey) {
-      setIsEmbeddingBackfilling(false);
-      setEmbeddingBackfillProgress(null);
+      useSyncStore.getState().setIsEmbeddingBackfilling(false);
+      useSyncStore.getState().setEmbeddingBackfillProgress(null);
       return;
     }
 
@@ -549,28 +431,34 @@ export const useSyncPapers = (
           embeddingBatchApi({ texts }, { apiKey }).then((r) => r.embeddings),
         addPaper,
         onProgress: (completed, total) => {
-          setEmbeddingBackfillProgress({ completed, total });
+          useSyncStore.getState().setEmbeddingBackfillProgress({ completed, total });
         },
       });
     } catch {
       // エラーは呼び出し元で toast 等表示する想定。ここでは状態だけ戻す
     } finally {
-      setIsEmbeddingBackfilling(false);
-      setEmbeddingBackfillProgress(null);
+      useSyncStore.getState().setIsEmbeddingBackfilling(false);
+      useSyncStore.getState().setEmbeddingBackfillProgress(null);
     }
-  }, [addPaper]);
+  }, [addPaper, getStorePapers]);
 
   return {
     /** 同期を実行する関数（最初から取得） */
     sync,
     /** 追加同期を実行する関数（次のページを取得） */
     syncMore,
-    /** 同期期間内の未取得論文を順次取得する関数（バックグラウンド実行） */
-    syncIncremental,
+    /** 同期期間内の論文をすべて取得する関数 */
+    syncAll,
+    /** 同期を停止する（refetch と syncAll ループを中止） */
+    stopSync,
     /** Embedding 未設定の論文を手動で補完する関数（SyncStatusBar の「Embeddingを補完」から呼ぶ） */
     runEmbeddingBackfill,
     /** 論文取得中かどうか（初回 sync / syncMore。Embedding バックフィルは含まない） */
     isSyncing: isFetching || isLoadingMore,
+    /** 同期期間の論文をすべて取得中かどうか */
+    isSyncingAll,
+    /** すべて取得の進捗（取得済み / 全件数）。取得中のみセットされる */
+    syncAllProgress,
     /** Embedding バックフィル実行中かどうか（SyncStatusBar 等で表示用） */
     isEmbeddingBackfilling,
     /** Embedding バックフィル進捗（取得中のみ。SyncStatusBar で「N/M件」表示） */
@@ -579,7 +467,9 @@ export const useSyncPapers = (
     hasMore,
     /** 全件数 */
     totalResults,
-    /** エラー */
+    /** エラー（React Query の refetch 由来） */
     error: error instanceof Error ? error : null,
+    /** 429 レート制限エラー時のみセット。SyncStatusBar で「状況＋対処」を表示するために使う */
+    syncRateLimitError: lastSyncError instanceof SyncRateLimitError ? lastSyncError : null,
   };
 };

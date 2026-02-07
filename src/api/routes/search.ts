@@ -38,22 +38,28 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
       // 2. 拡張クエリのEmbedding生成（searchTextを使用）
       const embeddingResult = await createEmbedding(expandedQuery.searchText, config);
 
-      return c.json({
-        results: [], // クライアント側でローカル検索を実行
-        expandedQuery,
-        queryEmbedding: embeddingResult.embedding,
-        took: measureTime(startTime),
-      });
+      return c.json(
+        {
+          results: [], // クライアント側でローカル検索を実行
+          expandedQuery,
+          queryEmbedding: embeddingResult.embedding,
+          took: measureTime(startTime),
+        },
+        200
+      );
     } catch (error) {
       // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）
       if (error instanceof Error && error.message.includes("API key")) {
         const expandedQuery = generateStubExpandedQuery(body.query);
-        return c.json({
-          results: [],
-          expandedQuery,
-          queryEmbedding: [],
-          took: measureTime(startTime),
-        });
+        return c.json(
+          {
+            results: [],
+            expandedQuery,
+            queryEmbedding: [],
+            took: measureTime(startTime),
+          },
+          200
+        );
       }
 
       const message = error instanceof Error ? error.message : "Unknown error";

@@ -61,13 +61,16 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
 
     // abstractがない場合はスタブを返す
     if (!abstract) {
-      return c.json({
-        paperId,
-        summary: generateStubSummary(paperId, language),
-        keyPoints: generateStubKeyPoints(language),
-        language,
-        createdAt: now(),
-      });
+      return c.json(
+        {
+          paperId,
+          summary: generateStubSummary(paperId, language),
+          keyPoints: generateStubKeyPoints(language),
+          language,
+          createdAt: now(),
+        },
+        200
+      );
     }
 
     try {
@@ -87,19 +90,22 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
         ? await generateExplanation(abstract, language, config)
         : undefined;
 
-      return c.json({
-        paperId,
-        // 要約がない場合は空文字列を返す（説明文のみ生成の場合）
-        summary: summaryResult?.summary ?? "",
-        keyPoints: summaryResult?.keyPoints ?? [],
-        ...(explanationResult && {
-          explanation: explanationResult.explanation,
-          targetAudience: explanationResult.targetAudience,
-          whyRead: explanationResult.whyRead,
-        }),
-        language,
-        createdAt: now(),
-      });
+      return c.json(
+        {
+          paperId,
+          // 要約がない場合は空文字列を返す（説明文のみ生成の場合）
+          summary: summaryResult?.summary ?? "",
+          keyPoints: summaryResult?.keyPoints ?? [],
+          ...(explanationResult && {
+            explanation: explanationResult.explanation,
+            targetAudience: explanationResult.targetAudience,
+            whyRead: explanationResult.whyRead,
+          }),
+          language,
+          createdAt: now(),
+        },
+        200
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       return c.json({ error: message }, 500);

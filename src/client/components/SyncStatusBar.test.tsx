@@ -36,23 +36,22 @@ vi.mock("../stores/paperStore", () => ({
 vi.mock("../stores/settingsStore", () => ({
   useSettingsStore: vi.fn(() => ({
     getLastSyncedAt: () => new Date("2026-02-01T15:48:00"),
-    selectedCategories: ["cs.AI"],
-    syncPeriodDays: "30",
   })),
 }));
 
 vi.mock("../stores/syncStore", () => ({
-  useSyncStore: vi.fn(() => ({
-    isIncrementalSyncing: false,
-    progress: null,
-    abortIncrementalSync: vi.fn(),
-  })),
-}));
-
-vi.mock("../hooks/useSyncPapers", () => ({
-  useSyncPapers: vi.fn(() => ({
-    syncIncremental: vi.fn(),
-  })),
+  useSyncStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) => {
+    const state = {
+      isFetching: false,
+      isLoadingMore: false,
+      isSyncingAll: false,
+      syncAllProgress: null,
+      isEmbeddingBackfilling: false,
+      embeddingBackfillProgress: null,
+      lastSyncError: null,
+    };
+    return selector ? selector(state) : state;
+  }),
 }));
 
 describe("SyncStatusBar", () => {
@@ -66,14 +65,7 @@ describe("SyncStatusBar", () => {
       const { SyncStatusBar } = await import("./SyncStatusBar");
       const onRunEmbeddingBackfill = vi.fn();
 
-      render(
-        <SyncStatusBar
-          compact
-          isEmbeddingBackfilling={false}
-          embeddingBackfillProgress={null}
-          onRunEmbeddingBackfill={onRunEmbeddingBackfill}
-        />
-      );
+      render(<SyncStatusBar compact onRunEmbeddingBackfill={onRunEmbeddingBackfill} />);
 
       const button = screen.getByRole("button", {
         name: /Embedding未設定の論文を補完|Embeddingを補完/i,
@@ -86,14 +78,7 @@ describe("SyncStatusBar", () => {
       const user = userEvent.setup();
       const onRunEmbeddingBackfill = vi.fn();
 
-      render(
-        <SyncStatusBar
-          compact
-          isEmbeddingBackfilling={false}
-          embeddingBackfillProgress={null}
-          onRunEmbeddingBackfill={onRunEmbeddingBackfill}
-        />
-      );
+      render(<SyncStatusBar compact onRunEmbeddingBackfill={onRunEmbeddingBackfill} />);
 
       const button = screen.getByRole("button", {
         name: /Embedding未設定の論文を補完|Embeddingを補完/i,

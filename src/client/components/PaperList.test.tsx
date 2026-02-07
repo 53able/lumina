@@ -17,6 +17,13 @@ vi.mock("@/client/contexts/InteractionContext", () => ({
   }),
 }));
 
+/** PaperList は isSyncing を syncStore から取得。テストで同期中を再現するためにモック状態を差し替える */
+let mockSyncStoreState = { isFetching: false, isLoadingMore: false };
+vi.mock("../stores/syncStore", () => ({
+  useSyncStore: (selector: (s: { isFetching: boolean; isLoadingMore: boolean }) => unknown) =>
+    selector(mockSyncStoreState),
+}));
+
 /**
  * MemoryRouterでラップしたレンダリングヘルパー
  */
@@ -49,6 +56,7 @@ const createSamplePaper = (id: string, title: string): Paper => ({
 
 describe("PaperList", () => {
   afterEach(() => {
+    mockSyncStoreState = { isFetching: false, isLoadingMore: false };
     cleanup();
     vi.clearAllMocks();
   });
@@ -75,6 +83,16 @@ describe("PaperList", () => {
       renderWithRouter(<PaperList papers={[]} />);
 
       expect(screen.getByText(/論文が見つかりません/i)).toBeInTheDocument();
+    });
+
+    it("正常系: 同期中で空の場合は「取得しています」が表示され検索向けメッセージは出ない", async () => {
+      const { PaperList } = await import("./PaperList");
+      mockSyncStoreState = { isFetching: true, isLoadingMore: false };
+
+      renderWithRouter(<PaperList papers={[]} />);
+
+      expect(screen.getByText(/論文を取得しています/)).toBeInTheDocument();
+      expect(screen.queryByText(/検索条件を変更/)).not.toBeInTheDocument();
     });
 
     it("正常系: ローディング中はスケルトンが表示される", async () => {
@@ -169,14 +187,13 @@ describe("PaperList", () => {
 
     it("正常系: isSyncingがtrueの場合はonRequestSyncが呼ばれない", async () => {
       const { PaperList } = await import("./PaperList");
+      mockSyncStoreState = { isFetching: true, isLoadingMore: false };
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
       );
       const onRequestSync = vi.fn();
 
-      renderWithRouter(
-        <PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={true} />
-      );
+      renderWithRouter(<PaperList papers={papers} onRequestSync={onRequestSync} />);
 
       // 仮想スクロールコンテナを取得
       const scrollContainer = document.querySelector(".overflow-auto");
@@ -198,10 +215,9 @@ describe("PaperList", () => {
       );
       const onRequestSync = vi.fn();
 
-      // 初回レンダリング（isSyncing: false）
-      renderWithRouter(
-        <PaperList papers={papers} onRequestSync={onRequestSync} isSyncing={false} />
-      );
+      // 初回レンダリング（syncStore はデフォルトで isSyncing: false）
+      mockSyncStoreState = { isFetching: false, isLoadingMore: false };
+      renderWithRouter(<PaperList papers={papers} onRequestSync={onRequestSync} />);
 
       // microtask を処理
       await act(async () => {

@@ -17,11 +17,14 @@ export const embeddingApp = new Hono<{ Bindings: Env }>()
       const config = getOpenAIConfig(c);
       const result = await createEmbedding(body.text, config);
 
-      return c.json({
-        embedding: result.embedding,
-        model: "text-embedding-3-small",
-        took: measureTime(startTime),
-      });
+      return c.json(
+        {
+          embedding: result.embedding,
+          model: "text-embedding-3-small",
+          took: measureTime(startTime),
+        },
+        200
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       return c.json({ error: message }, 500);
@@ -35,11 +38,14 @@ export const embeddingApp = new Hono<{ Bindings: Env }>()
       const config = getOpenAIConfig(c);
       const result = await createEmbeddingsBatch(body.texts, config);
 
-      return c.json({
-        embeddings: result.embeddings,
-        model: "text-embedding-3-small",
-        took: measureTime(startTime),
-      });
+      return c.json(
+        {
+          embeddings: result.embeddings,
+          model: "text-embedding-3-small",
+          took: measureTime(startTime),
+        },
+        200
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       return c.json({ error: message }, 500);

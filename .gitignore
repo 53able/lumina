@@ -34,3 +34,4 @@ src/**/*.js
 .cursor/**/*
 
 tmp/
+unsaved/

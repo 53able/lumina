@@ -9,7 +9,7 @@
 import { hc } from "hono/client";
 import type { AppType } from "@/api/app";
 import { useSettingsStore } from "@/client/stores/settingsStore";
-import type { SearchRequest } from "@/shared/schemas/index";
+import type { SearchRequest, SyncPeriod } from "@/shared/schemas/index";
 
 /**
  * APIクライアントのベースURL
@@ -164,6 +164,11 @@ let rateLimitResetAtMs: number | null = null;
 /** 直近で embedding リクエストを送った時刻（ms）。未送信時は null。初回は待機スキップ用。 */
 let lastEmbeddingSentAtMs: number | null = null;
 
+/** RateLimit-Reset: この値未満は「残り秒数」、以上は絶対時刻（Unix秒） */
+const RATE_LIMIT_RESET_THRESHOLD_SEC = 1e9;
+/** RateLimit-Reset: この値以上なら値がすでにミリ秒として渡っている */
+const RATE_LIMIT_RESET_ALREADY_MS = 1e10;
+
 /**
  * レスポンスヘッダーから RateLimit-* をパースし共有状態を更新する。
  * sync / embedding は同一レートリミットバケットのため、どちらのレスポンスでも更新する。
@@ -179,9 +184,9 @@ const updateRateLimitFromResponse = (res: Response): void => {
   if (resetRaw !== null) {
     const resetSec = parseInt(resetRaw, 10);
     if (!Number.isNaN(resetSec)) {
-      // 絶対時刻(Unix秒)なら 1e9 以上。それ未満は「残り秒数」として now + 秒 に解釈する
-      const asAbsoluteMs = resetSec < 1e10 ? resetSec * 1000 : resetSec;
-      rateLimitResetAtMs = resetSec < 1e9 ? Date.now() + resetSec * 1000 : asAbsoluteMs;
+      const isRelativeSec = resetSec < RATE_LIMIT_RESET_THRESHOLD_SEC;
+      const asAbsoluteMs = resetSec < RATE_LIMIT_RESET_ALREADY_MS ? resetSec * 1000 : resetSec;
+      rateLimitResetAtMs = isRelativeSec ? Date.now() + resetSec * 1000 : asAbsoluteMs;
     }
   }
 };
@@ -245,6 +250,25 @@ export class EmbeddingRateLimitError extends Error {
 }
 
 /**
+ * 同期API（/api/v1/sync）が 429（Too Many Requests）を返したときに投げるエラー。
+ * リトライ上限に達した場合に throw され、UI で「状況」と「どうするか」を表示するために用いる。
+ */
+export class SyncRateLimitError extends Error {
+  readonly status = 429;
+  /** Retry-After ヘッダの値（秒）。未設定の場合は undefined */
+  readonly retryAfterSec: number | undefined;
+
+  constructor(
+    message = "リクエストが集中しています。しばらく待ってから再度お試しください。",
+    retryAfterSec?: number
+  ) {
+    super(message);
+    this.name = "SyncRateLimitError";
+    this.retryAfterSec = retryAfterSec;
+  }
+}
+
+/**
  * Embedding API
  *
  * テキストから Embedding ベクトルを生成する。
@@ -266,7 +290,8 @@ export const embeddingApi = async (
   const res = await client.api.v1.embedding.$post({ json: request }, opts);
   updateRateLimitFromResponse(res);
 
-  if (!res.ok && res.status === 429) {
+  // レートリミット middleware が 429 を返す場合がある（RPC 型には含まれないため status を number で比較）
+  if (!res.ok && (res.status as number) === 429) {
     throw new EmbeddingRateLimitError();
   }
 
@@ -305,7 +330,8 @@ export const embeddingBatchApi = async (
   const res = await client.api.v1.embedding.batch.$post({ json: request }, opts);
   updateRateLimitFromResponse(res);
 
-  if (!res.ok && res.status === 429) {
+  // レートリミット middleware が 429 を返す場合がある（RPC 型には含まれないため status を number で比較）
+  if (!res.ok && (res.status as number) === 429) {
     throw new EmbeddingRateLimitError();
   }
 
@@ -327,7 +353,7 @@ export const embeddingBatchApi = async (
  */
 type SyncApiInput = {
   categories: string[];
-  period?: "7" | "30" | "90" | "180" | "365";
+  period?: SyncPeriod;
   maxResults?: number;
   /** 開始位置（ページング用） */
   start?: number;
@@ -337,6 +363,21 @@ type SyncApiInput = {
 const SYNC_RATE_LIMIT_MAX_RETRIES = 3;
 /** sync 429 リトライ: Retry-After が無い／無効なときの最小待機（ms） */
 const EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS = 2_000;
+
+/** 429 時のユーザー向けメッセージを組み立てる（Retry-After があれば秒数を含める） */
+const formatSyncRateLimitMessage = (retryAfterSec: number | undefined): string =>
+  typeof retryAfterSec === "number" && Number.isFinite(retryAfterSec) && retryAfterSec > 0
+    ? `リクエストが集中しています。${retryAfterSec}秒ほど待ってから再度お試しください。`
+    : "リクエストが集中しています。しばらく待ってから再度お試しください。";
+
+/** 429/503 リトライ前に待機する ms。Retry-After が無効な場合は最小バックオフを使用 */
+const computeSyncRetryDelayMs = (retryAfterHeader: string | null): number => {
+  const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN;
+  if (Number.isNaN(retryAfterSec) || retryAfterSec <= 0) {
+    return EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS;
+  }
+  return Math.max(1000, retryAfterSec * 1000);
+};
 
 /**
  * 同期API
@@ -354,7 +395,7 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
   const body = {
     categories: request.categories,
     period: request.period ?? "30",
-    maxResults: request.maxResults ?? 50,
+    maxResults: request.maxResults,
     start: request.start ?? 0,
   };
 
@@ -362,16 +403,16 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
   updateRateLimitFromResponse(lastRes);
   let retryCount = 0;
 
-  while (!lastRes.ok && lastRes.status === 429 && retryCount < SYNC_RATE_LIMIT_MAX_RETRIES) {
+  const isRetryableStatus = (s: number) => s === 429 || s === 503;
+  while (
+    !lastRes.ok &&
+    isRetryableStatus(lastRes.status) &&
+    retryCount < SYNC_RATE_LIMIT_MAX_RETRIES
+  ) {
     if (opts.signal?.aborted) {
       throw new DOMException("Sync aborted", "AbortError");
     }
-    const retryAfterSecRaw = lastRes.headers.get("retry-after");
-    const retryAfterSec = retryAfterSecRaw ? parseInt(retryAfterSecRaw, 10) : NaN;
-    const delayMs =
-      Number.isNaN(retryAfterSec) || retryAfterSec <= 0
-        ? EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS
-        : Math.max(1000, retryAfterSec * 1000);
+    const delayMs = computeSyncRetryDelayMs(lastRes.headers.get("retry-after"));
     await new Promise((resolve) => setTimeout(resolve, delayMs));
     retryCount += 1;
     lastRes = await client.api.v1.sync.$post({ json: body }, opts);
@@ -379,7 +420,22 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
   }
 
   if (!lastRes.ok) {
-    throw new Error(`Sync failed: ${lastRes.status}`);
+    const bodyText = await lastRes.text().catch(() => "");
+    let detail = "";
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: string };
+      detail = parsed?.error ?? bodyText.slice(0, 200);
+    } catch {
+      detail = bodyText.slice(0, 200);
+    }
+    if (lastRes.status === 429) {
+      const retryAfterRaw = lastRes.headers.get("retry-after");
+      const retryAfterSec = retryAfterRaw ? parseInt(retryAfterRaw, 10) : undefined;
+      throw new SyncRateLimitError(formatSyncRateLimitMessage(retryAfterSec), retryAfterSec);
+    }
+    throw new Error(
+      detail ? `Sync failed: ${lastRes.status}: ${detail}` : `Sync failed: ${lastRes.status}`
+    );
   }
 
   return lastRes.json();

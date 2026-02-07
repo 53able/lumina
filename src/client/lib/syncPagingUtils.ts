@@ -55,6 +55,37 @@ export const getNextStartToRequest = (
     if (pos < start) return pos;
     pos = end;
   }
-  if (pos < totalResults) return pos;
   return pos;
+};
+
+/**
+ * 現在のギャップサイズを計算する。
+ * currentStart から次の取得済み範囲までの距離、または totalResults までの距離を返す。
+ *
+ * @param ranges - 取得済み範囲の配列 [start, end)
+ * @param totalResults - 同期期間・カテゴリで絞った総件数
+ * @param currentStart - 現在のリクエスト開始位置
+ * @returns ギャップサイズ（件数）
+ */
+export const getGapSize = (ranges: Range[], totalResults: number, currentStart: number): number => {
+  if (totalResults <= 0) return 0;
+
+  const merged = mergeRanges(ranges);
+  if (merged.length === 0) return Math.max(0, totalResults - currentStart);
+
+  const lastEnd = merged[merged.length - 1][1];
+  if (currentStart >= lastEnd) return Math.max(0, totalResults - currentStart);
+
+  for (const [start, end] of merged) {
+    if (currentStart < start) {
+      return Math.min(start - currentStart, totalResults - currentStart);
+    }
+    if (currentStart < end) {
+      const nextRange = merged.find(([s]) => s > end);
+      const gapEnd = nextRange ? nextRange[0] : totalResults;
+      return Math.min(gapEnd - end, totalResults - end);
+    }
+  }
+
+  return Math.max(0, totalResults - currentStart);
 };

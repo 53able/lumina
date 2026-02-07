@@ -2,110 +2,88 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 
 /**
- * 同期進捗情報
- */
-export interface SyncProgress {
-  /** 取得済み論文数（累積オフセット。プログレスバー用） */
-  fetched: number;
-  /** 今回の順次取得で取得した論文数（開始時点からの増分） */
-  fetchedThisRun: number;
-  /** 残り論文数 */
-  remaining: number;
-  /** 同期期間・選択カテゴリ内の総件数（arXiv の該当クエリの totalResults） */
-  total: number;
-}
-
-/**
  * syncStore の状態型
  *
- * @remarks
- * 同期の実行状態を管理するストア。
- * AbortControllerはシリアライズできないため、persistしない。
+ * 同期の UI/プロセス状態のみを保持する（永続化しない）。
+ * useSyncPapers が更新し、SyncStatusBar / PaperList / PaperExplorer が購読する。
  */
 interface SyncState {
-  /** 順次取得が実行中かどうか */
-  isIncrementalSyncing: boolean;
-  /** 同期進捗情報 */
-  progress: SyncProgress | null;
-  /** 中断用のAbortController（シリアライズ不可のためpersistしない） */
-  abortController: AbortController | null;
+  /** 取得済み範囲 [start, end) の配列（ギャップ補填用） */
+  requestedRanges: [number, number][];
+  /** 同期 API の totalResults */
+  totalResults: number | null;
+  /** 追加取得（syncMore）中か */
+  isLoadingMore: boolean;
+  /** 初回 sync / refetch 中（React Query の isFetching を同期） */
+  isFetching: boolean;
+  /** 同期期間の論文をすべて取得中か */
+  isSyncingAll: boolean;
+  /** 全件取得の進捗（取得済み / 全件数） */
+  syncAllProgress: { fetched: number; total: number } | null;
+  /** Embedding バックフィル実行中か */
+  isEmbeddingBackfilling: boolean;
+  /** Embedding バックフィル進捗 */
+  embeddingBackfillProgress: { completed: number; total: number } | null;
+  /** 直近の同期エラー（429 時は SyncRateLimitError） */
+  lastSyncError: Error | null;
 }
 
 /**
  * syncStore のアクション型
  */
 interface SyncActions {
-  /** 順次取得を開始する */
-  startIncrementalSync: (abortController: AbortController) => void;
-  /** 順次取得の進捗を更新する */
-  updateProgress: (progress: SyncProgress) => void;
-  /** 順次取得を完了する */
-  completeIncrementalSync: () => void;
-  /** 順次取得を中断する */
-  abortIncrementalSync: () => void;
-  /** 順次取得でエラーが発生した */
-  errorIncrementalSync: () => void;
+  setRequestedRanges: (ranges: [number, number][]) => void;
+  setTotalResults: (total: number | null) => void;
+  setIsLoadingMore: (value: boolean) => void;
+  setIsFetching: (value: boolean) => void;
+  setIsSyncingAll: (value: boolean) => void;
+  setSyncAllProgress: (progress: { fetched: number; total: number } | null) => void;
+  setIsEmbeddingBackfilling: (value: boolean) => void;
+  setEmbeddingBackfillProgress: (
+    progress: {
+      completed: number;
+      total: number;
+    } | null
+  ) => void;
+  setLastSyncError: (error: Error | null) => void;
+  /** すべての同期状態を初期値に戻す */
+  reset: () => void;
 }
 
 type SyncStore = SyncState & SyncActions;
 
+const initialState: SyncState = {
+  requestedRanges: [],
+  totalResults: null,
+  isLoadingMore: false,
+  isFetching: false,
+  isSyncingAll: false,
+  syncAllProgress: null,
+  isEmbeddingBackfilling: false,
+  embeddingBackfillProgress: null,
+  lastSyncError: null,
+};
+
 /**
- * syncStore - 同期実行状態の管理
+ * syncStore - 同期の UI/プロセス状態
  *
- * @remarks
- * 同期の実行状態をグローバルに管理するストア。
- * コンポーネントのライフサイクルに依存せず、状態を維持する。
- * AbortControllerはシリアライズできないため、persistしない。
+ * Zustand + devtools。永続化しない。
  */
 export const useSyncStore = create<SyncStore>()(
   devtools(
-    (set, get) => ({
-      // State（デフォルト値）
-      isIncrementalSyncing: false,
-      progress: null,
-      abortController: null,
+    (set) => ({
+      ...initialState,
 
-      // Actions
-
-      startIncrementalSync: (abortController) => {
-        set({
-          isIncrementalSyncing: true,
-          progress: { fetched: 0, fetchedThisRun: 0, remaining: 0, total: 0 },
-          abortController,
-        });
-      },
-
-      updateProgress: (progress) => {
-        set({ progress });
-      },
-
-      completeIncrementalSync: () => {
-        set({
-          isIncrementalSyncing: false,
-          progress: null,
-          abortController: null,
-        });
-      },
-
-      abortIncrementalSync: () => {
-        const { abortController } = get();
-        if (abortController) {
-          abortController.abort();
-        }
-        set({
-          isIncrementalSyncing: false,
-          progress: null,
-          abortController: null,
-        });
-      },
-
-      errorIncrementalSync: () => {
-        set({
-          isIncrementalSyncing: false,
-          progress: null,
-          abortController: null,
-        });
-      },
+      setRequestedRanges: (ranges) => set({ requestedRanges: ranges }),
+      setTotalResults: (total) => set({ totalResults: total }),
+      setIsLoadingMore: (value) => set({ isLoadingMore: value }),
+      setIsFetching: (value) => set({ isFetching: value }),
+      setIsSyncingAll: (value) => set({ isSyncingAll: value }),
+      setSyncAllProgress: (progress) => set({ syncAllProgress: progress }),
+      setIsEmbeddingBackfilling: (value) => set({ isEmbeddingBackfilling: value }),
+      setEmbeddingBackfillProgress: (progress) => set({ embeddingBackfillProgress: progress }),
+      setLastSyncError: (error) => set({ lastSyncError: error }),
+      reset: () => set(initialState),
     }),
     { name: "sync-store" }
   )

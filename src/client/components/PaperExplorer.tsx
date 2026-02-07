@@ -35,8 +35,6 @@ interface PaperExplorerProps {
   whyReadMap?: Map<string, string>;
   /** 追加同期リクエスト時のコールバック */
   onRequestSync?: () => void;
-  /** 同期中フラグ */
-  isSyncing?: boolean;
   /** 現在展開中の論文ID */
   expandedPaperId?: string | null;
   /** 展開中の論文の詳細コンテンツをレンダリング */
@@ -65,7 +63,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   onSearchInputChange,
   whyReadMap = new Map(),
   onRequestSync,
-  isSyncing = false,
   expandedPaperId = null,
   renderExpandedDetail,
   emptySearchMessage,
@@ -96,6 +93,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const [isLoading, setIsLoading] = useState(false);
 
   // 検索結果の表示元: 検索履歴クリックなど「外部からクエリが指定された」場合は親の initialPapers を使用
+  // React Best Practice: 表示用は render 内で派生。effect で searchResultPapers をクリアしない（rerender-derived-state-no-effect）
   const isExternalSearch = externalQuery !== null && searchQuery === externalQuery;
   const displayPapers = hasSearched
     ? isExternalSearch
@@ -104,11 +102,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     : storePapers.length > 0
       ? storePapers
       : initialPapers;
-
-  // 検索していないときは searchResultPapers を空にしておく（再検索時に 2461 件フラッシュ→0 件になる不具合を防ぐ）
-  useEffect(() => {
-    if (!hasSearched) setSearchResultPapers([]);
-  }, [hasSearched]);
 
   // ストックしてある論文（表示元）から利用可能なカテゴリを抽出
   const availableCategories = useMemo(() => {
@@ -244,11 +237,11 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
               >
                 <SlidersHorizontal className="h-4 w-4" />
                 フィルター
-                {activeFilterCount > 0 && (
+                {activeFilterCount > 0 ? (
                   <span className="ml-0.5 rounded-full bg-primary/20 px-1.5 py-0 text-xs font-medium text-primary">
                     {activeFilterCount}
                   </span>
-                )}
+                ) : null}
               </Button>
             </div>
           ) : (
@@ -320,7 +313,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
               </fieldset>
 
               {/* カテゴリ（2つ以上ある場合） */}
-              {availableCategories.length > 1 && (
+              {availableCategories.length > 1 ? (
                 <>
                   <div className="h-4 w-px bg-border/50" aria-hidden />
                   <CategoryFilter
@@ -331,7 +324,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     hideLabel
                   />
                 </>
-              )}
+              ) : null}
             </div>
           ))}
 
@@ -381,7 +374,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 </div>
 
                 {/* カテゴリ */}
-                {availableCategories.length > 1 && (
+                {availableCategories.length > 1 ? (
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">カテゴリ</p>
                     <CategoryFilter
@@ -392,10 +385,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                       hideLabel
                     />
                   </div>
-                )}
+                ) : null}
 
                 {/* クリア */}
-                {activeFilterCount > 0 && (
+                {activeFilterCount > 0 ? (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -408,7 +401,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     <X className="mr-2 h-4 w-4" />
                     絞り込みをクリア
                   </Button>
-                )}
+                ) : null}
               </div>
             </SheetContent>
           </Sheet>
@@ -434,7 +427,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
             ? undefined
             : onRequestSync
         }
-        isSyncing={isSyncing}
         // インライン展開
         expandedPaperId={expandedPaperId}
         renderExpandedDetail={renderExpandedDetail}

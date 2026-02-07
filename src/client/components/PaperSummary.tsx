@@ -171,7 +171,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             <div className="space-y-4">
               <p className="text-sm leading-relaxed">{summary.summary}</p>
 
-              {summary.keyPoints.length > 0 && (
+              {summary.keyPoints.length > 0 ? (
                 <div>
                   <h4 className="text-xs text-muted-foreground mb-2">キーポイント</h4>
                   <ul className="space-y-1">
@@ -183,7 +183,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                     ))}
                   </ul>
                 </div>
-              )}
+              ) : null}
 
               {/* 説明文がない場合、説明文のみ生成を促す */}
               {!hasExplanation && (
