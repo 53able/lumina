@@ -1,11 +1,11 @@
-import { type FC, lazy, type ReactNode, Suspense } from "react";
+import { type FC, lazy, memo, type ReactNode, Suspense } from "react";
 import type {
   ExpandedQuery,
   Paper,
   PaperSummary,
   SearchHistory as SearchHistoryType,
 } from "../../shared/schemas/index";
-import type { GenerateTarget } from "../lib/api";
+import type { GenerateTarget, SyncRateLimitError } from "../lib/api";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SyncStatusBar } from "./SyncStatusBar";
@@ -94,6 +94,8 @@ interface HomeMainProps {
   embeddingBackfillProgress: { completed: number; total: number } | null;
   /** Embeddingバックフィル実行 */
   onRunEmbeddingBackfill: () => void;
+  /** 同期APIが429を返したときのエラー。設定時は SyncStatusBar 内に表示 */
+  syncRateLimitError?: SyncRateLimitError | null;
 }
 
 /**
@@ -103,8 +105,10 @@ interface HomeMainProps {
  * - サイドバー（検索履歴）
  * - メインコンテンツ（PaperExplorer、詳細パネル）
  * - モバイル用Sheet（論文詳細）
+ *
+ * React Best Practice: memo でラップし、App の不要な再レンダー時にサブツリーの再描画を抑制する（rerender-memo）。
  */
-export const HomeMain: FC<HomeMainProps> = ({
+const HomeMainInner: FC<HomeMainProps> = ({
   isDesktop,
   displayPapers,
   onSearch,
@@ -141,6 +145,7 @@ export const HomeMain: FC<HomeMainProps> = ({
   isEmbeddingBackfilling,
   embeddingBackfillProgress,
   onRunEmbeddingBackfill,
+  syncRateLimitError = null,
 }) => {
   return (
     <>
@@ -216,6 +221,7 @@ export const HomeMain: FC<HomeMainProps> = ({
                 isEmbeddingBackfilling={isEmbeddingBackfilling}
                 embeddingBackfillProgress={embeddingBackfillProgress}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
+                syncRateLimitError={syncRateLimitError}
               />
             )}
 
@@ -281,6 +287,7 @@ export const HomeMain: FC<HomeMainProps> = ({
                 isEmbeddingBackfilling={isEmbeddingBackfilling}
                 embeddingBackfillProgress={embeddingBackfillProgress}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
+                syncRateLimitError={syncRateLimitError}
               />
             )}
           </div>
@@ -289,3 +296,5 @@ export const HomeMain: FC<HomeMainProps> = ({
     </>
   );
 };
+
+export const HomeMain = memo(HomeMainInner);

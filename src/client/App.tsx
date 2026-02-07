@@ -236,6 +236,7 @@ const HomePage: FC = () => {
     isEmbeddingBackfilling,
     embeddingBackfillProgress,
     hasMore: hasMorePapers,
+    syncRateLimitError,
   } = useSyncPapers(
     {
       categories: selectedCategories,
@@ -395,6 +396,7 @@ const HomePage: FC = () => {
         isEmbeddingBackfilling={isEmbeddingBackfilling}
         embeddingBackfillProgress={embeddingBackfillProgress}
         onRunEmbeddingBackfill={runEmbeddingBackfill}
+        syncRateLimitError={syncRateLimitError}
       />
 
       {/* Footer */}

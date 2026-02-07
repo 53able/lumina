@@ -1,5 +1,6 @@
 import { Calendar, FileText, SearchX } from "lucide-react";
 import type { FC } from "react";
+import type { SyncRateLimitError } from "../lib/api";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { Button } from "./ui/button";
@@ -24,6 +25,8 @@ interface SyncStatusBarProps {
   embeddingBackfillProgress?: { completed: number; total: number } | null;
   /** Embedding 未設定の論文を手動で補完する（「Embeddingを補完」ボタンから呼ぶ） */
   onRunEmbeddingBackfill?: () => void | Promise<void>;
+  /** 同期APIが429を返したときのエラー。設定時は「状況＋対処」をバー内に表示する */
+  syncRateLimitError?: SyncRateLimitError | null;
 }
 
 /**
@@ -43,6 +46,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   isEmbeddingBackfilling = false,
   embeddingBackfillProgress = null,
   onRunEmbeddingBackfill,
+  syncRateLimitError = null,
 }) => {
   const { getLastSyncedAt } = useSettingsStore();
   const lastSyncedAt = getLastSyncedAt();
@@ -60,6 +64,37 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           : "mb-6 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 backdrop-blur-sm"
       }
     >
+      {/* 429 レート制限: 何が起きたか・どうするかを明示（ペルソナ5流: メインカラーで主張、視線を誘導） */}
+      {syncRateLimitError ? (
+        <div
+          className={
+            compact
+              ? "mb-2 rounded-lg border-2 border-primary/60 bg-primary/10 px-3 py-2"
+              : "mb-3 rounded-xl border-2 border-primary/70 bg-primary/15 px-4 py-3"
+          }
+          role="alert"
+          aria-live="assertive"
+        >
+          <p
+            className={
+              compact
+                ? "text-xs font-bold text-primary opacity-[1]"
+                : "text-sm font-bold text-primary opacity-[1]"
+            }
+          >
+            {syncRateLimitError.message}
+          </p>
+          <p
+            className={
+              compact
+                ? "mt-1 text-[10px] text-muted-foreground opacity-[0.85]"
+                : "mt-1.5 text-xs text-muted-foreground opacity-[0.85]"
+            }
+          >
+            再度「同期」または「同期期間の論文をすべて取得」を押すと再試行できます。
+          </p>
+        </div>
+      ) : null}
       <div
         className={
           compact
@@ -108,12 +143,12 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             </span>
           </div>
 
-          {/* 取得済み論文数 ＋ 同期期間の残りをすべて取得（対象: 論文コレクション／取得可能残り） */}
+          {/* 取得済み論文数 ＋ 同期期間の残りをすべて取得（対象: 論文コレクション／取得可能残り）。レイアウト: ブロック境界で視線を誘導。 */}
           <div
             className={
               compact
-                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0"
-                : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0"
+                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0 pl-2 border-l border-border/50"
+                : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0 pl-3 border-l border-border/50"
             }
           >
             <FileText
@@ -125,9 +160,9 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             />
             <span className="text-muted-foreground shrink-0">{compact ? "" : "取得済み:"}</span>
             <span className="font-bold">{paperCount.toLocaleString("ja-JP")}件</span>
-            {hasMore && onSyncAll && (
+            {hasMore && onSyncAll ? (
               <Button
-                variant="outline"
+                variant="default"
                 size="sm"
                 onClick={onSyncAll}
                 disabled={isSyncingAll}
@@ -142,15 +177,15 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   ? `取得中 ${syncAllProgress.fetched.toLocaleString("ja-JP")} / ${syncAllProgress.total.toLocaleString("ja-JP")} 件`
                   : "同期期間の論文をすべて取得"}
               </Button>
-            )}
+            ) : null}
           </div>
 
-          {/* Embedding 未設定件数 ＋ 補完（対象: Embedding未設定の論文） */}
+          {/* Embedding 未設定件数 ＋ 補完（対象: Embedding未設定の論文）。レイアウト: 同上、境界線でブロックを分離。 */}
           <div
             className={
               compact
-                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0"
-                : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0"
+                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0 pl-2 border-l border-border/50"
+                : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0 pl-3 border-l border-border/50"
             }
           >
             <SearchX

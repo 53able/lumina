@@ -245,6 +245,25 @@ export class EmbeddingRateLimitError extends Error {
 }
 
 /**
+ * 同期API（/api/v1/sync）が 429（Too Many Requests）を返したときに投げるエラー。
+ * リトライ上限に達した場合に throw され、UI で「状況」と「どうするか」を表示するために用いる。
+ */
+export class SyncRateLimitError extends Error {
+  readonly status = 429;
+  /** Retry-After ヘッダの値（秒）。未設定の場合は undefined */
+  readonly retryAfterSec: number | undefined;
+
+  constructor(
+    message = "リクエストが集中しています。しばらく待ってから再度お試しください。",
+    retryAfterSec?: number
+  ) {
+    super(message);
+    this.name = "SyncRateLimitError";
+    this.retryAfterSec = retryAfterSec;
+  }
+}
+
+/**
  * Embedding API
  *
  * テキストから Embedding ベクトルを生成する。
@@ -266,7 +285,8 @@ export const embeddingApi = async (
   const res = await client.api.v1.embedding.$post({ json: request }, opts);
   updateRateLimitFromResponse(res);
 
-  if (!res.ok && res.status === 429) {
+  // レートリミット middleware が 429 を返す場合がある（RPC 型には含まれないため status を number で比較）
+  if (!res.ok && (res.status as number) === 429) {
     throw new EmbeddingRateLimitError();
   }
 
@@ -305,7 +325,8 @@ export const embeddingBatchApi = async (
   const res = await client.api.v1.embedding.batch.$post({ json: request }, opts);
   updateRateLimitFromResponse(res);
 
-  if (!res.ok && res.status === 429) {
+  // レートリミット middleware が 429 を返す場合がある（RPC 型には含まれないため status を number で比較）
+  if (!res.ok && (res.status as number) === 429) {
     throw new EmbeddingRateLimitError();
   }
 
@@ -391,6 +412,15 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
       detail = parsed?.error ?? bodyText.slice(0, 200);
     } catch {
       detail = bodyText.slice(0, 200);
+    }
+    if (lastRes.status === 429) {
+      const retryAfterRaw = lastRes.headers.get("retry-after");
+      const retryAfterSec = retryAfterRaw ? parseInt(retryAfterRaw, 10) : undefined;
+      const userMessage =
+        typeof retryAfterSec === "number" && Number.isFinite(retryAfterSec) && retryAfterSec > 0
+          ? `リクエストが集中しています。${retryAfterSec}秒ほど待ってから再度お試しください。`
+          : "リクエストが集中しています。しばらく待ってから再度お試しください。";
+      throw new SyncRateLimitError(userMessage, retryAfterSec);
     }
     throw new Error(
       detail ? `Sync failed: ${lastRes.status}: ${detail}` : `Sync failed: ${lastRes.status}`
