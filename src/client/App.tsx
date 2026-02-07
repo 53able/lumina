@@ -61,7 +61,7 @@ export const App: FC = () => {
     const runMigrationMaybeNotify = () => {
       const didRun = useSettingsStore.getState().runSyncPeriodResetMigration();
       if (didRun) {
-        toast.info("同期期間を1日に統一しました。必要に応じて設定で変更できます。");
+        toast.info("同期期間を3日に統一しました。必要に応じて設定で変更できます。");
       }
     };
 

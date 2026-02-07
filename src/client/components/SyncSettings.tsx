@@ -6,13 +6,12 @@ import { Label } from "./ui/label";
 import { Slider } from "./ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-/** 同期期間オプションの定義（index 0〜6 が Slider の値に対応） */
+/** 同期期間オプションの定義（index 0〜5 が Slider の値に対応） */
 const SYNC_PERIOD_OPTIONS: {
   value: SyncPeriod;
   label: string;
   description: string;
 }[] = [
-  { value: "1", label: "1日", description: "過去1日間の論文を取得" },
   { value: "3", label: "3日", description: "過去3日間の論文を取得" },
   { value: "7", label: "7日", description: "過去1週間の論文を取得" },
   { value: "30", label: "30日", description: "過去1ヶ月の論文を取得" },
@@ -24,7 +23,7 @@ const SYNC_PERIOD_OPTIONS: {
 const SYNC_PERIOD_INDEX_MAX = SYNC_PERIOD_OPTIONS.length - 1;
 
 /**
- * syncPeriodDays を Slider の index（0〜6）に変換する。
+ * syncPeriodDays を Slider の index（0〜5）に変換する。
  * 未定義や不正値の場合は 0 を返す。
  */
 const syncPeriodToIndex = (period: SyncPeriod): number => {
@@ -35,7 +34,7 @@ const syncPeriodToIndex = (period: SyncPeriod): number => {
 /**
  * SyncSettings - 同期設定コンポーネント（設定ダイアログ内）
  *
- * 機能: 同期期間の選択のみ（Slider で 1日〜1年）。
+ * 機能: 同期期間の選択のみ（Slider で 3日〜1年）。
  * 最終同期・論文数・Embedding未設定はメイン画面の SyncStatusBar で表示・操作する。
  */
 export const SyncSettings: FC = () => {

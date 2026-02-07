@@ -129,7 +129,7 @@ describe("App syncPeriodMigration", () => {
 
     expect(mockRunSyncPeriodResetMigration).toHaveBeenCalled();
     expect(toast.info).toHaveBeenCalledWith(
-      "同期期間を1日に統一しました。必要に応じて設定で変更できます。"
+      "同期期間を3日に統一しました。必要に応じて設定で変更できます。"
     );
   });
 
