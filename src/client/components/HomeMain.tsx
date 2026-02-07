@@ -80,6 +80,14 @@ interface HomeMainProps {
   onReSearch: (history: SearchHistoryType) => void;
   /** 履歴削除ハンドラー */
   onDeleteHistory: (id: string) => void;
+  /** まだ取得可能な論文があるか */
+  hasMore?: boolean;
+  /** 同期期間の論文をすべて取得する */
+  onSyncAll?: () => void | Promise<void>;
+  /** すべて取得実行中かどうか */
+  isSyncingAll?: boolean;
+  /** すべて取得の進捗（取得済み / 全件数） */
+  syncAllProgress?: { fetched: number; total: number } | null;
   /** Embeddingバックフィル中かどうか */
   isEmbeddingBackfilling: boolean;
   /** Embeddingバックフィル進捗 */
@@ -126,6 +134,10 @@ export const HomeMain: FC<HomeMainProps> = ({
   recentHistories,
   onReSearch,
   onDeleteHistory,
+  hasMore,
+  onSyncAll,
+  isSyncingAll,
+  syncAllProgress,
   isEmbeddingBackfilling,
   embeddingBackfillProgress,
   onRunEmbeddingBackfill,
@@ -197,6 +209,10 @@ export const HomeMain: FC<HomeMainProps> = ({
             {/* デスクトップ: 同期ステータスは一覧の上。モバイル: 一覧の下に回すのでここでは出さない */}
             {isDesktop && (
               <SyncStatusBar
+                hasMore={hasMore}
+                onSyncAll={onSyncAll}
+                isSyncingAll={isSyncingAll}
+                syncAllProgress={syncAllProgress}
                 isEmbeddingBackfilling={isEmbeddingBackfilling}
                 embeddingBackfillProgress={embeddingBackfillProgress}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
@@ -258,6 +274,10 @@ export const HomeMain: FC<HomeMainProps> = ({
             {!isDesktop && (
               <SyncStatusBar
                 compact
+                hasMore={hasMore}
+                onSyncAll={onSyncAll}
+                isSyncingAll={isSyncingAll}
+                syncAllProgress={syncAllProgress}
                 isEmbeddingBackfilling={isEmbeddingBackfilling}
                 embeddingBackfillProgress={embeddingBackfillProgress}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}

@@ -1,13 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Paper, SyncResponse } from "../../shared/schemas/index";
+import type { Paper, SyncPeriod, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
-import {
-  embeddingApi,
-  embeddingBatchApi,
-  getDecryptedApiKey,
-  syncApi,
-} from "../lib/api";
+import { embeddingApi, embeddingBatchApi, getDecryptedApiKey, syncApi } from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
 import { getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
 import { usePaperStore } from "../stores/paperStore";
@@ -72,8 +67,8 @@ const SYNC_MORE_BATCH_SIZE = 50;
 interface SyncParams {
   /** 同期対象のカテゴリ */
   categories: string[];
-  /** 同期期間（日数） */
-  period?: "7" | "30" | "90" | "180" | "365";
+  /** 同期期間（日数）。共有スキーマ SyncPeriod に合わせる */
+  period?: SyncPeriod;
 }
 
 /**
@@ -95,7 +90,7 @@ const createSyncQueryKey = (params: SyncParams) =>
  *
  * @param params - 同期パラメータ（categories, period, apiKey）
  * @param options - コールバックオプション
- * @returns { sync, isSyncing, isEmbeddingBackfilling, error } - 同期関数と状態（isSyncing は論文取得中のみ）
+ * @returns sync, syncMore, syncAll, isSyncing, isSyncingAll, syncAllProgress, hasMore, totalResults, error など。syncAll は同期期間内の論文を全件取得する。
  *
  * @example
  * ```tsx
@@ -145,6 +140,20 @@ export const useSyncPapers = (
   storePapersRef.current = storePapers;
   /** syncMore 用のレートリミット待機（現状は no-op） */
   const waitForRateLimitRef = useRef<() => Promise<void>>(async () => {});
+
+  /** syncAll ループで最新の hasMore を参照するため */
+  const hasMoreRef = useRef(false);
+  /** syncAll ループで最新の totalResults を参照するため */
+  const totalResultsRef = useRef<number | null>(null);
+  /** syncMore が syncAll ループ内から呼ばれたときに最新範囲を参照するため */
+  const requestedRangesRef = useRef<[number, number][]>([]);
+  /** 同期期間内の論文をすべて取得中か */
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  /** すべて取得の進捗（取得済み件数 / 全件数） */
+  const [syncAllProgress, setSyncAllProgress] = useState<{
+    fetched: number;
+    total: number;
+  } | null>(null);
 
   const queryKey = createSyncQueryKey(params);
 
@@ -225,10 +234,10 @@ export const useSyncPapers = (
     // キャッシュが古いか存在しない → APIを叩く
     setRequestedRanges([]);
     setTotalResults(null);
-    refetch();
+    void refetch();
   }, [queryClient, queryKey, addPapers, refetch]);
 
-  // 追加同期実行関数（次のページを取得）
+  // 追加同期実行関数（次のページを取得）。syncAll ループから呼ばれても最新状態を参照するため ref を使用
   const syncMore = useCallback(async () => {
     // useRef で同期的にチェック（レースコンディション防止）
     // useState の setIsLoadingMore(true) は React のバッチ更新で遅延するため、
@@ -237,18 +246,22 @@ export const useSyncPapers = (
       return;
     }
 
+    const currentRanges = requestedRangesRef.current;
+    const currentTotal = totalResultsRef.current ?? 0;
+    const currentStorePapers = storePapersRef.current;
+
     // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
     const nextStartComputed = getNextStartToRequest(
-      requestedRanges,
-      totalResults ?? 0,
+      currentRanges,
+      currentTotal,
       SYNC_MORE_BATCH_SIZE
     );
     const effectiveStart =
-      requestedRanges.length === 0 && storePapers.length > 0
-        ? storePapers.length
+      currentRanges.length === 0 && currentStorePapers.length > 0
+        ? currentStorePapers.length
         : nextStartComputed;
 
-    if (totalResults !== null && effectiveStart >= totalResults) {
+    if (currentTotal !== 0 && effectiveStart >= currentTotal) {
       return;
     }
 
@@ -276,8 +289,8 @@ export const useSyncPapers = (
       const response = normalizeSyncResponse(rawResponse);
 
       if (response.papers.length > 0) {
-        // DBに既に存在する論文をスキップ
-        const existingPaperIds = new Set(storePapers.map((p) => p.id));
+        // DBに既に存在する論文をスキップ（syncAll ループ内では storePapersRef が最新）
+        const existingPaperIds = new Set(storePapersRef.current.map((p) => p.id));
         const newPapers = response.papers.filter((p) => !existingPaperIds.has(p.id));
 
         if (newPapers.length > 0) {
@@ -298,12 +311,46 @@ export const useSyncPapers = (
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [totalResults, requestedRanges, storePapers, params, addPapers, setLastSyncedAt]);
+  }, [params, addPapers, setLastSyncedAt]);
 
   // まだ論文があるかどうか（ギャップがあればその補填も含む）
   const hasMore =
     totalResults === null ||
     getNextStartToRequest(requestedRanges, totalResults, SYNC_MORE_BATCH_SIZE) < totalResults;
+
+  hasMoreRef.current = hasMore;
+  totalResultsRef.current = totalResults;
+  requestedRangesRef.current = requestedRanges;
+
+  /**
+   * 同期期間内の論文をすべて取得する（初回 sync のあと hasMore の間 syncMore を繰り返す）
+   * 初回 sync 完了は totalResultsRef のセットで判定（refetch の Promise はテスト環境で解決されない場合があるため）
+   */
+  const syncAll = useCallback(async (): Promise<void> => {
+    setIsSyncingAll(true);
+    setSyncAllProgress(null);
+
+    sync();
+
+    const deadline = Date.now() + 15_000;
+    while (totalResultsRef.current === null && Date.now() < deadline) {
+      await new Promise<void>((r) => setTimeout(r, 50));
+    }
+
+    while (hasMoreRef.current) {
+      const total = totalResultsRef.current ?? 0;
+      const fetched =
+        typeof usePaperStore.getState === "function"
+          ? usePaperStore.getState().papers.length
+          : storePapersRef.current.length;
+      setSyncAllProgress({ fetched, total });
+      await syncMore();
+      await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
+    }
+
+    setIsSyncingAll(false);
+    setSyncAllProgress(null);
+  }, [sync, syncMore]);
 
   /**
    * Embedding 未設定の論文を手動で補完する（同期ボタンから切り離した処理）
@@ -353,10 +400,16 @@ export const useSyncPapers = (
     sync,
     /** 追加同期を実行する関数（次のページを取得） */
     syncMore,
+    /** 同期期間内の論文をすべて取得する関数 */
+    syncAll,
     /** Embedding 未設定の論文を手動で補完する関数（SyncStatusBar の「Embeddingを補完」から呼ぶ） */
     runEmbeddingBackfill,
     /** 論文取得中かどうか（初回 sync / syncMore。Embedding バックフィルは含まない） */
     isSyncing: isFetching || isLoadingMore,
+    /** 同期期間の論文をすべて取得中かどうか */
+    isSyncingAll,
+    /** すべて取得の進捗（取得済み / 全件数）。取得中のみセットされる */
+    syncAllProgress,
     /** Embedding バックフィル実行中かどうか（SyncStatusBar 等で表示用） */
     isEmbeddingBackfilling,
     /** Embedding バックフィル進捗（取得中のみ。SyncStatusBar で「N/M件」表示） */

@@ -4,7 +4,7 @@
  * useSyncPapers のテスト
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSyncPapers } from "./useSyncPapers";
@@ -203,6 +203,63 @@ describe("useSyncPapers", () => {
       const papers = papersPassed as Array<{ embedding?: number[] }>;
       const allWithoutEmbedding = papers.every((p) => !p.embedding || p.embedding.length === 0);
       expect(allWithoutEmbedding).toBe(true);
+    });
+  });
+
+  describe("syncAll（同期期間内の論文をすべて取得）", () => {
+    it("正常系: totalResults=125 のとき syncApi が start=0, 50, 100 で3回呼ばれ store に125件入る", async () => {
+      vi.useRealTimers();
+      const totalResults = 125;
+      mockSyncApi.mockImplementation((request: { start?: number }) =>
+        Promise.resolve(createMockResponse(request?.start ?? 0, totalResults))
+      );
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        void result.current.syncAll();
+      });
+
+      await waitFor(
+        () => {
+          expect(mockSyncApi).toHaveBeenCalledTimes(3);
+          const calls = mockSyncApi.mock.calls as Array<[{ start?: number }]>;
+          expect(calls[0][0].start).toBe(0);
+          expect(calls[1][0].start).toBe(50);
+          expect(calls[2][0].start).toBe(100);
+          expect(papersRef.current.length).toBe(125);
+        },
+        { timeout: 15_000 }
+      );
+      vi.useFakeTimers();
+    });
+
+    it("境界: totalResults=50（1ページのみ）のとき syncApi が1回だけ呼ばれる", async () => {
+      vi.useRealTimers();
+      const totalResults = 50;
+      mockSyncApi.mockImplementation((request: { start?: number }) =>
+        Promise.resolve(createMockResponse(request?.start ?? 0, totalResults))
+      );
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        void result.current.syncAll();
+      });
+
+      await waitFor(
+        () => {
+          expect(mockSyncApi).toHaveBeenCalledTimes(1);
+          expect(mockSyncApi.mock.calls[0][0].start).toBe(0);
+          expect(papersRef.current.length).toBe(50);
+        },
+        { timeout: 15_000 }
+      );
+      vi.useFakeTimers();
     });
   });
 });

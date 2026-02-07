@@ -10,6 +10,14 @@ import { Button } from "./ui/button";
 interface SyncStatusBarProps {
   /** モバイル向けコンパクト表示（論文一覧までの距離を短くする） */
   compact?: boolean;
+  /** まだ取得可能な論文があるか（同期期間内の残り） */
+  hasMore?: boolean;
+  /** 同期期間の論文をすべて取得する（「すべて取得」ボタンから呼ぶ） */
+  onSyncAll?: () => void | Promise<void>;
+  /** すべて取得実行中かどうか */
+  isSyncingAll?: boolean;
+  /** すべて取得の進捗（取得済み / 全件数）。取得中のみセットされる */
+  syncAllProgress?: { fetched: number; total: number } | null;
   /** Embedding バックフィル実行中か（App の useSyncPapers から渡す。取得中は「Embedding取得中」を表示） */
   isEmbeddingBackfilling?: boolean;
   /** Embedding バックフィル進捗（取得中のみ。「N/M件」表示） */
@@ -28,6 +36,10 @@ interface SyncStatusBarProps {
  */
 export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   compact = false,
+  hasMore = false,
+  onSyncAll,
+  isSyncingAll = false,
+  syncAllProgress = null,
   isEmbeddingBackfilling = false,
   embeddingBackfillProgress = null,
   onRunEmbeddingBackfill,
@@ -55,7 +67,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             : "flex flex-wrap items-center gap-x-6 gap-y-3"
         }
       >
-        {/* ステータス群: 同期日時・件数・Embedding未設定（ブロック単位で折り返し、揃えを統一） */}
+        {/* ステータス群: オブジェクト（名詞）ごとにブロック分割し、各ブロックに紐づくアクション（動詞）を隣接配置 */}
         <div
           className={
             compact
@@ -63,7 +75,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               : "flex flex-wrap items-center content-start gap-x-4 gap-y-2"
           }
         >
-          {/* 最終同期（1ブロックとして折り返し、分割しない） */}
+          {/* 最終同期（1ブロック） */}
           <div
             className={
               compact
@@ -96,12 +108,12 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             </span>
           </div>
 
-          {/* 取得済み論文数（1ブロックとして折り返し） */}
+          {/* 取得済み論文数 ＋ 同期期間の残りをすべて取得（対象: 論文コレクション／取得可能残り） */}
           <div
             className={
               compact
-                ? "flex items-center gap-1.5 text-xs shrink-0"
-                : "flex items-center gap-2 text-sm shrink-0"
+                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0"
+                : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0"
             }
           >
             <FileText
@@ -113,9 +125,27 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             />
             <span className="text-muted-foreground shrink-0">{compact ? "" : "取得済み:"}</span>
             <span className="font-bold">{paperCount.toLocaleString("ja-JP")}件</span>
+            {hasMore && onSyncAll && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onSyncAll}
+                disabled={isSyncingAll}
+                aria-label="同期期間の論文をすべて取得"
+                className={
+                  compact
+                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                }
+              >
+                {isSyncingAll && syncAllProgress
+                  ? `取得中 ${syncAllProgress.fetched.toLocaleString("ja-JP")} / ${syncAllProgress.total.toLocaleString("ja-JP")} 件`
+                  : "同期期間の論文をすべて取得"}
+              </Button>
+            )}
           </div>
 
-          {/* Embedding 未設定件数＋ボタン（1ブロックとして折り返し） */}
+          {/* Embedding 未設定件数 ＋ 補完（対象: Embedding未設定の論文） */}
           <div
             className={
               compact

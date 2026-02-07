@@ -228,8 +228,11 @@ const HomePage: FC = () => {
   const {
     sync: syncPapers,
     syncMore,
+    syncAll,
     runEmbeddingBackfill,
     isSyncing,
+    isSyncingAll,
+    syncAllProgress,
     isEmbeddingBackfilling,
     embeddingBackfillProgress,
     hasMore: hasMorePapers,
@@ -385,6 +388,10 @@ const HomePage: FC = () => {
         recentHistories={recentHistories}
         onReSearch={handleReSearch}
         onDeleteHistory={handleDeleteHistory}
+        hasMore={hasMorePapers}
+        onSyncAll={syncAll}
+        isSyncingAll={isSyncingAll}
+        syncAllProgress={syncAllProgress}
         isEmbeddingBackfilling={isEmbeddingBackfilling}
         embeddingBackfillProgress={embeddingBackfillProgress}
         onRunEmbeddingBackfill={runEmbeddingBackfill}
