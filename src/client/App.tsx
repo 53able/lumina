@@ -56,6 +56,23 @@ const LoadingFallback: FC = () => (
  * - /papers/:id : 論文詳細ページ（PaperPage）
  */
 export const App: FC = () => {
+  useEffect(() => {
+    const runMigrationMaybeNotify = () => {
+      const didRun = useSettingsStore.getState().runSyncPeriodResetMigration();
+      if (didRun) {
+        toast.info("同期期間を1日に統一しました。必要に応じて設定で変更できます。");
+      }
+    };
+
+    const unsub = useSettingsStore.persist.onFinishHydration(runMigrationMaybeNotify);
+
+    if (useSettingsStore.persist.hasHydrated?.()) {
+      runMigrationMaybeNotify();
+    }
+
+    return () => unsub();
+  }, []);
+
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Routes>

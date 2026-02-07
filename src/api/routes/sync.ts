@@ -36,8 +36,8 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
 
     try {
       // 1. arXivから論文データを取得（startでページング、期間フィルタ適用）
-      // period は必ず渡し、母数（totalResults）を同期期間・カテゴリで絞る（未送信時は "7"）
-      const effectivePeriod = body.period ?? "7";
+      // period は必ず渡し、母数（totalResults）を同期期間・カテゴリで絞る（未送信時は "1"）
+      const effectivePeriod = body.period ?? "1";
       const arxivResult = await fetchArxivPapers({
         categories: body.categories,
         maxResults: body.maxResults ?? 200,
