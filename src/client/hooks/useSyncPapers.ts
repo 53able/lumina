@@ -221,7 +221,11 @@ export const useSyncPapers = (
     store.setLastSyncError(null); // 成功時にエラー表示をクリア
     const running = isSyncAllRunningRef.current;
     if (running) syncAllAccumulatedRef.current += newPapers.length;
-    onSuccessRef.current?.(data, { isInitialSync: true, addedCount: newPapers.length, isSyncAllRunning: running });
+    onSuccessRef.current?.(data, {
+      isInitialSync: true,
+      addedCount: newPapers.length,
+      isSyncAllRunning: running,
+    });
 
     // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」ボタンから実行する。
   }, [data, addPapers, setLastSyncedAt]);
@@ -268,7 +272,11 @@ export const useSyncPapers = (
       store.setTotalResults(cachedData.totalResults);
       const running = isSyncAllRunningRef.current;
       if (running) syncAllAccumulatedRef.current += newPapersFromCache.length;
-      onSuccessRef.current?.(cachedData, { isInitialSync: true, addedCount: newPapersFromCache.length, isSyncAllRunning: running });
+      onSuccessRef.current?.(cachedData, {
+        isInitialSync: true,
+        addedCount: newPapersFromCache.length,
+        isSyncAllRunning: running,
+      });
       return;
     }
 
@@ -367,7 +375,11 @@ export const useSyncPapers = (
           store.setLastSyncError(null); // 成功時にエラー表示をクリア
           const running = isSyncAllRunningRef.current;
           if (running) syncAllAccumulatedRef.current += newPapers.length;
-          onSuccessRef.current?.(response, { isInitialSync: false, addedCount: newPapers.length, isSyncAllRunning: running });
+          onSuccessRef.current?.(response, {
+            isInitialSync: false,
+            addedCount: newPapers.length,
+            isSyncAllRunning: running,
+          });
 
           // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」から実行する。
         }
@@ -433,8 +445,7 @@ export const useSyncPapers = (
         try {
           await syncMore(ac.signal);
         } catch (syncMoreErr) {
-          const e =
-            syncMoreErr instanceof Error ? syncMoreErr : new Error(String(syncMoreErr));
+          const e = syncMoreErr instanceof Error ? syncMoreErr : new Error(String(syncMoreErr));
           useSyncStore.getState().setLastSyncError(e);
           onErrorRef.current?.(e);
           break;
