@@ -24,6 +24,28 @@ vi.mock("../stores/syncStore", () => ({
     selector(mockSyncStoreState),
 }));
 
+vi.mock("../hooks/useGridVirtualizer", () => ({
+  useGridVirtualizer: (params: { items: Paper[] }) => {
+    const items = params.items;
+    return {
+      virtualRows:
+        items.length === 0
+          ? []
+          : [
+              {
+                index: 0,
+                start: 0,
+                items,
+                isExpanded: false,
+              },
+            ],
+      totalSize: items.length * 300,
+      columnCount: Math.max(items.length, 1),
+      measureElement: () => undefined,
+    };
+  },
+}));
+
 /**
  * MemoryRouterでラップしたレンダリングヘルパー
  */
