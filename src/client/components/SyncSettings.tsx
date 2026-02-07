@@ -23,7 +23,7 @@ const SYNC_PERIOD_OPTIONS: {
  * SyncSettings - 同期設定コンポーネント（設定ダイアログ内）
  *
  * 機能: 同期期間の選択のみ。
- * 最終同期・論文数・Embedding未設定・順次取得はメイン画面の SyncStatusBar で表示・操作する。
+ * 最終同期・論文数・Embedding未設定はメイン画面の SyncStatusBar で表示・操作する。
  */
 export const SyncSettings: FC = () => {
   const { syncPeriodDays, setSyncPeriodDays } = useSettingsStore();
@@ -76,7 +76,7 @@ export const SyncSettings: FC = () => {
       </div>
 
       <p className="text-xs text-muted-foreground/70 border-t pt-4">
-        同期ステータス（最終同期・論文数・Embedding未設定・順次取得）はメイン画面で確認・実行できます。
+        同期ステータス（最終同期・論文数・Embedding未設定）はメイン画面で確認・実行できます。
       </p>
     </div>
   );

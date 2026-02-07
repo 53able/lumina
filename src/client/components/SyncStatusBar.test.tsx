@@ -36,22 +36,6 @@ vi.mock("../stores/paperStore", () => ({
 vi.mock("../stores/settingsStore", () => ({
   useSettingsStore: vi.fn(() => ({
     getLastSyncedAt: () => new Date("2026-02-01T15:48:00"),
-    selectedCategories: ["cs.AI"],
-    syncPeriodDays: "30",
-  })),
-}));
-
-vi.mock("../stores/syncStore", () => ({
-  useSyncStore: vi.fn(() => ({
-    isIncrementalSyncing: false,
-    progress: null,
-    abortIncrementalSync: vi.fn(),
-  })),
-}));
-
-vi.mock("../hooks/useSyncPapers", () => ({
-  useSyncPapers: vi.fn(() => ({
-    syncIncremental: vi.fn(),
   })),
 }));
 
