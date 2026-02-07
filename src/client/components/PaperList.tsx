@@ -3,6 +3,7 @@ import { type FC, type ReactNode, useCallback, useEffect, useRef } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useGridVirtualizer } from "../hooks/useGridVirtualizer";
 import { cn } from "../lib/utils";
+import { useSyncStore } from "../stores/syncStore";
 import { PaperCard } from "./PaperCard";
 import { Card } from "./ui/card";
 
@@ -38,8 +39,6 @@ interface PaperListProps {
   whyReadMap?: Map<string, string>;
   /** 追加同期リクエスト時のコールバック */
   onRequestSync?: () => void;
-  /** 同期中フラグ */
-  isSyncing?: boolean;
   /** 現在展開中の論文ID */
   expandedPaperId?: string | null;
   /** 展開中の論文の詳細コンテンツをレンダリング */
@@ -119,10 +118,13 @@ export const PaperList: FC<PaperListProps> = ({
   onPaperClick,
   whyReadMap = new Map(),
   onRequestSync,
-  isSyncing = false,
   expandedPaperId = null,
   renderExpandedDetail,
 }) => {
+  const isFetching = useSyncStore((s) => s.isFetching);
+  const isLoadingMore = useSyncStore((s) => s.isLoadingMore);
+  const isSyncing = isFetching || isLoadingMore;
+
   // スクロールコンテナへの参照
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // グリッドコンテナへの参照（幅計算用）

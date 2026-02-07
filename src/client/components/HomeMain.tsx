@@ -5,7 +5,7 @@ import type {
   PaperSummary,
   SearchHistory as SearchHistoryType,
 } from "../../shared/schemas/index";
-import type { GenerateTarget, SyncRateLimitError } from "../lib/api";
+import type { GenerateTarget } from "../lib/api";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SyncStatusBar } from "./SyncStatusBar";
@@ -38,8 +38,6 @@ interface HomeMainProps {
   whyReadMap: Map<string, string>;
   /** 追加同期リクエスト */
   onRequestSync?: () => void;
-  /** 同期中かどうか */
-  isSyncing: boolean;
   /** 空検索メッセージ */
   emptySearchMessage?: ReactNode;
   /** 検索ローディング中かどうか */
@@ -84,18 +82,10 @@ interface HomeMainProps {
   hasMore?: boolean;
   /** 同期期間の論文をすべて取得する */
   onSyncAll?: () => void | Promise<void>;
-  /** すべて取得実行中かどうか */
-  isSyncingAll?: boolean;
-  /** すべて取得の進捗（取得済み / 全件数） */
-  syncAllProgress?: { fetched: number; total: number } | null;
-  /** Embeddingバックフィル中かどうか */
-  isEmbeddingBackfilling: boolean;
-  /** Embeddingバックフィル進捗 */
-  embeddingBackfillProgress: { completed: number; total: number } | null;
   /** Embeddingバックフィル実行 */
   onRunEmbeddingBackfill: () => void;
-  /** 同期APIが429を返したときのエラー。設定時は SyncStatusBar 内に表示 */
-  syncRateLimitError?: SyncRateLimitError | null;
+  /** 同期を停止する（取得中のみ有効）。SyncStatusBar の停止ボタンから呼ぶ */
+  onStopSync?: () => void;
 }
 
 /**
@@ -119,7 +109,6 @@ const HomeMainInner: FC<HomeMainProps> = ({
   onSearchInputChange,
   whyReadMap,
   onRequestSync,
-  isSyncing,
   emptySearchMessage,
   isSearchLoading,
   expandedPaperId,
@@ -140,12 +129,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
   onDeleteHistory,
   hasMore,
   onSyncAll,
-  isSyncingAll,
-  syncAllProgress,
-  isEmbeddingBackfilling,
-  embeddingBackfillProgress,
   onRunEmbeddingBackfill,
-  syncRateLimitError = null,
+  onStopSync,
 }) => {
   return (
     <>
@@ -216,12 +201,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
               <SyncStatusBar
                 hasMore={hasMore}
                 onSyncAll={onSyncAll}
-                isSyncingAll={isSyncingAll}
-                syncAllProgress={syncAllProgress}
-                isEmbeddingBackfilling={isEmbeddingBackfilling}
-                embeddingBackfillProgress={embeddingBackfillProgress}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
-                syncRateLimitError={syncRateLimitError}
+                onStopSync={onStopSync}
               />
             )}
 
@@ -258,7 +239,6 @@ const HomeMainInner: FC<HomeMainProps> = ({
               onSearchInputChange={onSearchInputChange}
               whyReadMap={whyReadMap}
               onRequestSync={onRequestSync}
-              isSyncing={isSyncing}
               emptySearchMessage={emptySearchMessage}
               isSearchLoading={isSearchLoading}
               // インライン展開（デスクトップのみ）
@@ -282,12 +262,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 compact
                 hasMore={hasMore}
                 onSyncAll={onSyncAll}
-                isSyncingAll={isSyncingAll}
-                syncAllProgress={syncAllProgress}
-                isEmbeddingBackfilling={isEmbeddingBackfilling}
-                embeddingBackfillProgress={embeddingBackfillProgress}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
-                syncRateLimitError={syncRateLimitError}
+                onStopSync={onStopSync}
               />
             )}
           </div>

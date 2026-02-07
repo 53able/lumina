@@ -39,6 +39,21 @@ vi.mock("../stores/settingsStore", () => ({
   })),
 }));
 
+vi.mock("../stores/syncStore", () => ({
+  useSyncStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) => {
+    const state = {
+      isFetching: false,
+      isLoadingMore: false,
+      isSyncingAll: false,
+      syncAllProgress: null,
+      isEmbeddingBackfilling: false,
+      embeddingBackfillProgress: null,
+      lastSyncError: null,
+    };
+    return selector ? selector(state) : state;
+  }),
+}));
+
 describe("SyncStatusBar", () => {
   afterEach(() => {
     cleanup();
@@ -50,14 +65,7 @@ describe("SyncStatusBar", () => {
       const { SyncStatusBar } = await import("./SyncStatusBar");
       const onRunEmbeddingBackfill = vi.fn();
 
-      render(
-        <SyncStatusBar
-          compact
-          isEmbeddingBackfilling={false}
-          embeddingBackfillProgress={null}
-          onRunEmbeddingBackfill={onRunEmbeddingBackfill}
-        />
-      );
+      render(<SyncStatusBar compact onRunEmbeddingBackfill={onRunEmbeddingBackfill} />);
 
       const button = screen.getByRole("button", {
         name: /Embedding未設定の論文を補完|Embeddingを補完/i,
@@ -70,14 +78,7 @@ describe("SyncStatusBar", () => {
       const user = userEvent.setup();
       const onRunEmbeddingBackfill = vi.fn();
 
-      render(
-        <SyncStatusBar
-          compact
-          isEmbeddingBackfilling={false}
-          embeddingBackfillProgress={null}
-          onRunEmbeddingBackfill={onRunEmbeddingBackfill}
-        />
-      );
+      render(<SyncStatusBar compact onRunEmbeddingBackfill={onRunEmbeddingBackfill} />);
 
       const button = screen.getByRole("button", {
         name: /Embedding未設定の論文を補完|Embeddingを補完/i,

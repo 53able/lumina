@@ -35,8 +35,6 @@ interface PaperExplorerProps {
   whyReadMap?: Map<string, string>;
   /** 追加同期リクエスト時のコールバック */
   onRequestSync?: () => void;
-  /** 同期中フラグ */
-  isSyncing?: boolean;
   /** 現在展開中の論文ID */
   expandedPaperId?: string | null;
   /** 展開中の論文の詳細コンテンツをレンダリング */
@@ -65,7 +63,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   onSearchInputChange,
   whyReadMap = new Map(),
   onRequestSync,
-  isSyncing = false,
   expandedPaperId = null,
   renderExpandedDetail,
   emptySearchMessage,
@@ -430,7 +427,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
             ? undefined
             : onRequestSync
         }
-        isSyncing={isSyncing}
         // インライン展開
         expandedPaperId={expandedPaperId}
         renderExpandedDetail={renderExpandedDetail}

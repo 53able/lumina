@@ -175,7 +175,7 @@ const HomePage: FC = () => {
   useSearchFromUrl(urlQuery, search, setSearchInputValue, lastSearchQueryRef);
 
   // useTransitionで検索を非緊急更新として扱う
-  const [isPending, startTransition] = useTransition();
+  const [_isPending, startTransition] = useTransition();
 
   // 検索ハンドラー（useTransitionでラップ）
   const handleSearch = useCallback(
@@ -192,7 +192,7 @@ const HomePage: FC = () => {
       // 検索結果からPaperのみを返す
       return searchResults.map((r) => r.paper);
     },
-    [search, startTransition]
+    [search]
   );
 
   // 論文クリックハンドラー（インライン展開のトグル）
@@ -229,14 +229,10 @@ const HomePage: FC = () => {
     sync: syncPapers,
     syncMore,
     syncAll,
+    stopSync,
     runEmbeddingBackfill,
     isSyncing,
-    isSyncingAll,
-    syncAllProgress,
-    isEmbeddingBackfilling,
-    embeddingBackfillProgress,
     hasMore: hasMorePapers,
-    syncRateLimitError,
   } = useSyncPapers(
     {
       categories: selectedCategories,
@@ -259,6 +255,12 @@ const HomePage: FC = () => {
       },
     }
   );
+
+  /** 同期停止時に即座にフィードバックを返す（UX: 操作結果を明確に伝える） */
+  const handleStopSync = useCallback(() => {
+    stopSync();
+    toast.success("同期を停止しました");
+  }, [stopSync]);
 
   // 初回自動同期フラグ（一度だけ実行するため）
   const hasAutoSyncedRef = useRef(false);
@@ -354,7 +356,6 @@ const HomePage: FC = () => {
         onSearchInputChange={setSearchInputValue}
         whyReadMap={whyReadMap}
         onRequestSync={hasMorePapers ? syncMore : undefined}
-        isSyncing={isSyncing}
         emptySearchMessage={emptySearchMessage}
         isSearchLoading={isLoading}
         expandedPaperId={isDesktop ? (selectedPaper?.id ?? null) : null}
@@ -391,12 +392,8 @@ const HomePage: FC = () => {
         onDeleteHistory={handleDeleteHistory}
         hasMore={hasMorePapers}
         onSyncAll={syncAll}
-        isSyncingAll={isSyncingAll}
-        syncAllProgress={syncAllProgress}
-        isEmbeddingBackfilling={isEmbeddingBackfilling}
-        embeddingBackfillProgress={embeddingBackfillProgress}
         onRunEmbeddingBackfill={runEmbeddingBackfill}
-        syncRateLimitError={syncRateLimitError}
+        onStopSync={handleStopSync}
       />
 
       {/* Footer */}

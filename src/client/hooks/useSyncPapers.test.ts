@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSyncStore } from "../stores/syncStore";
 import { useSyncPapers } from "./useSyncPapers";
 
 /** 1リクエストあたりの最大取得件数（仕様） */
@@ -108,6 +109,7 @@ describe("useSyncPapers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     papersRef.current = [];
+    useSyncStore.getState().reset();
     mockAddPapers.mockImplementation((newPapers: Array<{ id: string; embedding?: number[] }>) => {
       papersRef.current = [...papersRef.current, ...newPapers];
     });
