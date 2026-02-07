@@ -200,8 +200,11 @@ const ARXIV_CATEGORIES: Category[] = [
  * カテゴリ API アプリケーション
  */
 export const categoriesApp = new Hono<{ Bindings: Env }>().get("/categories", (c) => {
-  return c.json({
-    categories: ARXIV_CATEGORIES,
-    defaultCategoryIds: DEFAULT_CATEGORY_IDS,
-  });
+  return c.json(
+    {
+      categories: ARXIV_CATEGORIES,
+      defaultCategoryIds: DEFAULT_CATEGORY_IDS,
+    },
+    200
+  );
 });
