@@ -16,11 +16,15 @@ const mockSyncApi = vi.fn();
 const mockGetDecryptedApiKey = vi.fn();
 
 const mockEmbeddingApi = vi.fn();
-vi.mock("../lib/api", () => ({
-  syncApi: (...args: unknown[]) => mockSyncApi(...args),
-  getDecryptedApiKey: () => mockGetDecryptedApiKey(),
-  embeddingApi: (...args: unknown[]) => mockEmbeddingApi(...args),
-}));
+vi.mock("../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/api")>();
+  return {
+    ...actual,
+    syncApi: (...args: unknown[]) => mockSyncApi(...args),
+    getDecryptedApiKey: () => mockGetDecryptedApiKey(),
+    embeddingApi: (...args: unknown[]) => mockEmbeddingApi(...args),
+  };
+});
 
 const mockRunBackfillEmbeddings = vi.fn();
 vi.mock("../lib/backfillEmbeddings", () => ({

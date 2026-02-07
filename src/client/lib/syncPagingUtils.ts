@@ -55,7 +55,6 @@ export const getNextStartToRequest = (
     if (pos < start) return pos;
     pos = end;
   }
-  if (pos < totalResults) return pos;
   return pos;
 };
 
@@ -72,35 +71,21 @@ export const getGapSize = (ranges: Range[], totalResults: number, currentStart: 
   if (totalResults <= 0) return 0;
 
   const merged = mergeRanges(ranges);
-  if (merged.length === 0) {
-    // 取得済み範囲がない場合、totalResults までの距離
-    return Math.max(0, totalResults - currentStart);
-  }
+  if (merged.length === 0) return Math.max(0, totalResults - currentStart);
 
-  // currentStart を含む範囲または次の範囲を探す
+  const lastEnd = merged[merged.length - 1][1];
+  if (currentStart >= lastEnd) return Math.max(0, totalResults - currentStart);
+
   for (const [start, end] of merged) {
     if (currentStart < start) {
-      // ギャップがある場合、次の取得済み範囲の start までの距離
       return Math.min(start - currentStart, totalResults - currentStart);
     }
-    if (currentStart >= start && currentStart < end) {
-      // currentStart が取得済み範囲内の場合、次のギャップを探す
-      // この範囲の end から次の範囲の start までの距離
+    if (currentStart < end) {
       const nextRange = merged.find(([s]) => s > end);
-      if (nextRange) {
-        return Math.min(nextRange[0] - end, totalResults - end);
-      }
-      // 次の範囲がない場合、totalResults までの距離
-      return Math.max(0, totalResults - end);
+      const gapEnd = nextRange ? nextRange[0] : totalResults;
+      return Math.min(gapEnd - end, totalResults - end);
     }
   }
 
-  // currentStart が全ての取得済み範囲より後ろにある場合
-  const lastEnd = merged[merged.length - 1][1];
-  if (currentStart >= lastEnd) {
-    return Math.max(0, totalResults - currentStart);
-  }
-
-  // フォールバック: totalResults までの距離
   return Math.max(0, totalResults - currentStart);
 };

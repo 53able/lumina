@@ -153,6 +153,14 @@ export const useSyncPapers = (
   const totalResultsRef = useRef<number | null>(null);
   /** syncMore が syncAll ループ内から呼ばれたときに最新範囲を参照するため */
   const requestedRangesRef = useRef<[number, number][]>([]);
+
+  /** ストアの論文配列を取得（effect 内やテストで getState が使えない場合は ref を使用） */
+  const getStorePapers = useCallback((): Paper[] => {
+    return typeof usePaperStore.getState === "function"
+      ? usePaperStore.getState().papers
+      : storePapersRef.current;
+  }, []);
+
   /** 同期期間内の論文をすべて取得中か */
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   /** すべて取得の進捗（取得済み件数 / 全件数） */
@@ -268,10 +276,11 @@ export const useSyncPapers = (
       currentTotal,
       SYNC_MORE_BATCH_SIZE
     );
-    const effectiveStart =
-      currentRanges.length === 0 && currentStorePapers.length > 0
-        ? currentStorePapers.length
-        : nextStartComputed;
+    const useStoreCountAsStart =
+      currentRanges.length === 0 && currentStorePapers.length > 0;
+    const effectiveStart = useStoreCountAsStart
+      ? currentStorePapers.length
+      : nextStartComputed;
 
     if (currentTotal !== 0 && effectiveStart >= currentTotal) {
       return;
@@ -355,10 +364,7 @@ export const useSyncPapers = (
 
     while (hasMoreRef.current) {
       const total = totalResultsRef.current ?? 0;
-      const fetched =
-        typeof usePaperStore.getState === "function"
-          ? usePaperStore.getState().papers.length
-          : storePapersRef.current.length;
+      const fetched = getStorePapers().length;
       setSyncAllProgress({ fetched, total });
       await syncMore();
       await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
@@ -366,17 +372,14 @@ export const useSyncPapers = (
 
     setIsSyncingAll(false);
     setSyncAllProgress(null);
-  }, [sync, syncMore]);
+  }, [sync, syncMore, getStorePapers]);
 
   /**
    * Embedding 未設定の論文を手動で補完する（同期ボタンから切り離した処理）
    * SyncStatusBar の「Embeddingを補完」ボタンから呼ぶ
    */
   const runEmbeddingBackfill = useCallback(async (): Promise<void> => {
-    const papers =
-      typeof usePaperStore.getState === "function"
-        ? usePaperStore.getState().papers
-        : storePapersRef.current;
+    const papers = getStorePapers();
     const withoutEmbedding = papers.filter((p) => !p.embedding || p.embedding.length === 0);
     if (withoutEmbedding.length === 0) return;
 
@@ -409,7 +412,7 @@ export const useSyncPapers = (
       setIsEmbeddingBackfilling(false);
       setEmbeddingBackfillProgress(null);
     }
-  }, [addPaper]);
+  }, [addPaper, getStorePapers]);
 
   return {
     /** 同期を実行する関数（最初から取得） */
