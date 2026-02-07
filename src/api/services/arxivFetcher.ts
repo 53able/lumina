@@ -26,6 +26,32 @@ export interface ArxivFetchResult {
 }
 
 /**
+ * arXiv API が 429 (Too Many Requests) を返したときに投げるエラー。
+ * sync ルートで 429 としてクライアントに返し、クライアントのリトライを促す。
+ */
+export class ArxivRateLimitError extends Error {
+  constructor(
+    message: string,
+    /** Retry-After 秒数（arXiv のヘッダーから。無い場合は undefined） */
+    public readonly retryAfterSec?: number
+  ) {
+    super(message);
+    this.name = "ArxivRateLimitError";
+  }
+}
+
+/**
+ * arXiv API が 503 (Service Unavailable) を返したときに投げるエラー。
+ * sync ルートで 503 として返し、クライアントがリトライできるようにする。
+ */
+export class ArxivServiceUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ArxivServiceUnavailableError";
+  }
+}
+
+/**
  * arXiv APIのベースURL
  */
 const ARXIV_API_URL = "http://export.arxiv.org/api/query";
@@ -201,10 +227,21 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    // エラーメッセージ全体を取得（XMLパースしてエラーメッセージを抽出）
     const errorMatch = errorText.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i);
     const errorMessage = errorMatch?.[1]?.trim() || errorText.substring(0, 1000);
-    throw new Error(`arXiv API error: ${response.status} ${response.statusText} - ${errorMessage}`);
+    const message = `arXiv API error: ${response.status} ${response.statusText} - ${errorMessage}`;
+    if (response.status === 429) {
+      const retryAfterRaw = response.headers.get("retry-after");
+      const retryAfterSec = retryAfterRaw ? parseInt(retryAfterRaw, 10) : undefined;
+      throw new ArxivRateLimitError(
+        message,
+        retryAfterSec != null && Number.isFinite(retryAfterSec) ? retryAfterSec : undefined
+      );
+    }
+    if (response.status === 503) {
+      throw new ArxivServiceUnavailableError(message);
+    }
+    throw new Error(message);
   }
 
   const xml = await response.text();

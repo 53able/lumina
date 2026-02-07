@@ -3,7 +3,11 @@ import { Hono } from "hono";
 import type { Paper } from "../../shared/schemas/index";
 import { EMBEDDING_BATCH_MAX_SIZE, SyncRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
-import { fetchArxivPapers } from "../services/arxivFetcher";
+import {
+  ArxivRateLimitError,
+  ArxivServiceUnavailableError,
+  fetchArxivPapers,
+} from "../services/arxivFetcher";
 import { createEmbeddingsBatch, getOpenAIConfig, type OpenAIConfig } from "../services/openai";
 import type { Env } from "../types/env";
 
@@ -65,6 +69,17 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
+      if (error instanceof ArxivRateLimitError) {
+        const headers: Record<string, string> = {};
+        if (error.retryAfterSec != null && Number.isFinite(error.retryAfterSec)) {
+          headers["Retry-After"] = String(Math.max(1, Math.floor(error.retryAfterSec)));
+        }
+        return c.json({ error: message }, 429, headers);
+      }
+      if (error instanceof ArxivServiceUnavailableError) {
+        return c.json({ error: message }, 503);
+      }
+      console.error("[sync] 500 error", { bodyStart: body.start, message }, error);
       return c.json({ error: message }, 500);
     }
   }
