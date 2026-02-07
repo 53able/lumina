@@ -9,6 +9,7 @@ import {
   embeddingBatchApi,
   getDecryptedApiKey,
   getRecommendedConcurrency,
+  syncApi,
 } from "./api";
 
 vi.mock("@/client/stores/settingsStore", () => ({
@@ -193,4 +194,48 @@ describe("getRecommendedConcurrency", () => {
 
     expect(getRecommendedConcurrency()).toBe(5);
   }, 30_000);
+});
+
+describe("syncApi", () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("existingPaperIds を渡したときリクエスト body に含まれる", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          papers: [],
+          fetchedCount: 0,
+          totalResults: 0,
+          took: 10,
+        }),
+        { status: 200, headers: new Headers() }
+      )
+    );
+
+    await syncApi(
+      {
+        categories: ["cs.AI"],
+        existingPaperIds: ["2401.00001", "2401.00002"],
+      },
+      { apiKey: "key" }
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [urlOrRequest, init] = mockFetch.mock.calls[0] as [string | Request, RequestInit?];
+    const rawBody =
+      typeof urlOrRequest === "object" && urlOrRequest instanceof Request
+        ? await urlOrRequest.text()
+        : (init?.body as string | undefined);
+    const body = rawBody ? (JSON.parse(rawBody) as { existingPaperIds?: string[] }) : {};
+    expect(body.existingPaperIds).toEqual(["2401.00001", "2401.00002"]);
+  });
 });

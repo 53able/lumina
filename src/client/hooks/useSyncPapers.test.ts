@@ -212,6 +212,66 @@ describe("useSyncPapers", () => {
     });
   });
 
+  describe("existingPaperIds の渡し方", () => {
+    it("sync 実行時にストアの論文 ID が syncApi に existingPaperIds として渡される", async () => {
+      papersRef.current = [
+        { id: "store-paper-1", title: "T1", abstract: "A1" },
+        { id: "store-paper-2", title: "T2", abstract: "A2" },
+      ];
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 10));
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        result.current.sync();
+      });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockSyncApi).toHaveBeenCalled();
+      const [request] = mockSyncApi.mock.calls[0] as [{ existingPaperIds?: string[] }];
+      expect(request.existingPaperIds).toEqual(["store-paper-1", "store-paper-2"]);
+    });
+
+    it("syncMore 実行時にストアの論文 ID が syncApi に existingPaperIds として渡される", async () => {
+      vi.useRealTimers();
+      papersRef.current = Array.from({ length: 60 }, (_, i) => ({
+        id: `paper-${i}`,
+        title: `Title ${i}`,
+        abstract: "A",
+        authors: [],
+        categories: ["cs.AI"],
+        publishedAt: new Date(),
+        updatedAt: new Date(),
+        pdfUrl: "https://example.com/pdf",
+        arxivUrl: "https://example.com/abs",
+      }));
+      mockSyncApi.mockResolvedValue(createMockResponse(50, 125));
+      useSyncStore.getState().setRequestedRanges([[0, 50]]);
+      useSyncStore.getState().setTotalResults(125);
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        await result.current.syncMore();
+      });
+
+      expect(mockSyncApi).toHaveBeenCalled();
+      const [request] = mockSyncApi.mock.calls[0] as [
+        { existingPaperIds?: string[]; start?: number },
+      ];
+      expect(request.start).toBe(50);
+      const expectedIds = Array.from({ length: 10 }, (_, i) => `paper-${50 + i}`);
+      expect(request.existingPaperIds).toEqual(expectedIds);
+      vi.useFakeTimers();
+    });
+  });
+
   describe("syncAll（同期期間内の論文をすべて取得）", () => {
     it("正常系: totalResults=125 のとき syncApi が start=0, 50, 100 で3回呼ばれ store に125件入る", async () => {
       vi.useRealTimers();

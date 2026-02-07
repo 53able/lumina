@@ -45,15 +45,27 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
         period: effectivePeriod,
       });
 
-      // 2. APIキーがある場合はバッチで Embedding を生成（1リクエストあたり最大 EMBEDDING_BATCH_MAX_SIZE 件）
+      const existingIdSet =
+        body.existingPaperIds && body.existingPaperIds.length > 0
+          ? new Set(body.existingPaperIds)
+          : new Set<string>();
+
+      // 2. APIキーがある場合は新規論文のみバッチで Embedding を生成（既存IDはスキップ）
       const papersWithEmbedding = await (async (): Promise<Paper[]> => {
         try {
           const config = getOpenAIConfig(c);
           const results: Paper[] = [];
           for (let i = 0; i < arxivResult.papers.length; i += EMBEDDING_BATCH_MAX_SIZE) {
             const chunk = arxivResult.papers.slice(i, i + EMBEDDING_BATCH_MAX_SIZE);
-            const chunkResults = await generatePapersEmbeddingsBatch(chunk, config);
-            results.push(...chunkResults);
+            const newInChunk = chunk.filter((p) => !existingIdSet.has(p.id));
+            const withEmbedding =
+              newInChunk.length > 0 ? await generatePapersEmbeddingsBatch(newInChunk, config) : [];
+            const ordered = chunk.map((paper) =>
+              existingIdSet.has(paper.id)
+                ? { ...paper }
+                : (withEmbedding.find((e) => e.id === paper.id) ?? { ...paper })
+            );
+            results.push(...ordered);
           }
           return results;
         } catch {

@@ -40,7 +40,20 @@ const renderWithProviders = (ui: ReactNode) => {
 };
 
 // グローバルfetchのモック
-vi.stubGlobal("fetch", vi.fn());
+const mockFetch = vi.fn().mockImplementation(() =>
+  Promise.resolve(
+    new Response(
+      JSON.stringify({
+        papers: [],
+        fetchedCount: 0,
+        totalResults: 0,
+        took: 0,
+      }),
+      { status: 200, headers: new Headers() }
+    )
+  )
+);
+vi.stubGlobal("fetch", mockFetch);
 
 // interactionStoreのモック
 const mockToggleLike = vi.fn();
