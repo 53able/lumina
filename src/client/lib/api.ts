@@ -36,6 +36,12 @@ interface ApiOptions {
   signal?: AbortSignal;
 }
 
+/** syncApi 専用オプション（429 検出時の通知用） */
+export interface SyncApiOptions extends ApiOptions {
+  /** 429 を受信したときに1回だけ呼ぶ（リトライ前に UI でトースト等を出したい場合） */
+  onRateLimited?: () => void;
+}
+
 /**
  * OpenAI APIキーヘッダーを追加
  */
@@ -390,7 +396,7 @@ const computeSyncRetryDelayMs = (retryAfterHeader: string | null): number => {
  * @returns 同期レスポンス（RPC型推論）
  * @throws Error APIエラー時
  */
-export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
+export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) => {
   const opts = { ...withApiKey(options), signal: options?.signal };
   const body = {
     categories: request.categories,
@@ -409,6 +415,9 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
     isRetryableStatus(lastRes.status) &&
     retryCount < SYNC_RATE_LIMIT_MAX_RETRIES
   ) {
+    if (retryCount === 0) {
+      options?.onRateLimited?.();
+    }
     if (opts.signal?.aborted) {
       throw new DOMException("Sync aborted", "AbortError");
     }

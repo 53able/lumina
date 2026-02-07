@@ -114,8 +114,16 @@ const createSyncQueryKey = (params: SyncParams) =>
 export const useSyncPapers = (
   params: SyncParams,
   options?: {
-    onSuccess?: (data: SyncResponse) => void;
+    /** 成功時。isInitialSync: true は初回同期（refetch/キャッシュ利用）時のみ。false は syncMore 時。addedCount はストアに実際に追加した件数。isSyncAllRunning が true の間はバッチ別トーストは出さず、onSyncAllComplete で1回だけ出す想定。 */
+    onSuccess?: (
+      data: SyncResponse,
+      context?: { isInitialSync: boolean; addedCount: number; isSyncAllRunning?: boolean }
+    ) => void;
+    /** syncAll 終了時に呼ぶ。合計で追加した件数と、ユーザー停止かどうか。停止時は「完了」と誤解しない文言でトーストする想定。 */
+    onSyncAllComplete?: (totalAddedCount: number, context?: { wasAborted: boolean }) => void;
     onError?: (error: Error) => void;
+    /** 429 を検出したときに1回だけ呼ぶ（リトライ前。トーストで「再試行中」を出したい場合） */
+    onRateLimited?: () => void;
   }
 ) => {
   const { addPaper, addPapers, papers: storePapers } = usePaperStore();
@@ -125,8 +133,12 @@ export const useSyncPapers = (
   // コールバックをrefで安定化（依存配列での無限ループを防ぐ）
   const onSuccessRef = useRef(options?.onSuccess);
   const onErrorRef = useRef(options?.onError);
+  const onSyncAllCompleteRef = useRef(options?.onSyncAllComplete);
+  const onRateLimitedRef = useRef(options?.onRateLimited);
   onSuccessRef.current = options?.onSuccess;
   onErrorRef.current = options?.onError;
+  onSyncAllCompleteRef.current = options?.onSyncAllComplete;
+  onRateLimitedRef.current = options?.onRateLimited;
 
   /** 同期状態は syncStore に集約。フックは store を購読して返り値に反映する */
   const requestedRanges = useSyncStore((s) => s.requestedRanges);
@@ -148,6 +160,10 @@ export const useSyncPapers = (
 
   /** syncAll 停止用。abort すると syncMore のリクエストとループが止まる */
   const syncAllAbortRef = useRef<AbortController | null>(null);
+  /** syncAll 実行中か（onSuccess でバッチ別トーストを出さないためと累積用） */
+  const isSyncAllRunningRef = useRef(false);
+  /** syncAll 中の追加件数合計（完了時に onSyncAllComplete で渡す） */
+  const syncAllAccumulatedRef = useRef(0);
 
   /** ストアの論文配列を取得（effect 内やテストで getState が使えない場合は ref を使用） */
   const getStorePapers = useCallback((): Paper[] => {
@@ -172,7 +188,7 @@ export const useSyncPapers = (
           start: 0, // 初回は常に0から
           maxResults: 200,
         },
-        { apiKey, signal }
+        { apiKey, signal, onRateLimited: () => onRateLimitedRef.current?.() }
       );
       // 日付文字列を Date オブジェクトに正規化
       return normalizeSyncResponse(response);
@@ -203,7 +219,13 @@ export const useSyncPapers = (
     store.setTotalResults(data.totalResults);
     setLastSyncedAt(now()); // 最終同期日時を更新
     store.setLastSyncError(null); // 成功時にエラー表示をクリア
-    onSuccessRef.current?.(data);
+    const running = isSyncAllRunningRef.current;
+    if (running) syncAllAccumulatedRef.current += newPapers.length;
+    onSuccessRef.current?.(data, {
+      isInitialSync: true,
+      addedCount: newPapers.length,
+      isSyncAllRunning: running,
+    });
 
     // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」ボタンから実行する。
   }, [data, addPapers, setLastSyncedAt]);
@@ -233,17 +255,28 @@ export const useSyncPapers = (
       !queryState?.dataUpdatedAt || timestamp() - queryState.dataUpdatedAt > SYNC_STALE_TIME;
 
     if (cachedData && !isStale) {
-      // キャッシュが有効 → 再利用（APIを叩かない）
-      // 成功コールバックを呼ぶ
-      if (cachedData.papers.length > 0) {
-        addPapers(cachedData.papers);
+      // キャッシュが有効 → 再利用（APIを叩かない）。既存を除いた分だけストアに追加
+      const currentStorePapers =
+        typeof usePaperStore.getState === "function"
+          ? usePaperStore.getState().papers
+          : storePapersRef.current;
+      const existingPaperIds = new Set(currentStorePapers.map((p) => p.id));
+      const newPapersFromCache = cachedData.papers.filter((p) => !existingPaperIds.has(p.id));
+      if (newPapersFromCache.length > 0) {
+        addPapers(newPapersFromCache);
       }
       const store = useSyncStore.getState();
       store.setRequestedRanges(
         mergeRanges([...store.requestedRanges, [0, cachedData.fetchedCount]])
       );
       store.setTotalResults(cachedData.totalResults);
-      onSuccessRef.current?.(cachedData);
+      const running = isSyncAllRunningRef.current;
+      if (running) syncAllAccumulatedRef.current += newPapersFromCache.length;
+      onSuccessRef.current?.(cachedData, {
+        isInitialSync: true,
+        addedCount: newPapersFromCache.length,
+        isSyncAllRunning: running,
+      });
       return;
     }
 
@@ -269,15 +302,31 @@ export const useSyncPapers = (
       const currentTotal = syncState.totalResults ?? 0;
       const currentStorePapers = storePapersRef.current;
 
-      // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
-      const nextStartComputed = getNextStartToRequest(
+      // 同期期間（totalResults）まで取得済みの場合は追加リクエストしない（hasMore と syncAll と同じ判定）
+      const nextStartToRequest = getNextStartToRequest(
         currentRanges,
         currentTotal,
         SYNC_MORE_BATCH_SIZE
       );
-      const useStoreCountAsStart = currentRanges.length === 0 && currentStorePapers.length > 0;
-      const effectiveStart = useStoreCountAsStart ? currentStorePapers.length : nextStartComputed;
+      if (currentTotal !== 0 && nextStartToRequest >= currentTotal) {
+        return;
+      }
 
+      // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
+      const nextStartComputed = nextStartToRequest;
+      const useStoreCountAsStart = currentRanges.length === 0 && currentStorePapers.length > 0;
+      // refetch() と syncMore の競合で requestedRanges が [0,200) を含まないまま [850,1050) だけになることがある。
+      // その場合 getNextStartToRequest が先頭ギャップで 0 を返すが、0 は refetch が担当するため重複リクエストになる。
+      // ストアに論文があるときは start=0 を送らない（0 は既に取得済みまたは refetch で取得中）。
+      const avoidStartZero =
+        nextStartComputed === 0 && currentStorePapers.length > 0 && currentRanges.length > 0;
+      const effectiveStart = avoidStartZero
+        ? currentStorePapers.length
+        : useStoreCountAsStart
+          ? currentStorePapers.length
+          : nextStartComputed;
+
+      // 二重ガード: effectiveStart が total 以上ならリクエストしない（先頭の nextStartToRequest 判定の保険）
       if (currentTotal !== 0 && effectiveStart >= currentTotal) {
         return;
       }
@@ -301,7 +350,7 @@ export const useSyncPapers = (
             start: effectiveStart,
             maxResults: 200,
           },
-          { apiKey, signal: abortSignal }
+          { apiKey, signal: abortSignal, onRateLimited: () => onRateLimitedRef.current?.() }
         );
         // 日付文字列を Date オブジェクトに正規化
         const response = normalizeSyncResponse(rawResponse);
@@ -324,7 +373,13 @@ export const useSyncPapers = (
           store.setTotalResults(response.totalResults);
           setLastSyncedAt(now());
           store.setLastSyncError(null); // 成功時にエラー表示をクリア
-          onSuccessRef.current?.(response);
+          const running = isSyncAllRunningRef.current;
+          if (running) syncAllAccumulatedRef.current += newPapers.length;
+          onSuccessRef.current?.(response, {
+            isInitialSync: false,
+            addedCount: newPapers.length,
+            isSyncAllRunning: running,
+          });
 
           // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」から実行する。
         }
@@ -357,9 +412,12 @@ export const useSyncPapers = (
   const syncAll = useCallback(async (): Promise<void> => {
     const ac = new AbortController();
     syncAllAbortRef.current = ac;
+    isSyncAllRunningRef.current = true;
+    syncAllAccumulatedRef.current = 0;
     useSyncStore.getState().setIsSyncingAll(true);
     useSyncStore.getState().setSyncAllProgress(null);
 
+    let completedNormally = false;
     try {
       sync();
 
@@ -378,16 +436,34 @@ export const useSyncPapers = (
           SYNC_MORE_BATCH_SIZE
         );
         const total = state.totalResults ?? 0;
-        if (total !== 0 && nextStart >= total) break;
+        if (total !== 0 && nextStart >= total) {
+          completedNormally = true;
+          break;
+        }
         const fetched = getStorePapers().length;
         useSyncStore.getState().setSyncAllProgress({ fetched, total });
-        await syncMore(ac.signal);
+        try {
+          await syncMore(ac.signal);
+        } catch (syncMoreErr) {
+          const e = syncMoreErr instanceof Error ? syncMoreErr : new Error(String(syncMoreErr));
+          useSyncStore.getState().setLastSyncError(e);
+          onErrorRef.current?.(e);
+          break;
+        }
         await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
       }
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      useSyncStore.getState().setLastSyncError(e);
+      onErrorRef.current?.(e);
     } finally {
+      const totalAdded = syncAllAccumulatedRef.current;
+      const wasAborted = !completedNormally;
+      isSyncAllRunningRef.current = false;
       syncAllAbortRef.current = null;
       useSyncStore.getState().setIsSyncingAll(false);
       useSyncStore.getState().setSyncAllProgress(null);
+      onSyncAllCompleteRef.current?.(totalAdded, { wasAborted });
     }
   }, [sync, syncMore, getStorePapers]);
 
