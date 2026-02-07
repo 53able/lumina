@@ -8,7 +8,7 @@ import { decryptApiKey, encryptApiKey, isEncrypted } from "../lib/crypto";
 const DEFAULT_CATEGORIES = ["cs.AI", "cs.LG", "cs.CL", "stat.ML"];
 
 /** デフォルトの同期期間 */
-const DEFAULT_SYNC_PERIOD: SyncPeriod = "7";
+const DEFAULT_SYNC_PERIOD: SyncPeriod = "1";
 
 /** 検索時のコサイン類似度のデフォルトしきい値（この値以上を表示） */
 const DEFAULT_SEARCH_SCORE_THRESHOLD = 0.3;
@@ -38,6 +38,8 @@ interface SettingsState {
   searchScoreThreshold: number;
   /** 最終同期日時（ISO文字列で永続化） */
   lastSyncedAt: string | null;
+  /** 同期期間を1日に統一するマイグレーションを実施済みか（1回限り） */
+  syncPeriodResetMigrationDone: boolean;
 }
 
 /**
@@ -94,6 +96,12 @@ interface SettingsActions {
    * @description 平文で保存されている API key を検出し、自動暗号化する
    */
   initializeStore: () => Promise<void>;
+  /**
+   * 同期期間を1日に統一するマイグレーション（1回限り実行）。
+   * persist の onFinishHydration 後に呼ぶこと。
+   * @returns マイグレーションを実行した場合 true、実施済みで何もしなかった場合 false
+   */
+  runSyncPeriodResetMigration: () => boolean;
 }
 
 type SettingsStore = SettingsState & SettingsActions;
@@ -121,6 +129,7 @@ export const useSettingsStore = create<SettingsStore>()(
         autoGenerateSummary: false,
         searchScoreThreshold: DEFAULT_SEARCH_SCORE_THRESHOLD,
         lastSyncedAt: null,
+        syncPeriodResetMigrationDone: false,
 
         // Actions
 
@@ -239,6 +248,15 @@ export const useSettingsStore = create<SettingsStore>()(
             const encrypted = await encryptApiKey(stored);
             set({ apiKey: encrypted });
           }
+        },
+
+        runSyncPeriodResetMigration: () => {
+          if (get().syncPeriodResetMigrationDone) return false;
+          set({
+            syncPeriodDays: DEFAULT_SYNC_PERIOD,
+            syncPeriodResetMigrationDone: true,
+          });
+          return true;
         },
       }),
       {

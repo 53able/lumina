@@ -61,6 +61,8 @@ class MockResizeObserver implements ResizeObserver {
 
   observe(target: Element): void {
     // 初期サイズをコールバックに通知（1200px幅を想定）
+    // Radix useSize 等は borderBoxSize[0].inlineSize を参照するため、要素を詰める
+    const size = { inlineSize: 1200, blockSize: 800 };
     const entry: ResizeObserverEntry = {
       target,
       contentRect: {
@@ -74,9 +76,9 @@ class MockResizeObserver implements ResizeObserver {
         y: 0,
         toJSON: () => ({}),
       },
-      borderBoxSize: [],
-      contentBoxSize: [],
-      devicePixelContentBoxSize: [],
+      borderBoxSize: [size],
+      contentBoxSize: [size],
+      devicePixelContentBoxSize: [size],
     };
     // 非同期でコールバックを呼び出し（実際のResizeObserverと同様）
     setTimeout(() => this.callback([entry], this), 0);

@@ -35,7 +35,7 @@ describe("settingsStore", () => {
 
       expect(state.apiKey).toBe("");
       expect(state.selectedCategories).toEqual(["cs.AI", "cs.LG", "cs.CL", "stat.ML"]);
-      expect(state.syncPeriodDays).toBe("7");
+      expect(state.syncPeriodDays).toBe("1");
     });
 
     it("正常系: localStorageから既存データをロードする", async () => {
@@ -175,7 +175,10 @@ describe("settingsStore", () => {
     it("正常系: 有効な同期期間のみ設定できる", async () => {
       const { useSettingsStore } = await import("./settingsStore");
 
-      // Act - 有効な値（SyncPeriod型: "3" | "7" | "30" | "90" | "180" | "365"）
+      // Act - 有効な値（SyncPeriod型: "1" | "3" | "7" | "30" | "90" | "180" | "365"）
+      useSettingsStore.getState().setSyncPeriodDays("1");
+      expect(useSettingsStore.getState().syncPeriodDays).toBe("1");
+
       useSettingsStore.getState().setSyncPeriodDays("3");
       expect(useSettingsStore.getState().syncPeriodDays).toBe("3");
 
@@ -264,7 +267,7 @@ describe("settingsStore", () => {
       const state = useSettingsStore.getState();
       expect(state.apiKey).toBe("");
       expect(state.selectedCategories).toEqual(["cs.AI", "cs.LG", "cs.CL", "stat.ML"]);
-      expect(state.syncPeriodDays).toBe("7");
+      expect(state.syncPeriodDays).toBe("1");
       expect(state.searchScoreThreshold).toBe(0.3);
     });
   });
@@ -297,6 +300,32 @@ describe("settingsStore", () => {
 
       useSettingsStore.getState().setSearchScoreThreshold(-0.1);
       expect(useSettingsStore.getState().searchScoreThreshold).toBe(0);
+    });
+  });
+
+  describe("同期期間リセットマイグレーション（1回限り）", () => {
+    it("未実施時: runSyncPeriodResetMigration() で同期期間が1日になり true を返す", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setSyncPeriodDays("30");
+
+      const result = useSettingsStore.getState().runSyncPeriodResetMigration();
+
+      expect(result).toBe(true);
+      expect(useSettingsStore.getState().syncPeriodDays).toBe("1");
+      expect(useSettingsStore.getState().syncPeriodResetMigrationDone).toBe(true);
+    });
+
+    it("実施済み時: runSyncPeriodResetMigration() は何もせず false を返す", async () => {
+      const { useSettingsStore } = await import("./settingsStore");
+
+      useSettingsStore.getState().setSyncPeriodDays("90");
+      useSettingsStore.getState().runSyncPeriodResetMigration();
+
+      const result = useSettingsStore.getState().runSyncPeriodResetMigration();
+
+      expect(result).toBe(false);
+      expect(useSettingsStore.getState().syncPeriodDays).toBe("1");
     });
   });
 });

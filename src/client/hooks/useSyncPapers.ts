@@ -84,7 +84,7 @@ interface SyncParams {
  * @returns クエリキー配列
  */
 const createSyncQueryKey = (params: SyncParams) =>
-  ["sync", params.categories.sort().join(","), params.period ?? "30"] as const;
+  ["sync", params.categories.sort().join(","), params.period ?? "1"] as const;
 
 /**
  * useSyncPapers - 論文同期用のフック（5分キャッシュ付き）
