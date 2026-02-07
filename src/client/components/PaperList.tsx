@@ -65,21 +65,31 @@ const LoadingSkeleton: FC = () => (
 
 /**
  * 空の状態メッセージ - Super Centered
- * @param customMessage 未指定時はデフォルトの「論文が見つかりません」を表示
+ * @param customMessage 未指定時は文脈に応じてデフォルトメッセージを表示
+ * @param isSyncing 同期中の場合、検索向けメッセージではなく「取得中」を表示する
  */
-const EmptyMessage: FC<{ customMessage?: ReactNode }> = ({ customMessage }) => (
+const EmptyMessage: FC<{ customMessage?: ReactNode; isSyncing?: boolean }> = ({
+  customMessage,
+  isSyncing = false,
+}) => (
   <div className="grid place-items-center min-h-[300px]">
     <div className="flex flex-col items-center gap-3 text-center">
       <div className="h-16 w-16 rounded-full bg-muted/50 grid place-items-center">
-        <Search className="h-8 w-8 text-muted-foreground/50" />
+        {isSyncing ? (
+          <Loader2 className="h-8 w-8 text-muted-foreground/50 animate-loading-bold" />
+        ) : (
+          <Search className="h-8 w-8 text-muted-foreground/50" />
+        )}
       </div>
       <div className="space-y-1">
-        {customMessage ?? (
+        {customMessage ?? (isSyncing ? (
+          <p className="text-lg text-muted-foreground">論文を取得しています...</p>
+        ) : (
           <>
             <p className="text-lg text-muted-foreground">論文が見つかりません</p>
             <p className="text-sm text-muted-foreground/70">検索条件を変更してお試しください</p>
           </>
-        )}
+        ))}
       </div>
     </div>
   </div>
@@ -282,7 +292,7 @@ export const PaperList: FC<PaperListProps> = ({
           {/* ローディング中は EmptyMessage を表示しない（ローディングインジケータと重複しないように） */}
           {papers.length === 0 && !isLoading && !isSearchLoading ? (
             <div className="absolute inset-0 pointer-events-none">
-              <EmptyMessage customMessage={emptyMessageProp} />
+              <EmptyMessage customMessage={emptyMessageProp} isSyncing={isSyncing} />
             </div>
           ) : null}
         </div>

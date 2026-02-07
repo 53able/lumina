@@ -77,6 +77,15 @@ describe("PaperList", () => {
       expect(screen.getByText(/論文が見つかりません/i)).toBeInTheDocument();
     });
 
+    it("正常系: 同期中で空の場合は「取得しています」が表示され検索向けメッセージは出ない", async () => {
+      const { PaperList } = await import("./PaperList");
+
+      renderWithRouter(<PaperList papers={[]} isSyncing />);
+
+      expect(screen.getByText(/論文を取得しています/)).toBeInTheDocument();
+      expect(screen.queryByText(/検索条件を変更/)).not.toBeInTheDocument();
+    });
+
     it("正常系: ローディング中はスケルトンが表示される", async () => {
       const { PaperList } = await import("./PaperList");
 
