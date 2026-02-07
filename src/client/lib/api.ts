@@ -185,8 +185,7 @@ const updateRateLimitFromResponse = (res: Response): void => {
     const resetSec = parseInt(resetRaw, 10);
     if (!Number.isNaN(resetSec)) {
       const isRelativeSec = resetSec < RATE_LIMIT_RESET_THRESHOLD_SEC;
-      const asAbsoluteMs =
-        resetSec < RATE_LIMIT_RESET_ALREADY_MS ? resetSec * 1000 : resetSec;
+      const asAbsoluteMs = resetSec < RATE_LIMIT_RESET_ALREADY_MS ? resetSec * 1000 : resetSec;
       rateLimitResetAtMs = isRelativeSec ? Date.now() + resetSec * 1000 : asAbsoluteMs;
     }
   }
@@ -367,9 +366,7 @@ const EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS = 2_000;
 
 /** 429 時のユーザー向けメッセージを組み立てる（Retry-After があれば秒数を含める） */
 const formatSyncRateLimitMessage = (retryAfterSec: number | undefined): string =>
-  typeof retryAfterSec === "number" &&
-  Number.isFinite(retryAfterSec) &&
-  retryAfterSec > 0
+  typeof retryAfterSec === "number" && Number.isFinite(retryAfterSec) && retryAfterSec > 0
     ? `リクエストが集中しています。${retryAfterSec}秒ほど待ってから再度お試しください。`
     : "リクエストが集中しています。しばらく待ってから再度お試しください。";
 
@@ -434,10 +431,7 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
     if (lastRes.status === 429) {
       const retryAfterRaw = lastRes.headers.get("retry-after");
       const retryAfterSec = retryAfterRaw ? parseInt(retryAfterRaw, 10) : undefined;
-      throw new SyncRateLimitError(
-        formatSyncRateLimitMessage(retryAfterSec),
-        retryAfterSec
-      );
+      throw new SyncRateLimitError(formatSyncRateLimitMessage(retryAfterSec), retryAfterSec);
     }
     throw new Error(
       detail ? `Sync failed: ${lastRes.status}: ${detail}` : `Sync failed: ${lastRes.status}`
