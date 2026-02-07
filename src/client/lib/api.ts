@@ -9,7 +9,7 @@
 import { hc } from "hono/client";
 import type { AppType } from "@/api/app";
 import { useSettingsStore } from "@/client/stores/settingsStore";
-import type { SearchRequest } from "@/shared/schemas/index";
+import type { SearchRequest, SyncPeriod } from "@/shared/schemas/index";
 
 /**
  * APIクライアントのベースURL
@@ -327,7 +327,7 @@ export const embeddingBatchApi = async (
  */
 type SyncApiInput = {
   categories: string[];
-  period?: "7" | "30" | "90" | "180" | "365";
+  period?: SyncPeriod;
   maxResults?: number;
   /** 開始位置（ページング用） */
   start?: number;
@@ -363,7 +363,11 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
   let retryCount = 0;
 
   const isRetryableStatus = (s: number) => s === 429 || s === 503;
-  while (!lastRes.ok && isRetryableStatus(lastRes.status) && retryCount < SYNC_RATE_LIMIT_MAX_RETRIES) {
+  while (
+    !lastRes.ok &&
+    isRetryableStatus(lastRes.status) &&
+    retryCount < SYNC_RATE_LIMIT_MAX_RETRIES
+  ) {
     if (opts.signal?.aborted) {
       throw new DOMException("Sync aborted", "AbortError");
     }
