@@ -354,7 +354,7 @@ export const syncApi = async (request: SyncApiInput, options?: ApiOptions) => {
   const body = {
     categories: request.categories,
     period: request.period ?? "30",
-    maxResults: request.maxResults ?? 50,
+    maxResults: request.maxResults,
     start: request.start ?? 0,
   };
 

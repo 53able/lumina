@@ -40,7 +40,7 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
       const effectivePeriod = body.period ?? "7";
       const arxivResult = await fetchArxivPapers({
         categories: body.categories,
-        maxResults: body.maxResults ?? 50,
+        maxResults: body.maxResults ?? 200,
         start: body.start ?? 0,
         period: effectivePeriod,
       });
@@ -61,12 +61,15 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
         }
       })();
 
-      return c.json({
-        papers: papersWithEmbedding,
-        fetchedCount: papersWithEmbedding.length,
-        totalResults: arxivResult.totalResults,
-        took: measureTime(startTime),
-      });
+      return c.json(
+        {
+          papers: papersWithEmbedding,
+          fetchedCount: papersWithEmbedding.length,
+          totalResults: arxivResult.totalResults,
+          took: measureTime(startTime),
+        },
+        200
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       if (error instanceof ArxivRateLimitError) {

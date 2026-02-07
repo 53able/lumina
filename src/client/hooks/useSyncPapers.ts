@@ -2,7 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Paper, SyncPeriod, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
-import { embeddingApi, embeddingBatchApi, getDecryptedApiKey, syncApi } from "../lib/api";
+import {
+  embeddingApi,
+  embeddingBatchApi,
+  getDecryptedApiKey,
+  syncApi,
+  SyncRateLimitError,
+} from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
 import { getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
 import { usePaperStore } from "../stores/paperStore";
@@ -154,6 +160,8 @@ export const useSyncPapers = (
     fetched: number;
     total: number;
   } | null>(null);
+  /** 直近の同期エラー（refetch または syncMore で発生。429 時は UI でメッセージ表示用） */
+  const [lastSyncError, setLastSyncError] = useState<Error | null>(null);
 
   const queryKey = createSyncQueryKey(params);
 
@@ -169,6 +177,7 @@ export const useSyncPapers = (
           categories: params.categories,
           period: params.period,
           start: 0, // 初回は常に0から
+          maxResults: 200,
         },
         { apiKey }
       );
@@ -199,15 +208,18 @@ export const useSyncPapers = (
     setRequestedRanges((prev) => mergeRanges([...prev, [0, data.fetchedCount]]));
     setTotalResults(data.totalResults);
     setLastSyncedAt(now()); // 最終同期日時を更新
+    setLastSyncError(null); // 成功時にエラー表示をクリア
     onSuccessRef.current?.(data);
 
     // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」ボタンから実行する。
   }, [data, addPapers, setLastSyncedAt]);
 
-  // エラー時の処理
+  // エラー時の処理（query の error を保持し、onError コールバックを呼ぶ）
   useEffect(() => {
     if (error) {
-      onErrorRef.current?.(error instanceof Error ? error : new Error(String(error)));
+      const err = error instanceof Error ? error : new Error(String(error));
+      setLastSyncError(err);
+      onErrorRef.current?.(err);
     }
   }, [error]);
 
@@ -282,6 +294,7 @@ export const useSyncPapers = (
           categories: params.categories,
           period: params.period,
           start: effectiveStart,
+          maxResults: 200,
         },
         { apiKey }
       );
@@ -301,12 +314,15 @@ export const useSyncPapers = (
         );
         setTotalResults(response.totalResults);
         setLastSyncedAt(now());
+        setLastSyncError(null); // 成功時にエラー表示をクリア
         onSuccessRef.current?.(response);
 
         // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」から実行する。
       }
     } catch (err) {
-      onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
+      const e = err instanceof Error ? err : new Error(String(err));
+      setLastSyncError(e);
+      onErrorRef.current?.(e);
     } finally {
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
@@ -418,7 +434,10 @@ export const useSyncPapers = (
     hasMore,
     /** 全件数 */
     totalResults,
-    /** エラー */
+    /** エラー（React Query の refetch 由来） */
     error: error instanceof Error ? error : null,
+    /** 429 レート制限エラー時のみセット。SyncStatusBar で「状況＋対処」を表示するために使う */
+    syncRateLimitError:
+      lastSyncError instanceof SyncRateLimitError ? lastSyncError : null,
   };
 };
