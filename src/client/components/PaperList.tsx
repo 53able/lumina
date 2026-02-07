@@ -82,14 +82,15 @@ const EmptyMessage: FC<{ customMessage?: ReactNode; isSyncing?: boolean }> = ({
         )}
       </div>
       <div className="space-y-1">
-        {customMessage ?? (isSyncing ? (
-          <p className="text-lg text-muted-foreground">論文を取得しています...</p>
-        ) : (
-          <>
-            <p className="text-lg text-muted-foreground">論文が見つかりません</p>
-            <p className="text-sm text-muted-foreground/70">検索条件を変更してお試しください</p>
-          </>
-        ))}
+        {customMessage ??
+          (isSyncing ? (
+            <p className="text-lg text-muted-foreground">論文を取得しています...</p>
+          ) : (
+            <>
+              <p className="text-lg text-muted-foreground">論文が見つかりません</p>
+              <p className="text-sm text-muted-foreground/70">検索条件を変更してお試しください</p>
+            </>
+          ))}
       </div>
     </div>
   </div>
