@@ -68,6 +68,30 @@ const SYNC_STALE_TIME = 5 * 60 * 1000;
 /** syncMore の1リクエストあたりの取得件数（APIデフォルトと一致） */
 const SYNC_MORE_BATCH_SIZE = 50;
 
+/** 既存論文 ID の最大送信数（リクエストサイズとサーバ負荷のバランス） */
+const EXISTING_PAPER_IDS_MAX = 2000;
+
+/**
+ * 既存論文IDの送信対象をページ範囲に合わせて抽出する
+ * @param papers 既存論文配列
+ * @param start 同期開始位置
+ * @param maxResults 1リクエストあたりの取得件数
+ */
+const buildExistingPaperIdsForRange = (
+  papers: Paper[],
+  start: number,
+  maxResults: number
+): string[] | undefined => {
+  const range = papers.slice(start, start + maxResults);
+  if (range.length > 0) {
+    return range.map((p) => p.id);
+  }
+  if (papers.length > 0) {
+    return papers.slice(0, EXISTING_PAPER_IDS_MAX).map((p) => p.id);
+  }
+  return undefined;
+};
+
 /**
  * 同期APIの入力パラメータ
  */
@@ -181,12 +205,19 @@ export const useSyncPapers = (
       const apiKeyPromise = getDecryptedApiKey();
       const apiKey = await apiKeyPromise;
 
+      const currentPapers =
+        typeof usePaperStore.getState === "function"
+          ? usePaperStore.getState().papers
+          : storePapersRef.current;
+      const existingPaperIds = buildExistingPaperIdsForRange(currentPapers, 0, 200);
+
       const response = await syncApi(
         {
           categories: params.categories,
           period: params.period,
           start: 0, // 初回は常に0から
           maxResults: 200,
+          ...(existingPaperIds != null && existingPaperIds.length > 0 ? { existingPaperIds } : {}),
         },
         { apiKey, signal, onRateLimited: () => onRateLimitedRef.current?.() }
       );
@@ -343,12 +374,22 @@ export const useSyncPapers = (
         const apiKeyPromise = getDecryptedApiKey();
         const apiKey = await apiKeyPromise;
 
+        const currentStorePapers = storePapersRef.current;
+        const existingPaperIds = buildExistingPaperIdsForRange(
+          currentStorePapers,
+          effectiveStart,
+          200
+        );
+
         const rawResponse = await syncApi(
           {
             categories: params.categories,
             period: params.period,
             start: effectiveStart,
             maxResults: 200,
+            ...(existingPaperIds != null && existingPaperIds.length > 0
+              ? { existingPaperIds }
+              : {}),
           },
           { apiKey, signal: abortSignal, onRateLimited: () => onRateLimitedRef.current?.() }
         );

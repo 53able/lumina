@@ -222,5 +222,78 @@ describe("同期API", () => {
       // Assert
       expect(response.status).toBe(400);
     });
+
+    it("existingPaperIds が無いときは従来どおり全件 Embedding になる", async () => {
+      const request = new Request("http://localhost/api/v1/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenAI-API-Key": openAIKeyHeader,
+        },
+        body: JSON.stringify({
+          categories: ["cs.AI"],
+          period: "7",
+          maxResults: 10,
+        }),
+      });
+      const response = await app.request(request);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.papers).toHaveLength(2);
+      expect(body.papers[0].embedding).toHaveLength(EMBEDDING_DIMENSION);
+      expect(body.papers[1].embedding).toHaveLength(EMBEDDING_DIMENSION);
+      expect(createEmbeddingsBatch).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(createEmbeddingsBatch).mock.calls[0][0]).toHaveLength(2);
+    });
+
+    it("existingPaperIds に含まれる ID の論文は Embedding を生成せず、新規のみ createEmbeddingsBatch に渡す", async () => {
+      // モックは 2 件: id は 2401.00001, 2401.00002（arxiv URL から抽出）
+      const request = new Request("http://localhost/api/v1/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenAI-API-Key": openAIKeyHeader,
+        },
+        body: JSON.stringify({
+          categories: ["cs.AI"],
+          period: "7",
+          maxResults: 10,
+          existingPaperIds: ["2401.00001"],
+        }),
+      });
+      const response = await app.request(request);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.papers).toHaveLength(2);
+      const paper1 = body.papers.find((p: { id: string }) => p.id === "2401.00001");
+      const paper2 = body.papers.find((p: { id: string }) => p.id === "2401.00002");
+      expect(paper1.embedding).toBeUndefined();
+      expect(paper2.embedding).toHaveLength(EMBEDDING_DIMENSION);
+      expect(createEmbeddingsBatch).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(createEmbeddingsBatch).mock.calls[0][0]).toHaveLength(1);
+    });
+
+    it("existingPaperIds が空配列のときは従来どおり全件 Embedding", async () => {
+      const request = new Request("http://localhost/api/v1/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenAI-API-Key": openAIKeyHeader,
+        },
+        body: JSON.stringify({
+          categories: ["cs.AI"],
+          period: "7",
+          maxResults: 10,
+          existingPaperIds: [],
+        }),
+      });
+      const response = await app.request(request);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.papers[0].embedding).toHaveLength(EMBEDDING_DIMENSION);
+      expect(body.papers[1].embedding).toHaveLength(EMBEDDING_DIMENSION);
+      expect(createEmbeddingsBatch).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(createEmbeddingsBatch).mock.calls[0][0]).toHaveLength(2);
+    });
   });
 });

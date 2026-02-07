@@ -363,6 +363,8 @@ type SyncApiInput = {
   maxResults?: number;
   /** 開始位置（ページング用） */
   start?: number;
+  /** 既に保持している論文の ID。サーバは含まれる論文の Embedding を生成しない。 */
+  existingPaperIds?: string[];
 };
 
 /** sync 429 リトライ: 最大回数（embedding と同一バケットのため 429 になりうる） */
@@ -403,6 +405,9 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
     period: request.period ?? "30",
     maxResults: request.maxResults,
     start: request.start ?? 0,
+    ...(request.existingPaperIds != null && request.existingPaperIds.length > 0
+      ? { existingPaperIds: request.existingPaperIds }
+      : {}),
   };
 
   let lastRes = await client.api.v1.sync.$post({ json: body }, opts);
