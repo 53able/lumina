@@ -206,7 +206,7 @@ export const PaperList: FC<PaperListProps> = ({
             className="relative w-full"
             style={{ height: `${totalSize}px` }}
           >
-            {/* 仮想化された行をレンダリング */}
+            {/* 仮想化された行をレンダリング（content-visibility でオフスクリーン行の描画を遅延） */}
             {virtualRows.map((virtualRow) => {
               const { index, start, items: rowItems, isExpanded } = virtualRow;
 
@@ -215,7 +215,7 @@ export const PaperList: FC<PaperListProps> = ({
                   key={`row-${index}`}
                   data-index={index}
                   ref={measureElement}
-                  className="absolute left-0 right-0"
+                  className="absolute left-0 right-0 [content-visibility:auto] [contain-intrinsic-size:0_252px]"
                   style={{
                     top: `${start}px`,
                     zIndex: isExpanded ? 10 : 1,
@@ -300,13 +300,14 @@ export const PaperList: FC<PaperListProps> = ({
       </div>
 
       {/* 無限スクロール用のローダー / 全件表示完了メッセージ */}
+      {/* 0件で空状態メッセージ（例: APIキー必要）を表示しているときはフッターに「取得中」を出さない（表示の整合性） */}
       <div className="flex justify-center py-6" data-testid="paper-list-loader">
-        {isSyncing ? (
+        {isSyncing && papers.length > 0 ? (
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-loading-bold text-primary" />
             <span className="font-bold">古い論文を取得中...</span>
           </div>
-        ) : (
+        ) : isSyncing ? null : (
           // onRequestSync がない = 追加読み込み不可（検索/フィルタ中）の場合のみ表示
           // 追加読み込みが可能な状態では、まだデータがあるかもしれないので表示しない
           !onRequestSync &&
