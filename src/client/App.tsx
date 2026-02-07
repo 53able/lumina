@@ -21,6 +21,7 @@ import { useSearchFromUrl } from "./hooks/useSearchFromUrl";
 import { useSearchHistorySync } from "./hooks/useSearchHistorySync";
 import { useSemanticSearch } from "./hooks/useSemanticSearch";
 import { useSyncPapers } from "./hooks/useSyncPapers";
+import { SyncRateLimitError } from "./lib/api";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
@@ -256,19 +257,40 @@ const HomePage: FC = () => {
       period: syncPeriodDays,
     },
     {
-      onSuccess: (data) => {
-        if (data.papers.length > 0) {
+      onSuccess: (_data, context) => {
+        if (context?.addedCount != null && context.addedCount > 0) {
           toast.success("同期完了", {
-            description: `${data.papers.length}件の論文を取得しました`,
+            description: `${context.addedCount}件の論文をキャッシュしました`,
+          });
+        }
+      },
+      onSyncAllComplete: (totalAddedCount, context) => {
+        if (totalAddedCount <= 0) return;
+        if (context?.wasAborted) {
+          toast.success("取得を停止しました", {
+            description: `この間 ${totalAddedCount}件の論文をキャッシュしました`,
+          });
+        } else {
+          toast.success("同期完了", {
+            description: `${totalAddedCount}件の論文をキャッシュしました`,
           });
         }
       },
       onError: (error) => {
         console.error("Sync error:", error);
-        const message = error instanceof Error ? error.message : "論文の同期に失敗しました";
-        toast.error("同期エラー", {
-          description: message,
-        });
+        if (error instanceof SyncRateLimitError) {
+          toast.error("レート制限（429）", {
+            description: error.message,
+          });
+        } else {
+          const message = error instanceof Error ? error.message : "論文の同期に失敗しました";
+          toast.error("同期エラー", {
+            description: message,
+          });
+        }
+      },
+      onRateLimited: () => {
+        toast.info("レート制限（429）のため再試行しています");
       },
     }
   );
