@@ -4,7 +4,7 @@ import { PaperSchema } from "./paper";
 /**
  * 同期期間（日数）
  */
-export const SyncPeriodSchema = z.enum(["1", "3", "7", "30", "90", "180", "365"]);
+export const SyncPeriodSchema = z.enum(["3", "7", "30", "90", "180", "365"]);
 
 export type SyncPeriod = z.infer<typeof SyncPeriodSchema>;
 
@@ -15,7 +15,7 @@ export const SyncRequestSchema = z.object({
   /** 対象カテゴリ */
   categories: z.array(z.string()).min(1),
   /** 同期期間（日数） */
-  period: SyncPeriodSchema.default("1"),
+  period: SyncPeriodSchema.default("3"),
   /** 最大取得件数 */
   maxResults: z.number().int().min(1).max(200).default(100),
   /** 開始位置（ページング用） */
