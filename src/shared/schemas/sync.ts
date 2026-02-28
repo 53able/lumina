@@ -20,6 +20,16 @@ export const SyncRequestSchema = z.object({
   maxResults: z.number().int().min(1).max(200).default(100),
   /** 開始位置（ページング用） */
   start: z.number().int().nonnegative().default(0),
+  /** 取得範囲の開始日（YYYY-MM-DD）。指定時はこの日 00:00 〜 今日 を範囲とする（period は無視）。 */
+  fromDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  /** 取得範囲の終了日（YYYY-MM-DD）。指定時は範囲を [toDate − period, toDate] とする（少ない日クリック用）。 */
+  toDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   /** 既に保持している論文の ID。含まれる論文は Embedding を生成せずに返す（新規のみ Embedding）。 */
   existingPaperIds: z.array(z.string()).max(2000).optional(),
 });
