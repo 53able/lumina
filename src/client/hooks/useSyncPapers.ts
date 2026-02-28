@@ -77,6 +77,17 @@ const SYNC_FROM_DATE_PAGE_SIZE = 200;
 /** 1 回の syncFromDate で行う最大リクエスト数（totalResults が過大な場合の打ち止め。50 × 200 = 最大 10,000 件） */
 const SYNC_FROM_DATE_MAX_PAGES = 50;
 
+/** unknown を確実に Error に変換する */
+const toError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
+
+/**
+ * 既存論文IDセットに含まれない新規論文のみを返す
+ */
+const filterNewPapers = (papers: Paper[], existingPapers: Paper[]): Paper[] => {
+  const existingIds = new Set(existingPapers.map((p) => p.id));
+  return papers.filter((p) => !existingIds.has(p.id));
+};
+
 /**
  * 既存論文IDの送信対象をページ範囲に合わせて抽出する
  * @param papers 既存論文配列
@@ -96,6 +107,29 @@ const buildExistingPaperIdsForRange = (
     return papers.slice(0, EXISTING_PAPER_IDS_MAX).map((p) => p.id);
   }
   return undefined;
+};
+
+/**
+ * syncMore で次にリクエストすべき開始位置を計算する
+ *
+ * - ranges が空でストアに論文がある場合: refetch 完了前のためストア件数を使用
+ * - next が 0 でストアに論文がある場合: refetch と重複するため skip し、ストア件数を使用
+ * - それ以外: getNextStartToRequest の計算値をそのまま使用
+ *
+ * @returns 次の開始位置。totalResults に達している場合は null を返す
+ */
+const computeEffectiveStart = (
+  ranges: [number, number][],
+  total: number,
+  storePapers: Paper[]
+): number | null => {
+  const next = getNextStartToRequest(ranges, total, SYNC_MORE_BATCH_SIZE);
+  if (total !== 0 && next >= total) return null;
+
+  if (storePapers.length === 0) return next;
+  if (ranges.length === 0) return storePapers.length;
+  if (next === 0) return storePapers.length;
+  return next;
 };
 
 /**
@@ -213,6 +247,39 @@ export const useSyncPapers = (
       : storePapersRef.current;
   }, []);
 
+  /**
+   * 同期成功時の共通処理: ストア更新・タイムスタンプ更新・onSuccess コールバック呼び出し
+   *
+   * @param response 同期レスポンス
+   * @param rangeStart 取得開始位置（0 = 初回、n = syncMore）
+   * @param newPapers ストアに追加した新規論文
+   * @param isInitialSync 初回同期（refetch/キャッシュ）か syncMore かの識別
+   */
+  const commitSyncResult = useCallback(
+    (
+      response: SyncResponse,
+      rangeStart: number,
+      newPapers: Paper[],
+      isInitialSync: boolean
+    ): void => {
+      const store = useSyncStore.getState();
+      store.setRequestedRanges(
+        mergeRanges([...store.requestedRanges, [rangeStart, rangeStart + response.fetchedCount]])
+      );
+      store.setTotalResults(response.totalResults);
+      setLastSyncedAt(now());
+      store.setLastSyncError(null);
+      const running = isSyncAllRunningRef.current;
+      if (running) syncAllAccumulatedRef.current += newPapers.length;
+      onSuccessRef.current?.(response, {
+        isInitialSync,
+        addedCount: newPapers.length,
+        isSyncAllRunning: running,
+      });
+    },
+    [setLastSyncedAt]
+  );
+
   const queryKey = createSyncQueryKey(params);
 
   const { data, isFetching, error, refetch } = useQuery({
@@ -222,10 +289,7 @@ export const useSyncPapers = (
       const apiKeyPromise = getDecryptedApiKey();
       const apiKey = await apiKeyPromise;
 
-      const currentPapers =
-        typeof usePaperStore.getState === "function"
-          ? usePaperStore.getState().papers
-          : storePapersRef.current;
+      const currentPapers = getStorePapers();
       const existingPaperIds = buildExistingPaperIdsForRange(currentPapers, 0, 200);
 
       const response = await syncApi(
@@ -250,33 +314,18 @@ export const useSyncPapers = (
   useEffect(() => {
     if (!data || data.papers.length === 0) return;
 
-    const currentStorePapers =
-      typeof usePaperStore.getState === "function"
-        ? usePaperStore.getState().papers
-        : storePapersRef.current;
+    const currentStorePapers = getStorePapers();
 
     // DBに既に存在する論文をスキップ
-    const existingPaperIds = new Set(currentStorePapers.map((p) => p.id));
-    const newPapers = data.papers.filter((p) => !existingPaperIds.has(p.id));
+    const newPapers = filterNewPapers(data.papers, currentStorePapers);
 
     if (newPapers.length > 0) {
       addPapers(newPapers);
     }
-    const store = useSyncStore.getState();
-    store.setRequestedRanges(mergeRanges([...store.requestedRanges, [0, data.fetchedCount]]));
-    store.setTotalResults(data.totalResults);
-    setLastSyncedAt(now()); // 最終同期日時を更新
-    store.setLastSyncError(null); // 成功時にエラー表示をクリア
-    const running = isSyncAllRunningRef.current;
-    if (running) syncAllAccumulatedRef.current += newPapers.length;
-    onSuccessRef.current?.(data, {
-      isInitialSync: true,
-      addedCount: newPapers.length,
-      isSyncAllRunning: running,
-    });
+    commitSyncResult(data, 0, newPapers, true);
 
     // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」ボタンから実行する。
-  }, [data, addPapers, setLastSyncedAt]);
+  }, [data, addPapers, commitSyncResult, getStorePapers]);
 
   // エラー時の処理（query の error を保持し、onError コールバックを呼ぶ）
   // ユーザーが停止した場合（AbortError）はエラー表示しない
@@ -284,7 +333,7 @@ export const useSyncPapers = (
     if (!error) return;
     const isAbort = error instanceof DOMException && error.name === "AbortError";
     if (isAbort) return;
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = toError(error);
     useSyncStore.getState().setLastSyncError(err);
     onErrorRef.current?.(err);
   }, [error]);
@@ -304,12 +353,8 @@ export const useSyncPapers = (
 
     if (cachedData && !isStale) {
       // キャッシュが有効 → 再利用（APIを叩かない）。既存を除いた分だけストアに追加
-      const currentStorePapers =
-        typeof usePaperStore.getState === "function"
-          ? usePaperStore.getState().papers
-          : storePapersRef.current;
-      const existingPaperIds = new Set(currentStorePapers.map((p) => p.id));
-      const newPapersFromCache = cachedData.papers.filter((p) => !existingPaperIds.has(p.id));
+      const currentStorePapers = getStorePapers();
+      const newPapersFromCache = filterNewPapers(cachedData.papers, currentStorePapers);
       if (newPapersFromCache.length > 0) {
         addPapers(newPapersFromCache);
       }
@@ -332,7 +377,7 @@ export const useSyncPapers = (
     useSyncStore.getState().setRequestedRanges([]);
     useSyncStore.getState().setTotalResults(null);
     void refetch();
-  }, [queryClient, queryKey, addPapers, refetch]);
+  }, [queryClient, queryKey, addPapers, refetch, getStorePapers]);
 
   // 追加同期実行関数（次のページを取得）。syncAll ループから呼ばれても最新状態を参照するため ref を使用
   /** @param abortSignal syncAll から呼ぶときに渡すと、停止ボタンでこのリクエストを中止できる */
@@ -350,32 +395,8 @@ export const useSyncPapers = (
       const currentTotal = syncState.totalResults ?? 0;
       const currentStorePapers = storePapersRef.current;
 
-      // 同期期間（totalResults）まで取得済みの場合は追加リクエストしない（hasMore と syncAll と同じ判定）
-      const nextStartToRequest = getNextStartToRequest(
-        currentRanges,
-        currentTotal,
-        SYNC_MORE_BATCH_SIZE
-      );
-      if (currentTotal !== 0 && nextStartToRequest >= currentTotal) {
-        return;
-      }
-
-      // 次にリクエストすべき start（ギャップがあればその先頭、なければ先頭の連続の次）
-      const nextStartComputed = nextStartToRequest;
-      const useStoreCountAsStart = currentRanges.length === 0 && currentStorePapers.length > 0;
-      // refetch() と syncMore の競合で requestedRanges が [0,200) を含まないまま [850,1050) だけになることがある。
-      // その場合 getNextStartToRequest が先頭ギャップで 0 を返すが、0 は refetch が担当するため重複リクエストになる。
-      // ストアに論文があるときは start=0 を送らない（0 は既に取得済みまたは refetch で取得中）。
-      const avoidStartZero =
-        nextStartComputed === 0 && currentStorePapers.length > 0 && currentRanges.length > 0;
-      const effectiveStart = avoidStartZero
-        ? currentStorePapers.length
-        : useStoreCountAsStart
-          ? currentStorePapers.length
-          : nextStartComputed;
-
-      // 二重ガード: effectiveStart が total 以上ならリクエストしない（先頭の nextStartToRequest 判定の保険）
-      if (currentTotal !== 0 && effectiveStart >= currentTotal) {
+      const effectiveStart = computeEffectiveStart(currentRanges, currentTotal, currentStorePapers);
+      if (effectiveStart === null) {
         return;
       }
 
@@ -412,39 +433,19 @@ export const useSyncPapers = (
         // 日付文字列を Date オブジェクトに正規化
         const response = normalizeSyncResponse(rawResponse);
 
+        // DBに既に存在する論文をスキップ（syncAll ループ内では storePapersRef が最新）
+        const newPapers = filterNewPapers(response.papers, storePapersRef.current);
+        if (newPapers.length > 0) {
+          addPapers(newPapers);
+        }
         if (response.papers.length > 0) {
-          // DBに既に存在する論文をスキップ（syncAll ループ内では storePapersRef が最新）
-          const existingPaperIds = new Set(storePapersRef.current.map((p) => p.id));
-          const newPapers = response.papers.filter((p) => !existingPaperIds.has(p.id));
-
-          if (newPapers.length > 0) {
-            addPapers(newPapers);
-          }
-          const store = useSyncStore.getState();
-          store.setRequestedRanges(
-            mergeRanges([
-              ...store.requestedRanges,
-              [effectiveStart, effectiveStart + response.fetchedCount],
-            ])
-          );
-          store.setTotalResults(response.totalResults);
-          setLastSyncedAt(now());
-          store.setLastSyncError(null); // 成功時にエラー表示をクリア
-          const running = isSyncAllRunningRef.current;
-          if (running) syncAllAccumulatedRef.current += newPapers.length;
-          onSuccessRef.current?.(response, {
-            isInitialSync: false,
-            addedCount: newPapers.length,
-            isSyncAllRunning: running,
-          });
-
-          // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」から実行する。
+          commitSyncResult(response, effectiveStart, newPapers, false);
         }
       } catch (err) {
         // ユーザーが停止した場合はエラー扱いにしない
         const isAbort = err instanceof DOMException && err.name === "AbortError";
         if (!isAbort) {
-          const e = err instanceof Error ? err : new Error(String(err));
+          const e = toError(err);
           useSyncStore.getState().setLastSyncError(e);
           onErrorRef.current?.(e);
         }
@@ -453,7 +454,7 @@ export const useSyncPapers = (
         useSyncStore.getState().setIsLoadingMore(false);
       }
     },
-    [params, addPapers, setLastSyncedAt]
+    [params, addPapers, commitSyncResult]
   );
 
   // まだ論文があるかどうか（ギャップがあればその補填も含む）
@@ -502,7 +503,7 @@ export const useSyncPapers = (
         try {
           await syncMore(ac.signal);
         } catch (syncMoreErr) {
-          const e = syncMoreErr instanceof Error ? syncMoreErr : new Error(String(syncMoreErr));
+          const e = toError(syncMoreErr);
           useSyncStore.getState().setLastSyncError(e);
           onErrorRef.current?.(e);
           break;
@@ -510,7 +511,7 @@ export const useSyncPapers = (
         await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
       }
     } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
+      const e = toError(err);
       useSyncStore.getState().setLastSyncError(e);
       onErrorRef.current?.(e);
     } finally {
@@ -614,8 +615,7 @@ export const useSyncPapers = (
             { apiKey, onRateLimited: () => onRateLimitedRef.current?.() }
           );
           const response = normalizeSyncResponse(rawResponse);
-          const existingIds = new Set(getStorePapers().map((p) => p.id));
-          const newPapers = response.papers.filter((p) => !existingIds.has(p.id));
+          const newPapers = filterNewPapers(response.papers, getStorePapers());
           if (newPapers.length > 0) {
             addPapers(newPapers);
           }
@@ -632,7 +632,7 @@ export const useSyncPapers = (
         setLastSyncedAt(now());
         onSyncFromDateSuccessRef.current?.(totalAdded, totalFetched);
       } catch (err) {
-        const e = err instanceof Error ? err : new Error(String(err));
+        const e = toError(err);
         onSyncFromDateErrorRef.current?.(e);
       } finally {
         setIsSyncingFromDate(false);

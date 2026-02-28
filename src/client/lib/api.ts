@@ -275,25 +275,15 @@ export class SyncRateLimitError extends Error {
 }
 
 /**
- * Embedding API
+ * Embedding API レスポンスの共通処理
  *
- * テキストから Embedding ベクトルを生成する。
- * 429 のときはリトライせず EmbeddingRateLimitError を投げる。呼び出し元（バックフィル）で停止し、次回再開する。
+ * RateLimit ヘッダー更新・429/エラーチェック・タイムスタンプ更新・レスポンス JSON 返却を一括で行う。
+ * embeddingApi / embeddingBatchApi の共通後処理として使用する。
  *
- * @param request { text: string } 対象テキスト（1〜8000文字）
- * @param options APIオプション
- * @returns embedding 配列（1536次元）
  * @throws EmbeddingRateLimitError 429 時
- * @throws Error その他の API エラー時
+ * @throws Error その他のエラー時
  */
-export const embeddingApi = async (
-  request: { text: string },
-  options?: ApiOptions
-): Promise<{ embedding: number[] }> => {
-  const opts = withApiKey(options);
-
-  await waitForEmbeddingInterval();
-  const res = await client.api.v1.embedding.$post({ json: request }, opts);
+const handleEmbeddingResponse = async <T>(res: Response): Promise<T> => {
   updateRateLimitFromResponse(res);
 
   // レートリミット middleware が 429 を返す場合がある（RPC 型には含まれないため status を number で比較）
@@ -311,7 +301,29 @@ export const embeddingApi = async (
   }
 
   lastEmbeddingSentAtMs = Date.now();
-  return res.json();
+  return res.json() as Promise<T>;
+};
+
+/**
+ * Embedding API
+ *
+ * テキストから Embedding ベクトルを生成する。
+ * 429 のときはリトライせず EmbeddingRateLimitError を投げる。呼び出し元（バックフィル）で停止し、次回再開する。
+ *
+ * @param request { text: string } 対象テキスト（1〜8000文字）
+ * @param options APIオプション
+ * @returns embedding 配列（1536次元）
+ * @throws EmbeddingRateLimitError 429 時
+ * @throws Error その他の API エラー時
+ */
+export const embeddingApi = async (
+  request: { text: string },
+  options?: ApiOptions
+): Promise<{ embedding: number[] }> => {
+  const opts = withApiKey(options);
+  await waitForEmbeddingInterval();
+  const res = await client.api.v1.embedding.$post({ json: request }, opts);
+  return handleEmbeddingResponse<{ embedding: number[] }>(res);
 };
 
 /**
@@ -330,28 +342,10 @@ export const embeddingBatchApi = async (
   options?: ApiOptions
 ): Promise<{ embeddings: number[][] }> => {
   const opts = withApiKey(options);
-
   // バッチ 1 リクエスト = 1 スロット。2 回目以降の待ちを短くする
   await waitForEmbeddingInterval(1);
   const res = await client.api.v1.embedding.batch.$post({ json: request }, opts);
-  updateRateLimitFromResponse(res);
-
-  // レートリミット middleware が 429 を返す場合がある（RPC 型には含まれないため status を number で比較）
-  if (!res.ok && (res.status as number) === 429) {
-    throw new EmbeddingRateLimitError();
-  }
-
-  if (!res.ok) {
-    const error = await res.json();
-    const message =
-      error && typeof error === "object" && "error" in error
-        ? String((error as { error: unknown }).error)
-        : "Embeddingの取得に失敗しました";
-    throw new Error(message);
-  }
-
-  lastEmbeddingSentAtMs = Date.now();
-  return res.json();
+  return handleEmbeddingResponse<{ embeddings: number[][] }>(res);
 };
 
 /**
