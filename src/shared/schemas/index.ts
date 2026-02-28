@@ -53,6 +53,12 @@ export {
   SearchResponseSchema,
 } from "./search.js";
 
+// Stats（論文キャッシュの日別集計）
+export {
+  type DailyCountEntry,
+  DailyCountEntrySchema,
+} from "./stats.js";
+
 // Sync
 export {
   type SyncPeriod,

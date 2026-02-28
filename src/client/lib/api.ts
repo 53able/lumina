@@ -363,6 +363,10 @@ type SyncApiInput = {
   maxResults?: number;
   /** 開始位置（ページング用） */
   start?: number;
+  /** 取得範囲の開始日（YYYY-MM-DD）。指定時はこの日〜今日を範囲とする */
+  fromDate?: string;
+  /** 取得範囲の終了日（YYYY-MM-DD）。指定時は範囲を [toDate − period, toDate] とする */
+  toDate?: string;
   /** 既に保持している論文の ID。サーバは含まれる論文の Embedding を生成しない。 */
   existingPaperIds?: string[];
 };
@@ -405,6 +409,8 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
     period: request.period ?? "30",
     maxResults: request.maxResults,
     start: request.start ?? 0,
+    ...(request.fromDate != null ? { fromDate: request.fromDate } : {}),
+    ...(request.toDate != null ? { toDate: request.toDate } : {}),
     ...(request.existingPaperIds != null && request.existingPaperIds.length > 0
       ? { existingPaperIds: request.existingPaperIds }
       : {}),

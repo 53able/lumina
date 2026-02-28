@@ -43,6 +43,8 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
         maxResults: body.maxResults ?? 200,
         start: body.start ?? 0,
         period: effectivePeriod,
+        ...(body.fromDate != null ? { fromDate: body.fromDate } : {}),
+        ...(body.toDate != null ? { toDate: body.toDate } : {}),
       });
 
       const existingIdSet =

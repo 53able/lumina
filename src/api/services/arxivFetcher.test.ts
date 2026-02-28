@@ -209,5 +209,55 @@ describe("arXivFetcher", () => {
       expect(url).toContain("submittedDate");
       expect(url).toContain("TO");
     });
+
+    it("fromDate 指定時は search_query にその日付を開始日とした submittedDate 範囲を含める", async () => {
+      vi.mocked(global.fetch).mockResolvedValue({
+        ok: true,
+        text: () =>
+          Promise.resolve(`<?xml version="1.0" encoding="UTF-8"?>
+          <feed xmlns="http://www.w3.org/2005/Atom">
+            <opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">0</opensearch:totalResults>
+          </feed>`),
+      } as Response);
+
+      await fetchArxivPapers({
+        categories: ["cs.AI"],
+        maxResults: 50,
+        fromDate: "2024-06-01",
+      });
+
+      const fetchCall = vi.mocked(global.fetch).mock.calls[0];
+      const url = fetchCall[0] as string;
+      expect(url).toContain("search_query=");
+      expect(url).toContain("submittedDate");
+      expect(url).toContain("20240601");
+      expect(url).toContain("TO");
+    });
+
+    it("toDate 指定時は search_query に [toDate − period, toDate] の submittedDate 範囲を含める", async () => {
+      vi.mocked(global.fetch).mockResolvedValue({
+        ok: true,
+        text: () =>
+          Promise.resolve(`<?xml version="1.0" encoding="UTF-8"?>
+          <feed xmlns="http://www.w3.org/2005/Atom">
+            <opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">0</opensearch:totalResults>
+          </feed>`),
+      } as Response);
+
+      await fetchArxivPapers({
+        categories: ["cs.AI"],
+        maxResults: 50,
+        period: "30",
+        toDate: "2024-06-15",
+      });
+
+      const fetchCall = vi.mocked(global.fetch).mock.calls[0];
+      const url = fetchCall[0] as string;
+      expect(url).toContain("search_query=");
+      expect(url).toContain("submittedDate");
+      expect(url).toContain("20240615");
+      expect(url).toContain("20240516");
+      expect(url).toContain("TO");
+    });
   });
 });

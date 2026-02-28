@@ -328,4 +328,27 @@ describe("useSyncPapers", () => {
       vi.useFakeTimers();
     });
   });
+
+  describe("syncFromDate（少ない日クリック時の遡り同期）", () => {
+    it("クリックした日を終了日として toDate を渡し、period は常に 365 で最大365日前まで取得する", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 10));
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        result.current.syncFromDate("2026-01-10");
+      });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockSyncApi).toHaveBeenCalledTimes(1);
+      const [request] = mockSyncApi.mock.calls[0] as [{ toDate?: string; period?: string }];
+      // syncFromDate はユーザーの syncPeriodDays に依存せず、常に "365" で最大365日前まで取得する
+      expect(request.period).toBe("365");
+      expect(request.toDate).toBe("2026-01-10");
+    });
+  });
 });
