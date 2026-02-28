@@ -36,6 +36,7 @@ const SettingsDialog = lazy(() =>
   import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog }))
 );
 const PaperPage = lazy(() => import("./pages/PaperPage").then((m) => ({ default: m.PaperPage })));
+const StatsPage = lazy(() => import("./pages/StatsPage").then((m) => ({ default: m.StatsPage })));
 
 /**
  * ローディングフォールバックコンポーネント
@@ -55,6 +56,7 @@ const LoadingFallback: FC = () => (
  * ルーティング設定:
  * - / : 論文一覧（HomePage）
  * - /papers/:id : 論文詳細ページ（PaperPage）
+ * - /stats : 論文キャッシュの時系列（StatsPage）
  */
 export const App: FC = () => {
   useEffect(() => {
@@ -82,6 +84,14 @@ export const App: FC = () => {
           element={
             <Suspense fallback={<LoadingFallback />}>
               <PaperPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/stats"
+          element={
+            <Suspense fallback={<LoadingFallback />}>
+              <StatsPage />
             </Suspense>
           }
         />

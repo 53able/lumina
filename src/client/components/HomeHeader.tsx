@@ -1,5 +1,6 @@
-import { Settings, Sparkles } from "lucide-react";
+import { BarChart3, Settings, Sparkles } from "lucide-react";
 import type { FC } from "react";
+import { Link } from "react-router-dom";
 import { SyncButton } from "./SyncButton";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
@@ -67,8 +68,24 @@ export const HomeHeader: FC<HomeHeaderProps> = ({ onOpenSettings, isSyncing, onS
           </div>
         </div>
 
-        {/* 右側: 同期・設定ボタン（画面右端） */}
+        {/* 右側: 統計・同期・設定ボタン（画面右端） */}
         <div className="flex items-center gap-2 justify-end">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                asChild
+                aria-label="統計"
+                className="hover:bg-muted/50"
+              >
+                <Link to="/stats">
+                  <BarChart3 className="h-5 w-5" />
+                </Link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>統計</TooltipContent>
+          </Tooltip>
           <SyncButton isSyncing={isSyncing} onSync={onSync} />
           <Tooltip>
             <TooltipTrigger asChild>
