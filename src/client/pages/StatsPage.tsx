@@ -66,6 +66,7 @@ export const StatsPage: FC = () => {
   const threshold = dailyCounts.length > 0 ? getMedianCount(dailyCounts) : undefined;
   const lowDayEntries = threshold !== undefined ? getLowDayEntries(dailyCounts, threshold) : [];
   const emptyState = papers.length === 0 && !isLoading;
+  const chartDescription = describeChart(dailyCounts, threshold);
 
   return (
     <div className="min-h-dvh bg-background bg-gradient-lumina">
@@ -144,15 +145,11 @@ export const StatsPage: FC = () => {
           )}
 
           {!isLoading && !emptyState && dailyCounts.length > 0 && (
-            <figure
-              className="min-w-0"
-              role="img"
-              aria-label={describeChart(dailyCounts, threshold)}
-            >
+            <figure className="min-w-0" role="img" aria-label={chartDescription}>
               <div className="overflow-x-auto">
                 <PaperCacheBarChart data={dailyCounts} threshold={threshold} />
               </div>
-              <figcaption className="sr-only">{describeChart(dailyCounts, threshold)}</figcaption>
+              <figcaption className="sr-only">{chartDescription}</figcaption>
             </figure>
           )}
 

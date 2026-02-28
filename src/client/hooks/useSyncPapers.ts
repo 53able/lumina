@@ -71,6 +71,12 @@ const SYNC_MORE_BATCH_SIZE = 50;
 /** 既存論文 ID の最大送信数（リクエストサイズとサーバ負荷のバランス） */
 const EXISTING_PAPER_IDS_MAX = 2000;
 
+/** syncFromDate の1ページあたりの取得件数 */
+const SYNC_FROM_DATE_PAGE_SIZE = 200;
+
+/** 1 回の syncFromDate で行う最大リクエスト数（totalResults が過大な場合の打ち止め。50 × 200 = 最大 10,000 件） */
+const SYNC_FROM_DATE_MAX_PAGES = 50;
+
 /**
  * 既存論文IDの送信対象をページ範囲に合わせて抽出する
  * @param papers 既存論文配列
@@ -385,9 +391,8 @@ export const useSyncPapers = (
         const apiKeyPromise = getDecryptedApiKey();
         const apiKey = await apiKeyPromise;
 
-        const currentStorePapers = storePapersRef.current;
         const existingPaperIds = buildExistingPaperIdsForRange(
-          currentStorePapers,
+          storePapersRef.current,
           effectiveStart,
           200
         );
@@ -575,10 +580,6 @@ export const useSyncPapers = (
    * ユーザーの syncPeriodDays 設定に依存せず、その日以前の論文を広く取得する。
    * requestedRanges / totalResults は更新しない（通常の period 同期とは別扱い）
    */
-  const SYNC_FROM_DATE_PAGE_SIZE = 200;
-  /** 1 回の syncFromDate で行う最大リクエスト数（totalResults が過大な場合の打ち止め） */
-  const SYNC_FROM_DATE_MAX_PAGES = 50;
-
   const syncFromDate = useCallback(
     async (date: string): Promise<void> => {
       setIsSyncingFromDate(true);
