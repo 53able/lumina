@@ -328,4 +328,27 @@ describe("useSyncPapers", () => {
       vi.useFakeTimers();
     });
   });
+
+  describe("syncFromDate（少ない日クリック時の遡り同期）", () => {
+    it("クリックした日を終了日として toDate と period を渡し、範囲は [toDate − period, toDate] で取得する", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 10));
+
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        result.current.syncFromDate("2026-01-10");
+      });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockSyncApi).toHaveBeenCalledTimes(1);
+      const [request] = mockSyncApi.mock.calls[0] as [{ toDate?: string; period?: string }];
+      expect(request.period).toBe("30");
+      expect(request.toDate).toBe("2026-01-10");
+    });
+  });
 });

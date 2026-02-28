@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Paper, SyncPeriod, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
 import {
@@ -148,6 +148,10 @@ export const useSyncPapers = (
     onError?: (error: Error) => void;
     /** 429 を検出したときに1回だけ呼ぶ（リトライ前。トーストで「再試行中」を出したい場合） */
     onRateLimited?: () => void;
+    /** syncFromDate 成功時。addedCount は実際に追加した件数、totalFetched は API が返した件数（0 の場合は範囲に論文なし） */
+    onSyncFromDateSuccess?: (addedCount: number, totalFetched?: number) => void;
+    /** syncFromDate 失敗時 */
+    onSyncFromDateError?: (error: Error) => void;
   }
 ) => {
   const { addPaper, addPapers, papers: storePapers } = usePaperStore();
@@ -159,10 +163,14 @@ export const useSyncPapers = (
   const onErrorRef = useRef(options?.onError);
   const onSyncAllCompleteRef = useRef(options?.onSyncAllComplete);
   const onRateLimitedRef = useRef(options?.onRateLimited);
+  const onSyncFromDateSuccessRef = useRef(options?.onSyncFromDateSuccess);
+  const onSyncFromDateErrorRef = useRef(options?.onSyncFromDateError);
   onSuccessRef.current = options?.onSuccess;
   onErrorRef.current = options?.onError;
   onSyncAllCompleteRef.current = options?.onSyncAllComplete;
   onRateLimitedRef.current = options?.onRateLimited;
+  onSyncFromDateSuccessRef.current = options?.onSyncFromDateSuccess;
+  onSyncFromDateErrorRef.current = options?.onSyncFromDateError;
 
   /** 同期状態は syncStore に集約。フックは store を購読して返り値に反映する */
   const requestedRanges = useSyncStore((s) => s.requestedRanges);
@@ -173,6 +181,9 @@ export const useSyncPapers = (
   const isEmbeddingBackfilling = useSyncStore((s) => s.isEmbeddingBackfilling);
   const embeddingBackfillProgress = useSyncStore((s) => s.embeddingBackfillProgress);
   const lastSyncError = useSyncStore((s) => s.lastSyncError);
+
+  /** syncFromDate 実行中かどうか（StatsPage の少ない日クリック用） */
+  const [isSyncingFromDate, setIsSyncingFromDate] = useState(false);
 
   // 同期フラグ（レースコンディション防止用）。useState は非同期バッチ更新のため連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
@@ -559,6 +570,76 @@ export const useSyncPapers = (
     }
   }, [addPaper, getStorePapers]);
 
+  /**
+   * 指定した日を終了日として「最大365日前 〜 その日」の論文を、ページングで連続取得しストアに追加する。
+   * ユーザーの syncPeriodDays 設定に依存せず、その日以前の論文を広く取得する。
+   * requestedRanges / totalResults は更新しない（通常の period 同期とは別扱い）
+   */
+  const SYNC_FROM_DATE_PAGE_SIZE = 200;
+  /** 1 回の syncFromDate で行う最大リクエスト数（totalResults が過大な場合の打ち止め） */
+  const SYNC_FROM_DATE_MAX_PAGES = 50;
+
+  const syncFromDate = useCallback(
+    async (date: string): Promise<void> => {
+      setIsSyncingFromDate(true);
+      try {
+        await waitForRateLimitRef.current();
+        const apiKey = await getDecryptedApiKey();
+        let totalAdded = 0;
+        let totalFetched = 0;
+        let start = 0;
+        let pageCount = 0;
+
+        for (;;) {
+          if (pageCount >= SYNC_FROM_DATE_MAX_PAGES) break;
+          pageCount += 1;
+          const currentPapers = getStorePapers();
+          const existingPaperIds =
+            currentPapers.length > 0
+              ? currentPapers.slice(0, EXISTING_PAPER_IDS_MAX).map((p) => p.id)
+              : undefined;
+
+          const rawResponse = await syncApi(
+            {
+              categories: params.categories,
+              period: "365",
+              toDate: date,
+              start,
+              maxResults: SYNC_FROM_DATE_PAGE_SIZE,
+              ...(existingPaperIds != null && existingPaperIds.length > 0
+                ? { existingPaperIds }
+                : {}),
+            },
+            { apiKey, onRateLimited: () => onRateLimitedRef.current?.() }
+          );
+          const response = normalizeSyncResponse(rawResponse);
+          const existingIds = new Set(getStorePapers().map((p) => p.id));
+          const newPapers = response.papers.filter((p) => !existingIds.has(p.id));
+          if (newPapers.length > 0) {
+            addPapers(newPapers);
+          }
+          totalAdded += newPapers.length;
+          totalFetched += response.papers.length;
+
+          const isLastPage =
+            response.papers.length < SYNC_FROM_DATE_PAGE_SIZE ||
+            start + response.papers.length >= response.totalResults;
+          if (isLastPage) break;
+          start += SYNC_FROM_DATE_PAGE_SIZE;
+        }
+
+        setLastSyncedAt(now());
+        onSyncFromDateSuccessRef.current?.(totalAdded, totalFetched);
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        onSyncFromDateErrorRef.current?.(e);
+      } finally {
+        setIsSyncingFromDate(false);
+      }
+    },
+    [params.categories, getStorePapers, addPapers, setLastSyncedAt]
+  );
+
   return {
     /** 同期を実行する関数（最初から取得） */
     sync,
@@ -570,6 +651,10 @@ export const useSyncPapers = (
     stopSync,
     /** Embedding 未設定の論文を手動で補完する関数（SyncStatusBar の「Embeddingを補完」から呼ぶ） */
     runEmbeddingBackfill,
+    /** 指定日以前の最大365日分の論文を取得する関数（StatsPage の少ない日クリック用） */
+    syncFromDate,
+    /** syncFromDate 実行中かどうか */
+    isSyncingFromDate,
     /** 論文取得中かどうか（初回 sync / syncMore。Embedding バックフィルは含まない） */
     isSyncing: isFetching || isLoadingMore,
     /** 同期期間の論文をすべて取得中かどうか */
