@@ -120,6 +120,15 @@ export const useSemanticSearch = ({
   const [expandedQuery, setExpandedQuery] = useState<ExpandedQuery | null>(null);
   const [queryEmbedding, setQueryEmbedding] = useState<number[] | null>(null);
 
+  /** 検索開始時に前回の結果をクリアし、ローディング状態にする */
+  const resetSearchState = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+    setResultEntries([]);
+    setPapersExcludedFromSearch([]);
+    setTotalMatchCount(0);
+  }, []);
+
   // ストア（papers）から paper を解決し、リアクティブに results を導出
   const results = useMemo(
     () =>
@@ -142,9 +151,6 @@ export const useSemanticSearch = ({
       // Embeddingなし論文を検索対象外として保持（常時可視化用）
       const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
       setPapersExcludedFromSearch(excluded);
-
-      // 論文ID → Paper のマップを作成（O(1)ルックアップ用）
-      const paperMap = new Map(papers.map((p) => [p.id, p]));
 
       // ローカルの論文とコサイン類似度を計算
       const searchResults: SearchResult[] = [];
@@ -186,7 +192,8 @@ export const useSemanticSearch = ({
       setTotalMatchCount(filteredResults.length);
       setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
 
-      // ストアから最新のpaperを解決して返す（MapでO(1)ルックアップ）
+      // ストアの最新 paper を解決して返す（embedding 変更に追従するため）
+      const paperMap = new Map(papers.map((p) => [p.id, p]));
       return limitedResults.map((r) => ({
         paper: paperMap.get(r.paper.id) ?? r.paper,
         score: r.score,
@@ -197,14 +204,10 @@ export const useSemanticSearch = ({
 
   const search = useCallback(
     async (query: string): Promise<SearchResult[]> => {
-      setIsLoading(true);
-      setError(null);
       // 検索開始時に前回の検索結果をクリア（検索中に「該当する論文がありませんでした」が表示されないようにする）
       setExpandedQuery(null);
       setQueryEmbedding(null);
-      setResultEntries([]);
-      setPapersExcludedFromSearch([]);
-      setTotalMatchCount(0);
+      resetSearchState();
 
       try {
         // API key を復号化して取得（早期開始パターン）
@@ -255,7 +258,7 @@ export const useSemanticSearch = ({
         setIsLoading(false);
       }
     },
-    [papers, limit, computeSearchResults]
+    [papers, limit, computeSearchResults, resetSearchState]
   );
 
   /**
@@ -267,12 +270,8 @@ export const useSemanticSearch = ({
       savedExpandedQuery: ExpandedQuery,
       savedQueryEmbedding: number[]
     ): Promise<SearchResult[]> => {
-      setIsLoading(true);
-      setError(null);
       // 検索開始時に前回の検索結果をクリア（検索中に「該当する論文がありませんでした」が表示されないようにする）
-      setResultEntries([]);
-      setPapersExcludedFromSearch([]);
-      setTotalMatchCount(0);
+      resetSearchState();
 
       try {
         // 保存済みデータを状態に設定
@@ -300,7 +299,7 @@ export const useSemanticSearch = ({
         setIsLoading(false);
       }
     },
-    [papers, computeSearchResults]
+    [papers, computeSearchResults, resetSearchState]
   );
 
   const reset = useCallback(() => {
