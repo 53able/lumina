@@ -11,8 +11,12 @@ export interface ArxivQueryOptions {
   maxResults: number;
   /** 開始位置（ページング用） */
   start?: number;
-  /** 同期期間（日数） */
+  /** 同期期間（日数）。fromDate / toDate 指定時は toDate なら開始日算出に使用 */
   period?: SyncPeriod;
+  /** 取得範囲の開始日（YYYY-MM-DD）。指定時はこの日 00:00 UTC 〜 今日 を範囲とする */
+  fromDate?: string;
+  /** 取得範囲の終了日（YYYY-MM-DD）。指定時は範囲を [toDate − period, toDate] とする */
+  toDate?: string;
 }
 
 /**
@@ -186,23 +190,53 @@ const encodeArxivQuery = (query: string): string => {
 };
 
 /**
- * arXiv API用のクエリ文字列を構築する
- * period 指定時は submittedDate 範囲を AND で追加し、totalResults を期間内件数にする
- * @param categories カテゴリ配列
- * @param period 同期期間（オプショナル。指定時はクエリに日付範囲を含める）
- * @returns arXiv API用のクエリ文字列
+ * fromDate（YYYY-MM-DD）をその日 00:00 UTC の Date に変換する
  */
-const buildSearchQuery = (categories: string[], period?: SyncPeriod): string => {
-  // カテゴリをOR条件で結合
-  const categoryQuery = categories.map((cat) => `cat:${cat}`).join("+OR+");
+const getStartDateFromFromDate = (fromDate: string): Date => parseISO(`${fromDate}T00:00:00.000Z`);
 
-  if (!period) {
-    return categoryQuery;
+/**
+ * toDate（YYYY-MM-DD）をその日 23:59:59.999 UTC の Date に変換する（終了日 inclusive）
+ */
+const getEndDateFromToDate = (toDate: string): Date => parseISO(`${toDate}T23:59:59.999Z`);
+
+/**
+ * クエリ用の開始日を取得する。toDate 指定時は toDate − period、fromDate 優先、なければ period から算出
+ */
+const getQueryStartDate = (
+  period?: SyncPeriod,
+  fromDate?: string,
+  toDate?: string
+): Date | undefined => {
+  if (toDate) {
+    const periodDays = Number.parseInt(period ?? "30", 10);
+    return subDays(parseISO(`${toDate}T00:00:00.000Z`), periodDays);
   }
+  if (fromDate) return getStartDateFromFromDate(fromDate);
+  if (period) return getPeriodStartDate(period);
+  return undefined;
+};
 
-  // submittedDate 範囲を AND で追加（arXiv API User's Manual: [YYYYMMDDHHmm+TO+YYYYMMDDHHmm] は GMT）
-  const startDate = getPeriodStartDate(period);
-  const endDate = new Date();
+/**
+ * クエリ用の終了日を取得する。toDate 指定時はその日終了、指定がなければ今日
+ */
+const getQueryEndDate = (toDate?: string): Date =>
+  toDate != null ? getEndDateFromToDate(toDate) : new Date();
+
+/**
+ * arXiv API用のクエリ文字列を構築する
+ * period / fromDate / toDate に応じて submittedDate 範囲を AND で追加する
+ */
+const buildSearchQuery = (
+  categories: string[],
+  period?: SyncPeriod,
+  fromDate?: string,
+  toDate?: string
+): string => {
+  const categoryQuery = categories.map((cat) => `cat:${cat}`).join("+OR+");
+  const startDate = getQueryStartDate(period, fromDate, toDate);
+  if (!startDate) return categoryQuery;
+
+  const endDate = getQueryEndDate(toDate);
   const fromStr = formatForSubmittedDate(
     new Date(
       Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate(), 0, 0)
@@ -210,19 +244,20 @@ const buildSearchQuery = (categories: string[], period?: SyncPeriod): string => 
   );
   const toStr = formatForSubmittedDate(endDate);
   const dateRangeQuery = `submittedDate:[${fromStr}+TO+${toStr}]`;
-  return `${categoryQuery}+AND+${dateRangeQuery}`;
+  // カテゴリ群を括弧で囲み AND の優先順位を保証する
+  // 括弧なしだと arXiv が左から右に評価し、最後のカテゴリにしか日付フィルタが適用されない
+  return `(${categoryQuery})+AND+${dateRangeQuery}`;
 };
 
 /**
  * arXiv APIから論文データを取得する
  */
 export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<ArxivFetchResult> => {
-  const { categories, maxResults, start = 0, period } = options;
+  const { categories, maxResults, start = 0, period, fromDate, toDate } = options;
 
-  const searchQuery = buildSearchQuery(categories, period);
+  const searchQuery = buildSearchQuery(categories, period, fromDate, toDate);
   const encodedQuery = encodeArxivQuery(searchQuery);
   const url = `${ARXIV_API_URL}?search_query=${encodedQuery}&start=${start}&max_results=${maxResults}&sortBy=submittedDate&sortOrder=descending`;
-
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -254,17 +289,17 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/gi;
   let papers = Array.from(xml.matchAll(entryRegex), (m) => parseArxivEntry(m[1] ?? ""));
 
-  // 期間指定がある場合は、クライアント側でフィルタリング
-  if (period) {
-    const startDate = getPeriodStartDate(period);
-    const endDate = new Date();
+  const startDate = getQueryStartDate(period, fromDate, toDate);
+  const endDate = getQueryEndDate(toDate);
+  // fromDate/toDate 指定時はクエリが submittedDate で既に絞っているため、published/updated での追加フィルタは行わない
+  // （submitted と published/updated は一致しないことが多く、フィルタで全件落ちることがある）
+  const skipDateFilter = fromDate != null || toDate != null;
+  if (startDate && !skipDateFilter) {
     papers = papers.filter((paper) => {
-      // publishedAt または updatedAt が期間内にあるかチェック
       const paperDate = paper.updatedAt > paper.publishedAt ? paper.updatedAt : paper.publishedAt;
       return paperDate >= startDate && paperDate <= endDate;
     });
   }
-
   return {
     papers,
     totalResults,
