@@ -333,10 +333,9 @@ describe("useSyncPapers", () => {
     it("クリックした日を終了日として toDate と period を渡し、範囲は [toDate − period, toDate] で取得する", async () => {
       mockSyncApi.mockResolvedValue(createMockResponse(0, 10));
 
-      const { result } = renderHook(
-        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }),
-        { wrapper }
-      );
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
 
       await act(async () => {
         result.current.syncFromDate("2026-01-10");
