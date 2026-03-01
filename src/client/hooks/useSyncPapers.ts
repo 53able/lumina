@@ -124,6 +124,7 @@ const computeEffectiveStart = (
   storePapers: Paper[]
 ): number | null => {
   const next = getNextStartToRequest(ranges, total, SYNC_MORE_BATCH_SIZE);
+  if (total === 0) return null;
   if (total !== 0 && next >= total) return null;
 
   if (storePapers.length === 0) return next;
@@ -438,9 +439,7 @@ export const useSyncPapers = (
         if (newPapers.length > 0) {
           addPapers(newPapers);
         }
-        if (response.papers.length > 0) {
-          commitSyncResult(response, effectiveStart, newPapers, false);
-        }
+        commitSyncResult(response, effectiveStart, newPapers, false);
       } catch (err) {
         // ユーザーが停止した場合はエラー扱いにしない
         const isAbort = err instanceof DOMException && err.name === "AbortError";
@@ -448,6 +447,7 @@ export const useSyncPapers = (
           const e = toError(err);
           useSyncStore.getState().setLastSyncError(e);
           onErrorRef.current?.(e);
+          throw e;
         }
       } finally {
         isLoadingMoreRef.current = false;
@@ -485,30 +485,33 @@ export const useSyncPapers = (
         await new Promise<void>((r) => setTimeout(r, 50));
       }
 
-      for (;;) {
-        if (ac.signal.aborted) break;
-        const state = useSyncStore.getState();
-        const nextStart = getNextStartToRequest(
-          state.requestedRanges,
-          state.totalResults ?? 0,
-          SYNC_MORE_BATCH_SIZE
-        );
-        const total = state.totalResults ?? 0;
-        if (total !== 0 && nextStart >= total) {
-          completedNormally = true;
-          break;
+      if (useSyncStore.getState().totalResults !== null) {
+        for (;;) {
+          if (ac.signal.aborted) break;
+          const state = useSyncStore.getState();
+          if (state.totalResults === null) break;
+          const nextStart = getNextStartToRequest(
+            state.requestedRanges,
+            state.totalResults ?? 0,
+            SYNC_MORE_BATCH_SIZE
+          );
+          const total = state.totalResults ?? 0;
+          if (total !== 0 && nextStart >= total) {
+            completedNormally = true;
+            break;
+          }
+          const fetched = getStorePapers().length;
+          useSyncStore.getState().setSyncAllProgress({ fetched, total });
+          try {
+            await syncMore(ac.signal);
+          } catch (syncMoreErr) {
+            const e = toError(syncMoreErr);
+            useSyncStore.getState().setLastSyncError(e);
+            onErrorRef.current?.(e);
+            break;
+          }
+          await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
         }
-        const fetched = getStorePapers().length;
-        useSyncStore.getState().setSyncAllProgress({ fetched, total });
-        try {
-          await syncMore(ac.signal);
-        } catch (syncMoreErr) {
-          const e = toError(syncMoreErr);
-          useSyncStore.getState().setLastSyncError(e);
-          onErrorRef.current?.(e);
-          break;
-        }
-        await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
       }
     } catch (err) {
       const e = toError(err);
