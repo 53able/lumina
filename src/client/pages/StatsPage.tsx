@@ -1,5 +1,5 @@
-import { BarChart3, TrendingDown } from "lucide-react";
-import type { FC } from "react";
+import { BarChart3, StopCircle, TrendingDown } from "lucide-react";
+import { type FC, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { DailyCountEntry } from "../../shared/schemas/index";
@@ -40,33 +40,75 @@ const describeChart = (entries: DailyCountEntry[], threshold?: number): string =
 export const StatsPage: FC = () => {
   const { papers, isLoading } = usePaperStore();
   const { selectedCategories, syncPeriodDays } = useSettingsStore();
-  const { syncFromDate, isSyncingFromDate } = useSyncPapers(
-    { categories: selectedCategories, period: syncPeriodDays },
-    {
-      onSyncFromDateSuccess: (addedCount, totalFetched) => {
-        if (addedCount > 0) {
-          toast.success("同期完了", {
-            description: `${addedCount}件の論文をキャッシュしました（最大200件まで）`,
-          });
-        } else if ((totalFetched ?? 0) > 0) {
-          toast.info("この期間の論文はすでにキャッシュに含まれています", {
-            description: `${totalFetched}件を確認しました`,
-          });
-        } else {
-          toast.info("追加する論文はありませんでした");
-        }
-      },
-      onSyncFromDateError: (error) => {
-        toast.error("同期エラー", { description: error.message });
-      },
-    }
-  );
+  const [showAllLowDays, setShowAllLowDays] = useState(false);
+  const [syncFromDateTarget, setSyncFromDateTarget] = useState<string | null>(null);
+  const [isStoppingSyncFromDate, setIsStoppingSyncFromDate] = useState(false);
+  const { syncFromDate, isSyncingFromDate, stopSync } = useSyncPapers({
+    categories: selectedCategories,
+    period: syncPeriodDays,
+  });
 
   const dailyCounts = aggregatePapersByDay(papers);
   const threshold = dailyCounts.length > 0 ? getMedianCount(dailyCounts) : undefined;
   const lowDayEntries = threshold !== undefined ? getLowDayEntries(dailyCounts, threshold) : [];
+  const hiddenLowDayCount = Math.max(0, lowDayEntries.length - LOW_DAYS_PREVIEW_MAX);
+  const visibleLowDayEntries = showAllLowDays
+    ? lowDayEntries
+    : lowDayEntries.slice(0, LOW_DAYS_PREVIEW_MAX);
   const emptyState = papers.length === 0 && !isLoading;
   const chartDescription = describeChart(dailyCounts, threshold);
+
+  useEffect(() => {
+    if (!isSyncingFromDate) {
+      setIsStoppingSyncFromDate(false);
+    }
+  }, [isSyncingFromDate]);
+
+  const handleSyncFromDate = (date: string) => {
+    setSyncFromDateTarget(date);
+    setIsStoppingSyncFromDate(false);
+    toast.info("取得を開始しました", {
+      description: `${date}以前の論文を確認しています`,
+    });
+    void syncFromDate(date)
+      .then((result) => {
+        if (result.wasAborted) {
+          if (result.addedCount > 0) {
+            toast.info("取得を停止しました", {
+              description: `この間 ${result.addedCount}件の論文をキャッシュしました`,
+            });
+          } else {
+            toast.info("取得を停止しました");
+          }
+          return;
+        }
+        if (result.addedCount > 0) {
+          toast.success("同期完了", {
+            description: `${result.addedCount}件の論文をキャッシュしました`,
+          });
+        } else if (result.totalFetched > 0) {
+          toast.info("この期間の論文はすでにキャッシュに含まれています", {
+            description: `${result.totalFetched}件を確認しました`,
+          });
+        } else {
+          toast.info("追加する論文はありませんでした");
+        }
+      })
+      .catch((error: Error) => {
+        toast.error("同期エラー", { description: error.message });
+      })
+      .finally(() => {
+        setSyncFromDateTarget(null);
+        setIsStoppingSyncFromDate(false);
+      });
+  };
+
+  const handleStopSyncFromDate = () => {
+    if (isStoppingSyncFromDate) return;
+    setIsStoppingSyncFromDate(true);
+    stopSync();
+    toast.info("取得を停止しています");
+  };
 
   return (
     <div className="min-h-dvh bg-background bg-gradient-lumina">
@@ -94,14 +136,14 @@ export const StatsPage: FC = () => {
                 </span>
               </div>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {lowDayEntries.slice(0, LOW_DAYS_PREVIEW_MAX).map((e) => (
+                {visibleLowDayEntries.map((e) => (
                   <Button
                     key={e.date}
                     type="button"
                     variant="ghost"
                     size="sm"
                     className="h-auto rounded border border-border/50 bg-background/80 px-2 py-0.5 font-mono text-xs text-muted-foreground hover:bg-muted/50"
-                    onClick={() => syncFromDate(e.date)}
+                    onClick={() => handleSyncFromDate(e.date)}
                     disabled={isSyncingFromDate}
                     aria-label={`${e.date}から同期する`}
                     aria-busy={isSyncingFromDate}
@@ -110,12 +152,49 @@ export const StatsPage: FC = () => {
                     <span className="ml-1 text-muted-foreground/70">({e.count})</span>
                   </Button>
                 ))}
-                {lowDayEntries.length > LOW_DAYS_PREVIEW_MAX && (
-                  <span className="px-2 py-0.5 text-xs text-muted-foreground">
-                    他{lowDayEntries.length - LOW_DAYS_PREVIEW_MAX}日
-                  </span>
+                {hiddenLowDayCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted/50"
+                    onClick={() => setShowAllLowDays((current) => !current)}
+                    aria-expanded={showAllLowDays}
+                    aria-label={
+                      showAllLowDays
+                        ? "少ない日の一覧を折りたたむ"
+                        : `他${hiddenLowDayCount}日を表示`
+                    }
+                  >
+                    {showAllLowDays ? "折りたたむ" : `他${hiddenLowDayCount}日を表示`}
+                  </Button>
                 )}
               </div>
+              {isSyncingFromDate && (
+                <div
+                  className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-muted-foreground"
+                  aria-live="polite"
+                >
+                  <span>
+                    {syncFromDateTarget
+                      ? `${syncFromDateTarget}以前の論文を取得中...`
+                      : "論文を取得中..."}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleStopSyncFromDate}
+                    disabled={isStoppingSyncFromDate}
+                    aria-label={isStoppingSyncFromDate ? "停止しています" : "取得を停止"}
+                    aria-busy={isStoppingSyncFromDate}
+                    className="h-auto px-2 py-1 text-xs"
+                  >
+                    <StopCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    {isStoppingSyncFromDate ? "停止中…" : "停止"}
+                  </Button>
+                </div>
+              )}
               <div className="mt-3">
                 <Button asChild variant="outline" size="sm">
                   <Link to="/">ホームで同期</Link>
