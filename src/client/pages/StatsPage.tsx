@@ -43,10 +43,19 @@ export const StatsPage: FC = () => {
   const [showAllLowDays, setShowAllLowDays] = useState(false);
   const [syncFromDateTarget, setSyncFromDateTarget] = useState<string | null>(null);
   const [isStoppingSyncFromDate, setIsStoppingSyncFromDate] = useState(false);
-  const { syncFromDate, isSyncingFromDate, stopSync } = useSyncPapers({
-    categories: selectedCategories,
-    period: syncPeriodDays,
-  });
+  const { syncFromDate, isSyncingFromDate, stopSync } = useSyncPapers(
+    {
+      categories: selectedCategories,
+      period: syncPeriodDays,
+    },
+    {
+      onSyncFromDatePageCached: (addedCount) => {
+        toast.success("キャッシュ完了", {
+          description: `${addedCount}件の論文をキャッシュしました`,
+        });
+      },
+    }
+  );
 
   const dailyCounts = aggregatePapersByDay(papers);
   const threshold = dailyCounts.length > 0 ? getMedianCount(dailyCounts) : undefined;

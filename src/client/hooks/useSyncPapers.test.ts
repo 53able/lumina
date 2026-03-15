@@ -12,6 +12,8 @@ import { useSyncPapers } from "./useSyncPapers";
 
 /** 1リクエストあたりの最大取得件数（仕様） */
 const BATCH_SIZE = 50;
+/** syncFromDate の1ページあたりの取得件数（仕様） */
+const SYNC_FROM_DATE_PAGE_SIZE = 200;
 
 const mockSyncApi = vi.fn();
 const mockGetDecryptedApiKey = vi.fn();
@@ -86,6 +88,28 @@ const wrapper = ({ children }: { children: ReactNode }) =>
 /** start に対応するモックレスポンスを返す（スタブ） */
 const createMockResponse = (start: number, totalResults: number) => {
   const count = Math.min(BATCH_SIZE, Math.max(0, totalResults - start));
+  const papers = Array.from({ length: count }, (_, i) => ({
+    id: `paper-${start + i}`,
+    title: `Title ${start + i}`,
+    abstract: "Abstract",
+    authors: ["Author"],
+    categories: ["cs.AI"],
+    publishedAt: "2024-01-01T00:00:00.000Z",
+    updatedAt: "2024-01-01T00:00:00.000Z",
+    pdfUrl: "https://arxiv.org/pdf/paper.pdf",
+    arxivUrl: "https://arxiv.org/abs/paper",
+  }));
+  return {
+    papers,
+    fetchedCount: papers.length,
+    totalResults,
+    took: 100,
+  };
+};
+
+/** syncFromDate 用のモックレスポンスを返す（1ページ200件） */
+const createSyncFromDateResponse = (start: number, totalResults: number) => {
+  const count = Math.min(SYNC_FROM_DATE_PAGE_SIZE, Math.max(0, totalResults - start));
   const papers = Array.from({ length: count }, (_, i) => ({
     id: `paper-${start + i}`,
     title: `Title ${start + i}`,
@@ -456,10 +480,134 @@ describe("useSyncPapers", () => {
       expect(onSyncFromDateError).not.toHaveBeenCalled();
     });
 
+    it("各ページの保存完了後にページ単位コールバックを呼ぶ", async () => {
+      mockSyncApi.mockImplementation((request: { start?: number }) =>
+        Promise.resolve(createSyncFromDateResponse(request.start ?? 0, 250))
+      );
+
+      const onSyncFromDatePageCached = vi.fn();
+      const onSyncFromDateSuccess = vi.fn();
+
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSyncFromDatePageCached, onSyncFromDateSuccess }
+          ),
+        { wrapper }
+      );
+
+      let syncResult:
+        | {
+            addedCount: number;
+            totalFetched: number;
+            wasAborted: boolean;
+          }
+        | undefined;
+      await act(async () => {
+        syncResult = await result.current.syncFromDate("2026-01-10");
+      });
+
+      expect(syncResult).toEqual({ addedCount: 250, totalFetched: 250, wasAborted: false });
+      expect(onSyncFromDatePageCached).toHaveBeenCalledTimes(2);
+      expect(onSyncFromDatePageCached).toHaveBeenNthCalledWith(1, 200, {
+        pageStart: 0,
+        totalAddedSoFar: 200,
+        toDate: "2026-01-10",
+      });
+      expect(onSyncFromDatePageCached).toHaveBeenNthCalledWith(2, 50, {
+        pageStart: 200,
+        totalAddedSoFar: 250,
+        toDate: "2026-01-10",
+      });
+      expect(onSyncFromDateSuccess).toHaveBeenCalledWith(250, 250);
+    });
+
+    it("ページ単位コールバックは保存完了前には呼ばれない", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 1));
+
+      let resolveAddPapers: (() => void) | null = null;
+      mockAddPapers.mockImplementation(
+        (newPapers: Array<{ id: string; embedding?: number[] }>) =>
+          new Promise<void>((resolve) => {
+            resolveAddPapers = () => {
+              papersRef.current = [...papersRef.current, ...newPapers];
+              resolve();
+            };
+          })
+      );
+
+      const onSyncFromDatePageCached = vi.fn();
+
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onSyncFromDatePageCached }),
+        { wrapper }
+      );
+
+      let syncPromise:
+        | Promise<{
+            addedCount: number;
+            totalFetched: number;
+            wasAborted: boolean;
+          }>
+        | undefined;
+      await act(async () => {
+        syncPromise = result.current.syncFromDate("2026-01-10");
+        await Promise.resolve();
+      });
+
+      expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
+
+      resolveAddPapers?.();
+
+      await act(async () => {
+        await syncPromise;
+      });
+
+      expect(onSyncFromDatePageCached).toHaveBeenCalledWith(1, {
+        pageStart: 0,
+        totalAddedSoFar: 1,
+        toDate: "2026-01-10",
+      });
+    });
+
+    it("新規論文がないページではページ単位コールバックを呼ばない", async () => {
+      papersRef.current = [{ id: "paper-0", title: "Title 0", abstract: "Abstract" }];
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 1));
+
+      const onSyncFromDatePageCached = vi.fn();
+      const onSyncFromDateSuccess = vi.fn();
+
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSyncFromDatePageCached, onSyncFromDateSuccess }
+          ),
+        { wrapper }
+      );
+
+      let syncResult:
+        | {
+            addedCount: number;
+            totalFetched: number;
+            wasAborted: boolean;
+          }
+        | undefined;
+      await act(async () => {
+        syncResult = await result.current.syncFromDate("2026-01-10");
+      });
+
+      expect(syncResult).toEqual({ addedCount: 0, totalFetched: 1, wasAborted: false });
+      expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
+      expect(onSyncFromDateSuccess).toHaveBeenCalledWith(0, 1);
+    });
+
     it("保存失敗時は成功コールバックを呼ばずエラーコールバックを呼ぶ", async () => {
       mockSyncApi.mockResolvedValue(createMockResponse(0, 1));
       mockAddPapers.mockRejectedValue(new Error("DB write failed"));
 
+      const onSyncFromDatePageCached = vi.fn();
       const onSyncFromDateSuccess = vi.fn();
       const onSyncFromDateError = vi.fn();
 
@@ -467,7 +615,7 @@ describe("useSyncPapers", () => {
         () =>
           useSyncPapers(
             { categories: ["cs.AI"], period: "30" },
-            { onSyncFromDateSuccess, onSyncFromDateError }
+            { onSyncFromDatePageCached, onSyncFromDateSuccess, onSyncFromDateError }
           ),
         { wrapper }
       );
@@ -482,6 +630,7 @@ describe("useSyncPapers", () => {
       });
 
       expect(caughtError?.message).toBe("DB write failed");
+      expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
       expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
       expect(onSyncFromDateError).toHaveBeenCalledTimes(1);
       expect(onSyncFromDateError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
@@ -503,6 +652,7 @@ describe("useSyncPapers", () => {
           })
       );
 
+      const onSyncFromDatePageCached = vi.fn();
       const onSyncFromDateSuccess = vi.fn();
       const onSyncFromDateError = vi.fn();
 
@@ -510,7 +660,7 @@ describe("useSyncPapers", () => {
         () =>
           useSyncPapers(
             { categories: ["cs.AI"], period: "30" },
-            { onSyncFromDateSuccess, onSyncFromDateError }
+            { onSyncFromDatePageCached, onSyncFromDateSuccess, onSyncFromDateError }
           ),
         { wrapper }
       );
@@ -543,8 +693,80 @@ describe("useSyncPapers", () => {
         totalFetched: 0,
         wasAborted: true,
       });
+      expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
       expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
       expect(onSyncFromDateError).not.toHaveBeenCalled();
+    });
+
+    it("中断時は保存済みページ分だけページ単位コールバックを残す", async () => {
+      mockSyncApi.mockImplementation(
+        (
+          request: { start?: number },
+          options?: {
+            signal?: AbortSignal;
+          }
+        ) => {
+          if ((request.start ?? 0) === 0) {
+            return Promise.resolve(createSyncFromDateResponse(0, 250));
+          }
+          return new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Sync aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const onSyncFromDatePageCached = vi.fn();
+      const onSyncFromDateSuccess = vi.fn();
+
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSyncFromDatePageCached, onSyncFromDateSuccess }
+          ),
+        { wrapper }
+      );
+
+      let syncPromise: Promise<{
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      }> | null = null;
+      await act(async () => {
+        syncPromise = result.current.syncFromDate("2026-01-10");
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(onSyncFromDatePageCached).toHaveBeenCalledTimes(1);
+      expect(onSyncFromDatePageCached).toHaveBeenCalledWith(200, {
+        pageStart: 0,
+        totalAddedSoFar: 200,
+        toDate: "2026-01-10",
+      });
+
+      act(() => {
+        result.current.stopSync();
+      });
+
+      let syncResult: {
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      } | null = null;
+      await act(async () => {
+        syncResult = await syncPromise;
+      });
+
+      expect(syncResult).toEqual({
+        addedCount: 200,
+        totalFetched: 200,
+        wasAborted: true,
+      });
+      expect(onSyncFromDatePageCached).toHaveBeenCalledTimes(1);
+      expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
     });
   });
 });
