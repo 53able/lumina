@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
@@ -169,6 +169,17 @@ vi.mock("./components/HomeFooter", () => ({
 
 vi.mock("./pages/PaperPage", () => ({
   PaperPage: () => <div>Paper Page</div>,
+}));
+
+vi.mock("./pages/StatsPage", () => ({
+  StatsPage: () => (
+    <div>
+      <button type="button" onClick={() => void mockSyncFromDate("2026-01-01")}>
+        2026-01-01から同期する
+      </button>
+      <Link to="/">論文一覧へ戻る</Link>
+    </div>
+  ),
 }));
 
 vi.mock("./components/PaperCacheBarChart", () => ({

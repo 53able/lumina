@@ -620,8 +620,16 @@ export const useSyncPapers = (
       const ac = new AbortController();
       useSyncStore.getState().setIsSyncingFromDate(true);
       useSyncStore.getState().setSyncFromDateTarget(date);
+      const task = {
+        controller: ac,
+        promise: Promise.resolve({
+          addedCount: 0,
+          totalFetched: 0,
+          wasAborted: false,
+        }) as Promise<SyncFromDateResult>,
+      };
 
-      const promise = (async (): Promise<SyncFromDateResult> => {
+      task.promise = (async (): Promise<SyncFromDateResult> => {
         let totalAdded = 0;
         let totalFetched = 0;
         try {
@@ -687,8 +695,7 @@ export const useSyncPapers = (
           onSyncFromDateErrorRef.current?.(e);
           throw e;
         } finally {
-          const currentActiveTask = activeSyncFromDateTask;
-          if (currentActiveTask?.controller === ac) {
+          if (activeSyncFromDateTask === task) {
             activeSyncFromDateTask = null;
             useSyncStore.getState().setIsSyncingFromDate(false);
             useSyncStore.getState().setSyncFromDateTarget(null);
@@ -696,8 +703,8 @@ export const useSyncPapers = (
         }
       })();
 
-      activeSyncFromDateTask = { controller: ac, promise };
-      return promise;
+      activeSyncFromDateTask = task;
+      return task.promise;
     },
     [params.categories, getStorePapers, addPapers, setLastSyncedAt]
   );
