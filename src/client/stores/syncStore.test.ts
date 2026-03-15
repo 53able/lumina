@@ -31,6 +31,8 @@ describe("syncStore", () => {
       expect(state.isFetching).toBe(false);
       expect(state.isSyncingAll).toBe(false);
       expect(state.syncAllProgress).toBeNull();
+      expect(state.isSyncingFromDate).toBe(false);
+      expect(state.syncFromDateTarget).toBeNull();
       expect(state.isEmbeddingBackfilling).toBe(false);
       expect(state.embeddingBackfillProgress).toBeNull();
       expect(state.lastSyncError).toBeNull();
@@ -69,6 +71,17 @@ describe("syncStore", () => {
       const state = useSyncStore.getState();
       expect(state.isSyncingAll).toBe(true);
       expect(state.syncAllProgress).toEqual({ fetched: 100, total: 500 });
+    });
+
+    it("正常系: isSyncingFromDate と syncFromDateTarget を更新できる", async () => {
+      const { useSyncStore } = await import("./syncStore");
+
+      useSyncStore.getState().setIsSyncingFromDate(true);
+      useSyncStore.getState().setSyncFromDateTarget("2026-01-10");
+
+      const state = useSyncStore.getState();
+      expect(state.isSyncingFromDate).toBe(true);
+      expect(state.syncFromDateTarget).toBe("2026-01-10");
     });
 
     it("正常系: isEmbeddingBackfilling と embeddingBackfillProgress を更新できる", async () => {
@@ -113,6 +126,8 @@ describe("syncStore", () => {
       useSyncStore.getState().setRequestedRanges([[0, 50]]);
       useSyncStore.getState().setTotalResults(100);
       useSyncStore.getState().setIsLoadingMore(true);
+      useSyncStore.getState().setIsSyncingFromDate(true);
+      useSyncStore.getState().setSyncFromDateTarget("2026-01-10");
       useSyncStore.getState().setLastSyncError(new Error("err"));
       useSyncStore.getState().reset();
 
@@ -120,6 +135,8 @@ describe("syncStore", () => {
       expect(state.requestedRanges).toEqual([]);
       expect(state.totalResults).toBeNull();
       expect(state.isLoadingMore).toBe(false);
+      expect(state.isSyncingFromDate).toBe(false);
+      expect(state.syncFromDateTarget).toBeNull();
       expect(state.lastSyncError).toBeNull();
     });
   });

@@ -39,18 +39,21 @@ vi.mock("../stores/settingsStore", () => ({
   })),
 }));
 
+const mockSyncStoreState = {
+  isFetching: false,
+  isLoadingMore: false,
+  isSyncingAll: false,
+  syncAllProgress: null,
+  isSyncingFromDate: false,
+  syncFromDateTarget: null as string | null,
+  isEmbeddingBackfilling: false,
+  embeddingBackfillProgress: null,
+  lastSyncError: null,
+};
+
 vi.mock("../stores/syncStore", () => ({
   useSyncStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) => {
-    const state = {
-      isFetching: false,
-      isLoadingMore: false,
-      isSyncingAll: false,
-      syncAllProgress: null,
-      isEmbeddingBackfilling: false,
-      embeddingBackfillProgress: null,
-      lastSyncError: null,
-    };
-    return selector ? selector(state) : state;
+    return selector ? selector(mockSyncStoreState) : mockSyncStoreState;
   }),
 }));
 
@@ -58,6 +61,15 @@ describe("SyncStatusBar", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    mockSyncStoreState.isFetching = false;
+    mockSyncStoreState.isLoadingMore = false;
+    mockSyncStoreState.isSyncingAll = false;
+    mockSyncStoreState.syncAllProgress = null;
+    mockSyncStoreState.isSyncingFromDate = false;
+    mockSyncStoreState.syncFromDateTarget = null;
+    mockSyncStoreState.isEmbeddingBackfilling = false;
+    mockSyncStoreState.embeddingBackfillProgress = null;
+    mockSyncStoreState.lastSyncError = null;
   });
 
   describe("Embeddingを補完ボタン（Design Doc: スマホでもembedding取得可能）", () => {
@@ -86,6 +98,33 @@ describe("SyncStatusBar", () => {
       await user.click(button);
 
       expect(onRunEmbeddingBackfill).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("syncFromDate の停止導線", () => {
+    it("hasMore=false かつ onSyncAll 未指定でも、syncFromDate 実行中は停止ボタンと状態文言を表示する", async () => {
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      mockSyncStoreState.isSyncingFromDate = true;
+      mockSyncStoreState.syncFromDateTarget = "2026-01-10";
+
+      render(<SyncStatusBar onStopSync={vi.fn()} />);
+
+      expect(screen.getByText("2026-01-10以前の論文を取得中...")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "同期を停止" })).toBeInTheDocument();
+    });
+
+    it("停止ボタンを押すと onStopSync が呼ばれる", async () => {
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      const user = userEvent.setup();
+      const onStopSync = vi.fn();
+      mockSyncStoreState.isSyncingFromDate = true;
+      mockSyncStoreState.syncFromDateTarget = "2026-01-10";
+
+      render(<SyncStatusBar compact onStopSync={onStopSync} />);
+
+      await user.click(screen.getByRole("button", { name: "同期を停止" }));
+
+      expect(onStopSync).toHaveBeenCalledTimes(1);
     });
   });
 });

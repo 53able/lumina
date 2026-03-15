@@ -47,6 +47,8 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   const isLoadingMore = useSyncStore((s) => s.isLoadingMore);
   const isSyncingAll = useSyncStore((s) => s.isSyncingAll);
   const syncAllProgress = useSyncStore((s) => s.syncAllProgress);
+  const isSyncingFromDate = useSyncStore((s) => s.isSyncingFromDate);
+  const syncFromDateTarget = useSyncStore((s) => s.syncFromDateTarget);
   const isEmbeddingBackfilling = useSyncStore((s) => s.isEmbeddingBackfilling);
   const embeddingBackfillProgress = useSyncStore((s) => s.embeddingBackfillProgress);
   const lastSyncError = useSyncStore((s) => s.lastSyncError);
@@ -58,11 +60,17 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   const [isStopping, setIsStopping] = useState(false);
 
   useEffect(() => {
-    if (!isSyncing && !isSyncingAll) setIsStopping(false);
-  }, [isSyncing, isSyncingAll]);
+    if (!isSyncing && !isSyncingAll && !isSyncingFromDate) setIsStopping(false);
+  }, [isSyncing, isSyncingAll, isSyncingFromDate]);
 
   /** 停止ボタンを表示する条件（同期中または停止処理中で、停止ハンドラがあるとき） */
-  const showStopButton = (isSyncing || isSyncingAll || isStopping) && Boolean(onStopSync);
+  const showStopButton =
+    (isSyncing || isSyncingAll || isSyncingFromDate || isStopping) && Boolean(onStopSync);
+  const syncFromDateStatusText = isSyncingFromDate
+    ? syncFromDateTarget
+      ? `${syncFromDateTarget}以前の論文を取得中...`
+      : "論文を取得中..."
+    : null;
 
   const paperCount = usePaperStore((state) => state.papers.length);
   const papersWithoutEmbeddingCount = usePaperStore(
@@ -191,33 +199,43 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                     ? `取得中 ${syncAllProgress.fetched.toLocaleString("ja-JP")} / ${syncAllProgress.total.toLocaleString("ja-JP")} 件`
                     : "同期期間の論文をすべて取得"}
                 </Button>
-                {showStopButton ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (isStopping || !onStopSync) return;
-                      setIsStopping(true);
-                      onStopSync();
-                    }}
-                    disabled={isStopping}
-                    aria-label={isStopping ? "停止しています" : "同期を停止"}
-                    aria-busy={isStopping}
-                    className={
-                      compact
-                        ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
-                        : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
-                    }
-                  >
-                    <StopCircle
-                      className={compact ? "h-3.5 w-3.5 shrink-0" : "h-4 w-4 shrink-0"}
-                      aria-hidden
-                    />
-                    {compact ? "" : isStopping ? "停止中…" : "停止"}
-                  </Button>
-                ) : null}
               </>
+            ) : null}
+            {syncFromDateStatusText ? (
+              <span
+                className={
+                  compact ? "text-[10px] text-muted-foreground" : "text-xs text-muted-foreground"
+                }
+                aria-live="polite"
+              >
+                {syncFromDateStatusText}
+              </span>
+            ) : null}
+            {showStopButton ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (isStopping || !onStopSync) return;
+                  setIsStopping(true);
+                  onStopSync();
+                }}
+                disabled={isStopping}
+                aria-label={isStopping ? "停止しています" : "同期を停止"}
+                aria-busy={isStopping}
+                className={
+                  compact
+                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                }
+              >
+                <StopCircle
+                  className={compact ? "h-3.5 w-3.5 shrink-0" : "h-4 w-4 shrink-0"}
+                  aria-hidden
+                />
+                {compact ? "" : isStopping ? "停止中…" : "停止"}
+              </Button>
             ) : null}
           </div>
 
