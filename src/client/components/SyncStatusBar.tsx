@@ -182,24 +182,22 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             <span className="text-muted-foreground shrink-0">{compact ? "" : "取得済み:"}</span>
             <span className="font-bold">{paperCount.toLocaleString("ja-JP")}件</span>
             {hasMore && onSyncAll ? (
-              <>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={onSyncAll}
-                  disabled={isSyncingAll || isSyncing}
-                  aria-label="同期期間の論文をすべて取得"
-                  className={
-                    compact
-                      ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
-                      : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
-                  }
-                >
-                  {isSyncingAll && syncAllProgress
-                    ? `取得中 ${syncAllProgress.fetched.toLocaleString("ja-JP")} / ${syncAllProgress.total.toLocaleString("ja-JP")} 件`
-                    : "同期期間の論文をすべて取得"}
-                </Button>
-              </>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={onSyncAll}
+                disabled={isSyncingAll || isSyncing}
+                aria-label="同期期間の論文をすべて取得"
+                className={
+                  compact
+                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                }
+              >
+                {isSyncingAll && syncAllProgress
+                  ? `取得中 ${syncAllProgress.fetched.toLocaleString("ja-JP")} / ${syncAllProgress.total.toLocaleString("ja-JP")} 件`
+                  : "同期期間の論文をすべて取得"}
+              </Button>
             ) : null}
             {syncFromDateStatusText ? (
               <span
