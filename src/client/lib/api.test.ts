@@ -200,11 +200,13 @@ describe("syncApi", () => {
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.stubGlobal("fetch", mockFetch);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -237,5 +239,25 @@ describe("syncApi", () => {
         : (init?.body as string | undefined);
     const body = rawBody ? (JSON.parse(rawBody) as { existingPaperIds?: string[] }) : {};
     expect(body.existingPaperIds).toEqual(["2401.00001", "2401.00002"]);
+  });
+
+  it("429 の待機中に abort されたら再試行せず即座に中断する", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Too Many Requests" }), {
+        status: 429,
+        headers: new Headers({ "Retry-After": "120" }),
+      })
+    );
+
+    const ac = new AbortController();
+    const promise = syncApi({ categories: ["cs.AI"] }, { apiKey: "key", signal: ac.signal });
+
+    await vi.advanceTimersByTimeAsync(0);
+    ac.abort();
+
+    await expect(promise).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

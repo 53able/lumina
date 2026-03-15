@@ -272,6 +272,29 @@ describe("useSyncPapers", () => {
     });
   });
 
+  describe("初回同期の状態反映", () => {
+    it("0件成功でも totalResults と最終同期日時を更新する", async () => {
+      mockSyncApi.mockResolvedValue({
+        papers: [],
+        fetchedCount: 0,
+        totalResults: 0,
+        took: 100,
+      });
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        await result.current.sync();
+      });
+
+      expect(result.current.totalResults).toBe(0);
+      expect(result.current.hasMore).toBe(false);
+      expect(mockSetLastSyncedAt).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("syncAll（同期期間内の論文をすべて取得）", () => {
     it("正常系: totalResults=125 のとき syncApi が start=0, 50, 100 で3回呼ばれ store に125件入る", async () => {
       vi.useRealTimers();
@@ -326,6 +349,41 @@ describe("useSyncPapers", () => {
         { timeout: 15_000 }
       );
       vi.useFakeTimers();
+    });
+
+    it("初回同期が未完了の間は、完了するまで isSyncingAll を維持する", async () => {
+      let resolveInitialSync: ((value: ReturnType<typeof createMockResponse>) => void) | null = null;
+      mockSyncApi.mockImplementation(
+        (request: { start?: number }) =>
+          new Promise((resolve) => {
+            if ((request.start ?? 0) === 0) {
+              resolveInitialSync = resolve;
+            }
+          })
+      );
+
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      act(() => {
+        void result.current.syncAll();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(useSyncStore.getState().isSyncingAll).toBe(true);
+      expect(mockSyncApi).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveInitialSync?.(createMockResponse(0, 50));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(useSyncStore.getState().isSyncingAll).toBe(false);
+      expect(papersRef.current.length).toBe(50);
     });
   });
 

@@ -283,7 +283,7 @@ export const useSyncPapers = (
 
   const queryKey = createSyncQueryKey(params);
 
-  const { data, isFetching, error, refetch } = useQuery({
+  const { isFetching, error, refetch } = useQuery({
     queryKey,
     queryFn: async ({ signal }): Promise<SyncResponse> => {
       // API key を復号化して取得（早期開始パターン）
@@ -311,22 +311,22 @@ export const useSyncPapers = (
     gcTime: SYNC_STALE_TIME, // キャッシュ保持期間も5分
   });
 
-  // 成功時の処理（data が変わったときのみ実行。storePapers を deps に含めないので addPaper で store が更新されても再実行されない）
-  useEffect(() => {
-    if (!data || data.papers.length === 0) return;
+  /**
+   * 初回同期成功時の反映処理。
+   * 0件成功も正常系として扱い、totalResults/lastSyncedAt を更新する。
+   */
+  const applyInitialSyncData = useCallback(
+    (response: SyncResponse): void => {
+      const currentStorePapers = getStorePapers();
+      const newPapers = filterNewPapers(response.papers, currentStorePapers);
 
-    const currentStorePapers = getStorePapers();
-
-    // DBに既に存在する論文をスキップ
-    const newPapers = filterNewPapers(data.papers, currentStorePapers);
-
-    if (newPapers.length > 0) {
-      addPapers(newPapers);
-    }
-    commitSyncResult(data, 0, newPapers, true);
-
-    // Embedding 補完は同期ボタンから切り離し。手動で「Embeddingを補完」ボタンから実行する。
-  }, [data, addPapers, commitSyncResult, getStorePapers]);
+      if (newPapers.length > 0) {
+        void addPapers(newPapers);
+      }
+      commitSyncResult(response, 0, newPapers, true);
+    },
+    [addPapers, commitSyncResult, getStorePapers]
+  );
 
   // エラー時の処理（query の error を保持し、onError コールバックを呼ぶ）
   // ユーザーが停止した場合（AbortError）はエラー表示しない
@@ -345,7 +345,7 @@ export const useSyncPapers = (
   }, [isFetching]);
 
   // 同期実行関数（最初から取得）
-  const sync = useCallback(() => {
+  const runInitialSync = useCallback(async (): Promise<void> => {
     // キャッシュが新鮮（5分以内）かチェック
     const cachedData = queryClient.getQueryData<SyncResponse>(queryKey);
     const queryState = queryClient.getQueryState(queryKey);
@@ -354,31 +354,28 @@ export const useSyncPapers = (
 
     if (cachedData && !isStale) {
       // キャッシュが有効 → 再利用（APIを叩かない）。既存を除いた分だけストアに追加
-      const currentStorePapers = getStorePapers();
-      const newPapersFromCache = filterNewPapers(cachedData.papers, currentStorePapers);
-      if (newPapersFromCache.length > 0) {
-        addPapers(newPapersFromCache);
-      }
-      const store = useSyncStore.getState();
-      store.setRequestedRanges(
-        mergeRanges([...store.requestedRanges, [0, cachedData.fetchedCount]])
-      );
-      store.setTotalResults(cachedData.totalResults);
-      const running = isSyncAllRunningRef.current;
-      if (running) syncAllAccumulatedRef.current += newPapersFromCache.length;
-      onSuccessRef.current?.(cachedData, {
-        isInitialSync: true,
-        addedCount: newPapersFromCache.length,
-        isSyncAllRunning: running,
-      });
+      applyInitialSyncData(cachedData);
       return;
     }
 
     // キャッシュが古いか存在しない → APIを叩く
     useSyncStore.getState().setRequestedRanges([]);
     useSyncStore.getState().setTotalResults(null);
-    void refetch();
-  }, [queryClient, queryKey, addPapers, refetch, getStorePapers]);
+    const result = await refetch();
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.data) {
+      applyInitialSyncData(result.data);
+    }
+  }, [queryClient, queryKey, refetch, applyInitialSyncData]);
+
+  // 同期実行関数（最初から取得）
+  const sync = useCallback((): void => {
+    void runInitialSync().catch(() => {
+      // エラー処理は React Query の error state / onError コールバックに委譲する
+    });
+  }, [runInitialSync]);
 
   // 追加同期実行関数（次のページを取得）。syncAll ループから呼ばれても最新状態を参照するため ref を使用
   /** @param abortSignal syncAll から呼ぶときに渡すと、停止ボタンでこのリクエストを中止できる */
@@ -477,56 +474,57 @@ export const useSyncPapers = (
 
     let completedNormally = false;
     try {
-      sync();
+      await runInitialSync();
 
-      const deadline = Date.now() + 15_000;
-      while (useSyncStore.getState().totalResults === null && Date.now() < deadline) {
+      if (ac.signal.aborted) return;
+
+      for (;;) {
         if (ac.signal.aborted) break;
-        await new Promise<void>((r) => setTimeout(r, 50));
-      }
-
-      if (useSyncStore.getState().totalResults !== null) {
-        for (;;) {
-          if (ac.signal.aborted) break;
-          const state = useSyncStore.getState();
-          if (state.totalResults === null) break;
-          const nextStart = getNextStartToRequest(
-            state.requestedRanges,
-            state.totalResults ?? 0,
-            SYNC_MORE_BATCH_SIZE
-          );
-          const total = state.totalResults ?? 0;
-          if (total !== 0 && nextStart >= total) {
-            completedNormally = true;
-            break;
-          }
-          const fetched = getStorePapers().length;
-          useSyncStore.getState().setSyncAllProgress({ fetched, total });
-          try {
-            await syncMore(ac.signal);
-          } catch (syncMoreErr) {
-            const e = toError(syncMoreErr);
-            useSyncStore.getState().setLastSyncError(e);
-            onErrorRef.current?.(e);
-            break;
-          }
-          await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
+        const state = useSyncStore.getState();
+        if (state.totalResults === null) break;
+        const nextStart = getNextStartToRequest(
+          state.requestedRanges,
+          state.totalResults ?? 0,
+          SYNC_MORE_BATCH_SIZE
+        );
+        const total = state.totalResults ?? 0;
+        if (total !== 0 && nextStart >= total) {
+          completedNormally = true;
+          break;
         }
+        if (total === 0) {
+          completedNormally = true;
+          break;
+        }
+        const fetched = getStorePapers().length;
+        useSyncStore.getState().setSyncAllProgress({ fetched, total });
+        try {
+          await syncMore(ac.signal);
+        } catch (syncMoreErr) {
+          const e = toError(syncMoreErr);
+          useSyncStore.getState().setLastSyncError(e);
+          onErrorRef.current?.(e);
+          break;
+        }
+        await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
       }
     } catch (err) {
-      const e = toError(err);
-      useSyncStore.getState().setLastSyncError(e);
-      onErrorRef.current?.(e);
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      if (!isAbort) {
+        const e = toError(err);
+        useSyncStore.getState().setLastSyncError(e);
+        onErrorRef.current?.(e);
+      }
     } finally {
       const totalAdded = syncAllAccumulatedRef.current;
-      const wasAborted = !completedNormally;
+      const wasAborted = !completedNormally && ac.signal.aborted;
       isSyncAllRunningRef.current = false;
       syncAllAbortRef.current = null;
       useSyncStore.getState().setIsSyncingAll(false);
       useSyncStore.getState().setSyncAllProgress(null);
       onSyncAllCompleteRef.current?.(totalAdded, { wasAborted });
     }
-  }, [sync, syncMore, getStorePapers]);
+  }, [runInitialSync, syncMore, getStorePapers]);
 
   /**
    * 同期を停止する（初回 sync の refetch と syncAll の syncMore ループを中止）
