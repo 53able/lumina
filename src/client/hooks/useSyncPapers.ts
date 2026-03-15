@@ -210,10 +210,7 @@ export const useSyncPapers = (
     /** syncFromDate 成功時。addedCount は実際に追加した件数、totalFetched は API が返した件数（0 の場合は範囲に論文なし） */
     onSyncFromDateSuccess?: (addedCount: number, totalFetched?: number) => void;
     /** syncFromDate の各ページで新規論文を保存した直後に呼ぶ */
-    onSyncFromDatePageCached?: (
-      addedCount: number,
-      context: SyncFromDatePageCachedContext
-    ) => void;
+    onSyncFromDatePageCached?: (addedCount: number, context: SyncFromDatePageCachedContext) => void;
     /** syncFromDate 失敗時 */
     onSyncFromDateError?: (error: Error) => void;
   }

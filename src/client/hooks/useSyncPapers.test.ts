@@ -540,11 +540,7 @@ describe("useSyncPapers", () => {
       const onSyncFromDatePageCached = vi.fn();
 
       const { result } = renderHook(
-        () =>
-          useSyncPapers(
-            { categories: ["cs.AI"], period: "30" },
-            { onSyncFromDatePageCached }
-          ),
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onSyncFromDatePageCached }),
         { wrapper }
       );
 
@@ -733,13 +729,11 @@ describe("useSyncPapers", () => {
         { wrapper }
       );
 
-      let syncPromise:
-        | Promise<{
-            addedCount: number;
-            totalFetched: number;
-            wasAborted: boolean;
-          }>
-        | null = null;
+      let syncPromise: Promise<{
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      }> | null = null;
       await act(async () => {
         syncPromise = result.current.syncFromDate("2026-01-10");
         await Promise.resolve();
@@ -757,13 +751,11 @@ describe("useSyncPapers", () => {
         result.current.stopSync();
       });
 
-      let syncResult:
-        | {
-            addedCount: number;
-            totalFetched: number;
-            wasAborted: boolean;
-          }
-        | null = null;
+      let syncResult: {
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      } | null = null;
       await act(async () => {
         syncResult = await syncPromise;
       });
