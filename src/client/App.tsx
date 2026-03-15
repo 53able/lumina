@@ -260,6 +260,7 @@ const HomePage: FC = () => {
     stopSync,
     runEmbeddingBackfill,
     isSyncing,
+    isSyncingFromDate,
     hasMore: hasMorePapers,
   } = useSyncPapers(
     {
@@ -308,8 +309,12 @@ const HomePage: FC = () => {
   /** 同期停止時に即座にフィードバックを返す（UX: 操作結果を明確に伝える） */
   const handleStopSync = useCallback(() => {
     stopSync();
+    if (isSyncingFromDate) {
+      toast.info("取得を停止しています");
+      return;
+    }
     toast.success("同期を停止しました");
-  }, [stopSync]);
+  }, [isSyncingFromDate, stopSync]);
 
   // 初回自動同期フラグ（一度だけ実行するため）
   const hasAutoSyncedRef = useRef(false);

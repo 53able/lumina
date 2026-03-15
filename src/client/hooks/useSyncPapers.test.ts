@@ -460,7 +460,13 @@ describe("useSyncPapers", () => {
         { wrapper }
       );
 
-      let syncPromise: Promise<void> | undefined;
+      let syncPromise:
+        | Promise<{
+            addedCount: number;
+            totalFetched: number;
+            wasAborted: boolean;
+          }>
+        | undefined;
       await act(async () => {
         syncPromise = result.current.syncFromDate("2026-01-10");
         await Promise.resolve();
@@ -469,7 +475,10 @@ describe("useSyncPapers", () => {
       expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
       expect(onSyncFromDateError).not.toHaveBeenCalled();
 
-      resolveAddPapers?.();
+      if (!resolveAddPapers) {
+        throw new Error("resolveAddPapers was not assigned");
+      }
+      resolveAddPapers();
 
       await act(async () => {
         await syncPromise;
@@ -558,7 +567,10 @@ describe("useSyncPapers", () => {
 
       expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
 
-      resolveAddPapers?.();
+      if (!resolveAddPapers) {
+        throw new Error("resolveAddPapers was not assigned");
+      }
+      resolveAddPapers();
 
       await act(async () => {
         await syncPromise;
@@ -629,12 +641,90 @@ describe("useSyncPapers", () => {
         }
       });
 
-      expect(caughtError?.message).toBe("DB write failed");
+      expect(caughtError).toBeInstanceOf(Error);
+      if (!(caughtError instanceof Error)) {
+        throw new Error("caughtError was not assigned");
+      }
+      expect(caughtError.message).toBe("DB write failed");
       expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
       expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
       expect(onSyncFromDateError).toHaveBeenCalledTimes(1);
       expect(onSyncFromDateError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
       expect((onSyncFromDateError.mock.calls[0]?.[0] as Error).message).toBe("DB write failed");
+    });
+
+    it("別インスタンスからも syncFromDate の実行状態を参照できる", async () => {
+      mockSyncApi.mockImplementation(
+        (
+          _request: unknown,
+          options?: {
+            signal?: AbortSignal;
+          }
+        ) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Sync aborted", "AbortError"));
+            });
+          })
+      );
+
+      const first = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+      const second = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      let syncPromise: Promise<{
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      }> | null = null;
+
+      await act(async () => {
+        syncPromise = first.result.current.syncFromDate("2026-01-10");
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(first.result.current.isSyncingFromDate).toBe(true);
+      expect(first.result.current.syncFromDateTarget).toBe("2026-01-10");
+      expect(second.result.current.isSyncingFromDate).toBe(true);
+      expect(second.result.current.syncFromDateTarget).toBe("2026-01-10");
+
+      if (!syncPromise) {
+        throw new Error("syncPromise was not created");
+      }
+
+      act(() => {
+        second.result.current.stopSync();
+      });
+
+      let syncResult: {
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      } | null = null;
+      await act(async () => {
+        syncResult = await syncPromise;
+      });
+      expect(syncResult).toEqual({
+        addedCount: 0,
+        totalFetched: 0,
+        wasAborted: true,
+      });
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(first.result.current.isSyncingFromDate).toBe(false);
+      expect(first.result.current.syncFromDateTarget).toBeNull();
+      expect(second.result.current.isSyncingFromDate).toBe(false);
+      expect(second.result.current.syncFromDateTarget).toBeNull();
     });
 
     it("stopSync で syncFromDate を中断できる", async () => {
@@ -693,6 +783,8 @@ describe("useSyncPapers", () => {
         totalFetched: 0,
         wasAborted: true,
       });
+      expect(result.current.isSyncingFromDate).toBe(false);
+      expect(result.current.syncFromDateTarget).toBeNull();
       expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
       expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
       expect(onSyncFromDateError).not.toHaveBeenCalled();

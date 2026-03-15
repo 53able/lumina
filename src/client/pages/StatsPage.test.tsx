@@ -11,6 +11,7 @@ import { StatsPage } from "./StatsPage";
 const mockSyncFromDate = vi.fn();
 const mockStopSync = vi.fn();
 let mockIsSyncingFromDate = false;
+let mockSyncFromDateTarget: string | null = null;
 let syncFromDateHookOptions:
   | {
       onSyncFromDatePageCached?: (
@@ -35,6 +36,7 @@ vi.mock("../hooks/useSyncPapers", () => ({
       syncFromDate: mockSyncFromDate,
       stopSync: mockStopSync,
       isSyncingFromDate: mockIsSyncingFromDate,
+      syncFromDateTarget: mockSyncFromDateTarget,
     };
   },
 }));
@@ -74,6 +76,7 @@ describe("StatsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsSyncingFromDate = false;
+    mockSyncFromDateTarget = null;
     syncFromDateHookOptions = undefined;
     mockSyncFromDate.mockResolvedValue({
       addedCount: 0,
@@ -189,5 +192,14 @@ describe("StatsPage", () => {
 
     expect(mockStopSync).toHaveBeenCalledTimes(1);
     expect(toast.info).toHaveBeenCalledWith("取得を停止しています");
+  });
+
+  it("同期中は共有された syncFromDateTarget を取得中表示に反映する", () => {
+    mockIsSyncingFromDate = true;
+    mockSyncFromDateTarget = "2026-01-10";
+
+    renderWithRouter(<StatsPage />);
+
+    expect(screen.getByText("2026-01-10以前の論文を取得中...")).toBeInTheDocument();
   });
 });

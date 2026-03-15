@@ -20,6 +20,10 @@ interface SyncState {
   isSyncingAll: boolean;
   /** 全件取得の進捗（取得済み / 全件数） */
   syncAllProgress: { fetched: number; total: number } | null;
+  /** 少ない日クリック時の遡り同期を実行中か */
+  isSyncingFromDate: boolean;
+  /** 少ない日クリック時の取得対象終了日 */
+  syncFromDateTarget: string | null;
   /** Embedding バックフィル実行中か */
   isEmbeddingBackfilling: boolean;
   /** Embedding バックフィル進捗 */
@@ -38,6 +42,8 @@ interface SyncActions {
   setIsFetching: (value: boolean) => void;
   setIsSyncingAll: (value: boolean) => void;
   setSyncAllProgress: (progress: { fetched: number; total: number } | null) => void;
+  setIsSyncingFromDate: (value: boolean) => void;
+  setSyncFromDateTarget: (target: string | null) => void;
   setIsEmbeddingBackfilling: (value: boolean) => void;
   setEmbeddingBackfillProgress: (
     progress: {
@@ -59,6 +65,8 @@ const initialState: SyncState = {
   isFetching: false,
   isSyncingAll: false,
   syncAllProgress: null,
+  isSyncingFromDate: false,
+  syncFromDateTarget: null,
   isEmbeddingBackfilling: false,
   embeddingBackfillProgress: null,
   lastSyncError: null,
@@ -80,6 +88,8 @@ export const useSyncStore = create<SyncStore>()(
       setIsFetching: (value) => set({ isFetching: value }),
       setIsSyncingAll: (value) => set({ isSyncingAll: value }),
       setSyncAllProgress: (progress) => set({ syncAllProgress: progress }),
+      setIsSyncingFromDate: (value) => set({ isSyncingFromDate: value }),
+      setSyncFromDateTarget: (target) => set({ syncFromDateTarget: target }),
       setIsEmbeddingBackfilling: (value) => set({ isEmbeddingBackfilling: value }),
       setEmbeddingBackfillProgress: (progress) => set({ embeddingBackfillProgress: progress }),
       setLastSyncError: (error) => set({ lastSyncError: error }),

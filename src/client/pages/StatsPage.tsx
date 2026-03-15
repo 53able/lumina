@@ -41,9 +41,8 @@ export const StatsPage: FC = () => {
   const { papers, isLoading } = usePaperStore();
   const { selectedCategories, syncPeriodDays } = useSettingsStore();
   const [showAllLowDays, setShowAllLowDays] = useState(false);
-  const [syncFromDateTarget, setSyncFromDateTarget] = useState<string | null>(null);
   const [isStoppingSyncFromDate, setIsStoppingSyncFromDate] = useState(false);
-  const { syncFromDate, isSyncingFromDate, stopSync } = useSyncPapers(
+  const { syncFromDate, isSyncingFromDate, syncFromDateTarget, stopSync } = useSyncPapers(
     {
       categories: selectedCategories,
       period: syncPeriodDays,
@@ -74,7 +73,6 @@ export const StatsPage: FC = () => {
   }, [isSyncingFromDate]);
 
   const handleSyncFromDate = (date: string) => {
-    setSyncFromDateTarget(date);
     setIsStoppingSyncFromDate(false);
     toast.info("取得を開始しました", {
       description: `${date}以前の論文を確認しています`,
@@ -107,7 +105,6 @@ export const StatsPage: FC = () => {
         toast.error("同期エラー", { description: error.message });
       })
       .finally(() => {
-        setSyncFromDateTarget(null);
         setIsStoppingSyncFromDate(false);
       });
   };
