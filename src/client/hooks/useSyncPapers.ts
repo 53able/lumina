@@ -143,6 +143,15 @@ interface SyncParams {
   period?: SyncPeriod;
 }
 
+interface SyncFromDateResult {
+  /** 実際にキャッシュへ追加した件数 */
+  addedCount: number;
+  /** API が返した件数 */
+  totalFetched: number;
+  /** ユーザー操作などで中断したかどうか */
+  wasAborted: boolean;
+}
+
 /**
  * クエリキーを生成する
  * @param params - 同期パラメータ
@@ -236,6 +245,8 @@ export const useSyncPapers = (
 
   /** syncAll 停止用。abort すると syncMore のリクエストとループが止まる */
   const syncAllAbortRef = useRef<AbortController | null>(null);
+  /** syncFromDate 停止用。少ない日クリック時の遡り同期を中止する */
+  const syncFromDateAbortRef = useRef<AbortController | null>(null);
   /** syncAll 実行中か（onSuccess でバッチ別トーストを出さないためと累積用） */
   const isSyncAllRunningRef = useRef(false);
   /** syncAll 中の追加件数合計（完了時に onSyncAllComplete で渡す） */
@@ -531,6 +542,7 @@ export const useSyncPapers = (
    */
   const stopSync = useCallback(() => {
     syncAllAbortRef.current?.abort();
+    syncFromDateAbortRef.current?.abort();
     queryClient.cancelQueries({ queryKey });
   }, [queryClient, queryKey]);
 
@@ -583,18 +595,23 @@ export const useSyncPapers = (
    * requestedRanges / totalResults は更新しない（通常の period 同期とは別扱い）
    */
   const syncFromDate = useCallback(
-    async (date: string): Promise<void> => {
+    async (date: string): Promise<SyncFromDateResult> => {
+      const ac = new AbortController();
+      syncFromDateAbortRef.current = ac;
       setIsSyncingFromDate(true);
+      let totalAdded = 0;
+      let totalFetched = 0;
       try {
         await waitForRateLimitRef.current();
         const apiKey = await getDecryptedApiKey();
-        let totalAdded = 0;
-        let totalFetched = 0;
         let start = 0;
         let pageCount = 0;
 
         for (;;) {
           if (pageCount >= SYNC_FROM_DATE_MAX_PAGES) break;
+          if (ac.signal.aborted) {
+            throw new DOMException("Sync from date aborted", "AbortError");
+          }
           pageCount += 1;
           const currentPapers = getStorePapers();
           const existingPaperIds =
@@ -613,12 +630,12 @@ export const useSyncPapers = (
                 ? { existingPaperIds }
                 : {}),
             },
-            { apiKey, onRateLimited: () => onRateLimitedRef.current?.() }
+            { apiKey, signal: ac.signal, onRateLimited: () => onRateLimitedRef.current?.() }
           );
           const response = normalizeSyncResponse(rawResponse);
           const newPapers = filterNewPapers(response.papers, getStorePapers());
           if (newPapers.length > 0) {
-            addPapers(newPapers);
+            await addPapers(newPapers);
           }
           totalAdded += newPapers.length;
           totalFetched += response.papers.length;
@@ -632,10 +649,19 @@ export const useSyncPapers = (
 
         setLastSyncedAt(now());
         onSyncFromDateSuccessRef.current?.(totalAdded, totalFetched);
+        return { addedCount: totalAdded, totalFetched, wasAborted: false };
       } catch (err) {
+        const isAbort = err instanceof DOMException && err.name === "AbortError";
+        if (isAbort) {
+          return { addedCount: totalAdded, totalFetched, wasAborted: true };
+        }
         const e = toError(err);
         onSyncFromDateErrorRef.current?.(e);
+        throw e;
       } finally {
+        if (syncFromDateAbortRef.current === ac) {
+          syncFromDateAbortRef.current = null;
+        }
         setIsSyncingFromDate(false);
       }
     },

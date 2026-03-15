@@ -409,5 +409,142 @@ describe("useSyncPapers", () => {
       expect(request.period).toBe("365");
       expect(request.toDate).toBe("2026-01-10");
     });
+
+    it("新規論文の保存完了後に成功コールバックを呼ぶ", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 1));
+
+      let resolveAddPapers: (() => void) | null = null;
+      mockAddPapers.mockImplementation(
+        (newPapers: Array<{ id: string; embedding?: number[] }>) =>
+          new Promise<void>((resolve) => {
+            resolveAddPapers = () => {
+              papersRef.current = [...papersRef.current, ...newPapers];
+              resolve();
+            };
+          })
+      );
+
+      const onSyncFromDateSuccess = vi.fn();
+      const onSyncFromDateError = vi.fn();
+
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSyncFromDateSuccess, onSyncFromDateError }
+          ),
+        { wrapper }
+      );
+
+      let syncPromise: Promise<void> | undefined;
+      await act(async () => {
+        syncPromise = result.current.syncFromDate("2026-01-10");
+        await Promise.resolve();
+      });
+
+      expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
+      expect(onSyncFromDateError).not.toHaveBeenCalled();
+
+      resolveAddPapers?.();
+
+      await act(async () => {
+        await syncPromise;
+      });
+
+      expect(await syncPromise).toEqual({ addedCount: 1, totalFetched: 1, wasAborted: false });
+      expect(onSyncFromDateSuccess).toHaveBeenCalledWith(1, 1);
+      expect(onSyncFromDateError).not.toHaveBeenCalled();
+    });
+
+    it("保存失敗時は成功コールバックを呼ばずエラーコールバックを呼ぶ", async () => {
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 1));
+      mockAddPapers.mockRejectedValue(new Error("DB write failed"));
+
+      const onSyncFromDateSuccess = vi.fn();
+      const onSyncFromDateError = vi.fn();
+
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSyncFromDateSuccess, onSyncFromDateError }
+          ),
+        { wrapper }
+      );
+
+      let caughtError: Error | null = null;
+      await act(async () => {
+        try {
+          await result.current.syncFromDate("2026-01-10");
+        } catch (error) {
+          caughtError = error instanceof Error ? error : new Error(String(error));
+        }
+      });
+
+      expect(caughtError?.message).toBe("DB write failed");
+      expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
+      expect(onSyncFromDateError).toHaveBeenCalledTimes(1);
+      expect(onSyncFromDateError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+      expect((onSyncFromDateError.mock.calls[0]?.[0] as Error).message).toBe("DB write failed");
+    });
+
+    it("stopSync で syncFromDate を中断できる", async () => {
+      mockSyncApi.mockImplementation(
+        (
+          _request: unknown,
+          options?: {
+            signal?: AbortSignal;
+          }
+        ) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Sync aborted", "AbortError"));
+            });
+          })
+      );
+
+      const onSyncFromDateSuccess = vi.fn();
+      const onSyncFromDateError = vi.fn();
+
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSyncFromDateSuccess, onSyncFromDateError }
+          ),
+        { wrapper }
+      );
+
+      let syncPromise: Promise<{
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      }> | null = null;
+      await act(async () => {
+        syncPromise = result.current.syncFromDate("2026-01-10");
+        await Promise.resolve();
+      });
+
+      act(() => {
+        result.current.stopSync();
+      });
+
+      let syncResult: {
+        addedCount: number;
+        totalFetched: number;
+        wasAborted: boolean;
+      } | null = null;
+      await act(async () => {
+        syncResult = await syncPromise;
+      });
+
+      expect(syncResult).toEqual({
+        addedCount: 0,
+        totalFetched: 0,
+        wasAborted: true,
+      });
+      expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
+      expect(onSyncFromDateError).not.toHaveBeenCalled();
+    });
   });
 });

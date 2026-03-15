@@ -105,6 +105,21 @@ interface ChartTooltipContentProps extends React.HTMLAttributes<HTMLDivElement> 
     index: number,
     payload: unknown
   ) => React.ReactNode;
+  // Recharts internal props — not forwarded to DOM
+  accessibilityLayer?: unknown;
+  allowEscapeViewBox?: unknown;
+  animationDuration?: unknown;
+  animationEasing?: unknown;
+  contentStyle?: unknown;
+  cursor?: unknown;
+  cursorStyle?: unknown;
+  filterNull?: unknown;
+  isAnimationActive?: unknown;
+  itemStyle?: unknown;
+  labelStyle?: unknown;
+  reverseDirection?: unknown;
+  useTranslate3d?: unknown;
+  wrapperStyle?: unknown;
 }
 
 /**
@@ -123,6 +138,20 @@ export const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltip
       formatter,
       nameKey,
       labelKey,
+      accessibilityLayer: _al,
+      allowEscapeViewBox: _aevb,
+      animationDuration: _ad,
+      animationEasing: _ae,
+      contentStyle: _cs,
+      cursor: _cu,
+      cursorStyle: _cus,
+      filterNull: _fn,
+      isAnimationActive: _iaa,
+      itemStyle: _is,
+      labelStyle: _ls,
+      reverseDirection: _rd,
+      useTranslate3d: _ut,
+      wrapperStyle: _ws,
       ...props
     },
     ref
