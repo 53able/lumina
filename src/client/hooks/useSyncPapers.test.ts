@@ -352,7 +352,8 @@ describe("useSyncPapers", () => {
     });
 
     it("初回同期が未完了の間は、完了するまで isSyncingAll を維持する", async () => {
-      let resolveInitialSync: ((value: ReturnType<typeof createMockResponse>) => void) | null = null;
+      let resolveInitialSync: ((value: ReturnType<typeof createMockResponse>) => void) | null =
+        null;
       mockSyncApi.mockImplementation(
         (request: { start?: number }) =>
           new Promise((resolve) => {
