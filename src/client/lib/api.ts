@@ -385,6 +385,28 @@ const computeSyncRetryDelayMs = (retryAfterHeader: string | null): number => {
   return Math.max(1000, retryAfterSec * 1000);
 };
 
+/** AbortSignal に対応した待機。停止時は即座に AbortError を投げる。 */
+const waitForSyncRetryDelay = (delayMs: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Sync aborted", "AbortError"));
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("Sync aborted", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
 /**
  * 同期API
  *
@@ -427,7 +449,7 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
       throw new DOMException("Sync aborted", "AbortError");
     }
     const delayMs = computeSyncRetryDelayMs(lastRes.headers.get("retry-after"));
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    await waitForSyncRetryDelay(delayMs, opts.signal);
     retryCount += 1;
     lastRes = await client.api.v1.sync.$post({ json: body }, opts);
     updateRateLimitFromResponse(lastRes);
