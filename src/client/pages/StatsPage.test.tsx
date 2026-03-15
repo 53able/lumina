@@ -11,6 +11,14 @@ import { StatsPage } from "./StatsPage";
 const mockSyncFromDate = vi.fn();
 const mockStopSync = vi.fn();
 let mockIsSyncingFromDate = false;
+let syncFromDateHookOptions:
+  | {
+      onSyncFromDatePageCached?: (
+        addedCount: number,
+        context?: { pageStart: number; totalAddedSoFar: number; toDate: string }
+      ) => void;
+    }
+  | undefined;
 
 vi.mock("sonner", () => ({
   toast: {
@@ -21,11 +29,14 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("../hooks/useSyncPapers", () => ({
-  useSyncPapers: () => ({
-    syncFromDate: mockSyncFromDate,
-    stopSync: mockStopSync,
-    isSyncingFromDate: mockIsSyncingFromDate,
-  }),
+  useSyncPapers: (_params: unknown, options?: typeof syncFromDateHookOptions) => {
+    syncFromDateHookOptions = options;
+    return {
+      syncFromDate: mockSyncFromDate,
+      stopSync: mockStopSync,
+      isSyncingFromDate: mockIsSyncingFromDate,
+    };
+  },
 }));
 
 const mockPapers = Array.from({ length: 10 }, (_, index) => ({
@@ -63,6 +74,7 @@ describe("StatsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsSyncingFromDate = false;
+    syncFromDateHookOptions = undefined;
     mockSyncFromDate.mockResolvedValue({
       addedCount: 0,
       totalFetched: 0,
@@ -87,10 +99,17 @@ describe("StatsPage", () => {
 
   it("新規論文が追加されたとき成功トーストを表示する", async () => {
     const user = userEvent.setup();
-    mockSyncFromDate.mockResolvedValue({
-      addedCount: 3,
-      totalFetched: 5,
-      wasAborted: false,
+    mockSyncFromDate.mockImplementation(async () => {
+      syncFromDateHookOptions?.onSyncFromDatePageCached?.(2, {
+        pageStart: 0,
+        totalAddedSoFar: 2,
+        toDate: "2026-01-01",
+      });
+      return {
+        addedCount: 3,
+        totalFetched: 5,
+        wasAborted: false,
+      };
     });
 
     renderWithRouter(<StatsPage />);
@@ -98,6 +117,9 @@ describe("StatsPage", () => {
     await user.click(screen.getByRole("button", { name: "2026-01-01から同期する" }));
 
     await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("キャッシュ完了", {
+        description: "2件の論文をキャッシュしました",
+      });
       expect(toast.success).toHaveBeenCalledWith("同期完了", {
         description: "3件の論文をキャッシュしました",
       });

@@ -152,6 +152,15 @@ interface SyncFromDateResult {
   wasAborted: boolean;
 }
 
+interface SyncFromDatePageCachedContext {
+  /** ページングの開始位置 */
+  pageStart: number;
+  /** ここまでに追加された累計件数 */
+  totalAddedSoFar: number;
+  /** 取得対象の終了日 */
+  toDate: string;
+}
+
 /**
  * クエリキーを生成する
  * @param params - 同期パラメータ
@@ -200,6 +209,11 @@ export const useSyncPapers = (
     onRateLimited?: () => void;
     /** syncFromDate 成功時。addedCount は実際に追加した件数、totalFetched は API が返した件数（0 の場合は範囲に論文なし） */
     onSyncFromDateSuccess?: (addedCount: number, totalFetched?: number) => void;
+    /** syncFromDate の各ページで新規論文を保存した直後に呼ぶ */
+    onSyncFromDatePageCached?: (
+      addedCount: number,
+      context: SyncFromDatePageCachedContext
+    ) => void;
     /** syncFromDate 失敗時 */
     onSyncFromDateError?: (error: Error) => void;
   }
@@ -214,12 +228,14 @@ export const useSyncPapers = (
   const onSyncAllCompleteRef = useRef(options?.onSyncAllComplete);
   const onRateLimitedRef = useRef(options?.onRateLimited);
   const onSyncFromDateSuccessRef = useRef(options?.onSyncFromDateSuccess);
+  const onSyncFromDatePageCachedRef = useRef(options?.onSyncFromDatePageCached);
   const onSyncFromDateErrorRef = useRef(options?.onSyncFromDateError);
   onSuccessRef.current = options?.onSuccess;
   onErrorRef.current = options?.onError;
   onSyncAllCompleteRef.current = options?.onSyncAllComplete;
   onRateLimitedRef.current = options?.onRateLimited;
   onSyncFromDateSuccessRef.current = options?.onSyncFromDateSuccess;
+  onSyncFromDatePageCachedRef.current = options?.onSyncFromDatePageCached;
   onSyncFromDateErrorRef.current = options?.onSyncFromDateError;
 
   /** 同期状態は syncStore に集約。フックは store を購読して返り値に反映する */
@@ -636,6 +652,11 @@ export const useSyncPapers = (
           const newPapers = filterNewPapers(response.papers, getStorePapers());
           if (newPapers.length > 0) {
             await addPapers(newPapers);
+            onSyncFromDatePageCachedRef.current?.(newPapers.length, {
+              pageStart: start,
+              totalAddedSoFar: totalAdded + newPapers.length,
+              toDate: date,
+            });
           }
           totalAdded += newPapers.length;
           totalFetched += response.papers.length;
