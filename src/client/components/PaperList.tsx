@@ -2,6 +2,7 @@ import { CheckCircle2, Loader2, Search } from "lucide-react";
 import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useGridVirtualizer } from "../hooks/useGridVirtualizer";
+import { estimatePaperCardHeight } from "../lib/paperCardLayout";
 import { cn } from "../lib/utils";
 import { useSyncStore } from "../stores/syncStore";
 import { PaperCard } from "./PaperCard";
@@ -13,10 +14,10 @@ const MIN_CARD_WIDTH = 300;
 /** グリッドのギャップ（px） */
 const GRID_GAP = 32;
 
-/** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
+/** 通常行のフォールバック推定高さ（px）。通常行は Pretext でテキスト量から推定する。 */
 const ESTIMATED_ROW_HEIGHT = 252;
 
-/** 展開行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
+/** 展開行の推定高さ（px）- 詳細パネルは動的なので measureElement で測定する */
 const ESTIMATED_EXPANDED_ROW_HEIGHT = 400;
 
 /**
@@ -130,6 +131,15 @@ export const PaperList: FC<PaperListProps> = ({
   // グリッドコンテナへの参照（幅計算用）
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
+  const estimateItemHeight = useCallback(
+    (paper: Paper, itemWidth: number) =>
+      estimatePaperCardHeight(paper, {
+        itemWidth,
+        whyRead: whyReadMap.get(paper.id),
+      }),
+    [whyReadMap]
+  );
+
   // 仮想スクロール用フック
   const { virtualRows, totalSize, columnCount, measureElement } = useGridVirtualizer({
     scrollContainerRef,
@@ -141,6 +151,7 @@ export const PaperList: FC<PaperListProps> = ({
     columnGap: GRID_GAP,
     estimatedRowHeight: ESTIMATED_ROW_HEIGHT,
     estimatedExpandedRowHeight: ESTIMATED_EXPANDED_ROW_HEIGHT,
+    estimateItemHeight,
     overscan: 3,
   });
 
@@ -226,7 +237,7 @@ export const PaperList: FC<PaperListProps> = ({
                 <div
                   key={`row-${index}`}
                   data-index={index}
-                  ref={measureElement}
+                  ref={isExpanded ? measureElement : undefined}
                   className="absolute left-0 right-0 [content-visibility:auto] [contain-intrinsic-size:0_252px]"
                   style={{
                     top: `${start}px`,
