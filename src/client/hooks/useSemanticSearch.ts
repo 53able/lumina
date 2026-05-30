@@ -65,19 +65,17 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
     return 0;
   }
 
-  // reduce で累積計算（参照透過性を保持）
-  // 注: a.length === b.length は上で検証済み
-  const { dotProduct, normA, normB } = a.reduce(
-    (acc, ai, i) => {
-      const bi = b[i] ?? 0;
-      return {
-        dotProduct: acc.dotProduct + ai * bi,
-        normA: acc.normA + ai * ai,
-        normB: acc.normB + bi * bi,
-      };
-    },
-    { dotProduct: 0, normA: 0, normB: 0 }
-  );
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (let i = 0; i < a.length; i += 1) {
+    const ai = a[i] ?? 0;
+    const bi = b[i] ?? 0;
+    dotProduct += ai * bi;
+    normA += ai * ai;
+    normB += bi * bi;
+  }
 
   const denominator = Math.sqrt(normA) * Math.sqrt(normB);
   if (denominator === 0) {
@@ -129,16 +127,18 @@ export const useSemanticSearch = ({
     setTotalMatchCount(0);
   }, []);
 
+  const paperById = useMemo(() => new Map(papers.map((paper) => [paper.id, paper])), [papers]);
+
   // ストア（papers）から paper を解決し、リアクティブに results を導出
   const results = useMemo(
     () =>
       resultEntries
         .map((e) => {
-          const paper = papers.find((p) => p.id === e.paperId);
+          const paper = paperById.get(e.paperId);
           return paper ? ({ paper, score: e.score } as SearchResult) : null;
         })
         .filter((r): r is SearchResult => r != null),
-    [resultEntries, papers]
+    [resultEntries, paperById]
   );
 
   /**
@@ -148,56 +148,32 @@ export const useSemanticSearch = ({
    */
   const computeSearchResults = useCallback(
     (queryEmbedding: number[]): SearchResult[] => {
-      // Embeddingなし論文を検索対象外として保持（常時可視化用）
-      const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
-      setPapersExcludedFromSearch(excluded);
-
-      // ローカルの論文とコサイン類似度を計算
-      const searchResults: SearchResult[] = [];
+      const excluded: Paper[] = [];
+      const matchedResults: SearchResult[] = [];
 
       for (const paper of papers) {
-        // embeddingがない論文はスキップ
-        if (!paper.embedding || paper.embedding.length === 0) {
+        const embedding = paper.embedding;
+        if (!embedding || embedding.length === 0) {
+          excluded.push(paper);
           continue;
         }
 
-        const score = cosineSimilarity(queryEmbedding, paper.embedding);
-        searchResults.push({
-          paper: {
-            id: paper.id,
-            title: paper.title,
-            abstract: paper.abstract,
-            authors: paper.authors,
-            categories: paper.categories,
-            publishedAt: paper.publishedAt,
-            updatedAt: paper.updatedAt,
-            pdfUrl: paper.pdfUrl,
-            arxivUrl: paper.arxivUrl,
-          },
-          score,
-        });
+        const score = cosineSimilarity(queryEmbedding, embedding);
+        if (score >= scoreThreshold) {
+          matchedResults.push({ paper, score });
+        }
       }
 
-      // 類似度順にソート（降順）
-      // React Best Practice: スプレッド演算子でイミュータブルにソート（元の配列を変更しない）
-      const sortedResults = [...searchResults].sort((a, b) => b.score - a.score);
+      setPapersExcludedFromSearch(excluded);
 
-      // 閾値でフィルタリング（関連性の低い結果を除外）
-      const filteredResults = sortedResults.filter((r) => r.score >= scoreThreshold);
-
-      // limitを適用して上位N件に絞り込む
-      const limitedResults = filteredResults.slice(0, limit);
+      matchedResults.sort((a, b) => b.score - a.score);
+      const limitedResults = matchedResults.slice(0, limit);
 
       // ヒット総数（limit適用前）を保存し、結果を保存（id + score のみ）
-      setTotalMatchCount(filteredResults.length);
+      setTotalMatchCount(matchedResults.length);
       setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
 
-      // ストアの最新 paper を解決して返す（embedding 変更に追従するため）
-      const paperMap = new Map(papers.map((p) => [p.id, p]));
-      return limitedResults.map((r) => ({
-        paper: paperMap.get(r.paper.id) ?? r.paper,
-        score: r.score,
-      }));
+      return limitedResults;
     },
     [papers, limit, scoreThreshold]
   );

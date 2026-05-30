@@ -121,8 +121,15 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   );
 
   // いいね/ブックマークの件数
-  const likedCount = displayPapers.filter((p) => likedPaperIds.has(p.id)).length;
-  const bookmarkedCount = displayPapers.filter((p) => bookmarkedPaperIds.has(p.id)).length;
+  const { likedCount, bookmarkedCount } = useMemo(() => {
+    let likedCount = 0;
+    let bookmarkedCount = 0;
+    for (const paper of displayPapers) {
+      if (likedPaperIds.has(paper.id)) likedCount += 1;
+      if (bookmarkedPaperIds.has(paper.id)) bookmarkedCount += 1;
+    }
+    return { likedCount, bookmarkedCount };
+  }, [displayPapers, likedPaperIds, bookmarkedPaperIds]);
 
   // externalQuery が変更されたら URL の searchQuery を同期（検索履歴からの再検索用）
   useEffect(() => {

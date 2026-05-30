@@ -24,6 +24,8 @@ export interface BackfillEmbeddingsDeps {
   fetchEmbedding: (text: string) => Promise<number[]>;
   /** 論文をストアに保存する関数（既存は上書き） */
   addPaper: (paper: Paper) => Promise<void>;
+  /** 複数論文をストアに一括保存する関数。指定時はバッチ補完で再レンダー回数を抑える。 */
+  addPapers?: (papers: Paper[]) => Promise<void>;
   /** 推奨並列数（1〜10）。省略時は api の getRecommendedConcurrency を使用。1 で逐次実行（少しずつ UX） */
   getRecommendedConcurrency?: () => number;
   /** 1件完了するたびに呼ばれる（進捗表示用） */
@@ -55,6 +57,7 @@ export const runBackfillEmbeddings = async (
     await runBackfillEmbeddingsBatch(toProcess, {
       fetchEmbeddingBatch,
       addPaper,
+      addPapers: deps.addPapers,
       onProgress,
     });
     return;
@@ -109,6 +112,7 @@ const runBackfillEmbeddingsBatch = async (
   deps: {
     fetchEmbeddingBatch: (texts: string[]) => Promise<number[][]>;
     addPaper: (paper: Paper) => Promise<void>;
+    addPapers?: (papers: Paper[]) => Promise<void>;
     onProgress?: (completed: number, total: number) => void;
   }
 ): Promise<void> => {
@@ -121,13 +125,26 @@ const runBackfillEmbeddingsBatch = async (
 
     try {
       const embeddings = await deps.fetchEmbeddingBatch(texts);
+      const updatedPapers: Paper[] = [];
       for (let j = 0; j < chunk.length; j += 1) {
         const paper = chunk[j];
         const embedding = embeddings[j];
-        if (embedding) {
-          await deps.addPaper({ ...paper, embedding });
-          completedCount += 1;
+        if (paper && embedding) {
+          updatedPapers.push({ ...paper, embedding });
+        }
+      }
+
+      if (updatedPapers.length > 0) {
+        if (deps.addPapers) {
+          await deps.addPapers(updatedPapers);
+          completedCount += updatedPapers.length;
           deps.onProgress?.(completedCount, total);
+        } else {
+          for (const paper of updatedPapers) {
+            await deps.addPaper(paper);
+            completedCount += 1;
+            deps.onProgress?.(completedCount, total);
+          }
         }
       }
     } catch (e) {

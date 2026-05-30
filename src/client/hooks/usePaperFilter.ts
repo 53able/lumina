@@ -197,8 +197,9 @@ export const usePaperFilter = (): UsePaperFilterResult => {
         return interactionFiltered;
       }
 
+      const categoryFilters = Array.from(selectedCategories);
       return interactionFiltered.filter((paper) =>
-        [...selectedCategories].every((cat) => paper.categories.includes(cat))
+        categoryFilters.every((cat) => paper.categories.includes(cat))
       );
     },
     [filterMode, selectedCategories]
