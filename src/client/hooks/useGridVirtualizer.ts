@@ -19,6 +19,8 @@ interface UseGridVirtualizerOptions<T> {
   columnGap?: number;
   /** 通常行の推定高さ（px） */
   estimatedRowHeight?: number;
+  /** アイテムごとの高さ推定。DOM測定を避けたい通常行で使う。 */
+  estimateItemHeight?: (item: T, itemWidth: number) => number;
   /** 展開行の推定高さ（px） */
   estimatedExpandedRowHeight?: number;
   /** オーバースキャン（画面外にレンダリングする追加行数） */
@@ -81,6 +83,7 @@ export const useGridVirtualizer = <T>({
   columnGap = 16,
   estimatedRowHeight = 200,
   estimatedExpandedRowHeight = 500,
+  estimateItemHeight,
   overscan = 3,
 }: UseGridVirtualizerOptions<T>): UseGridVirtualizerResult<T> => {
   // コンテナ幅の状態（列数計算用。スクロールコンテナの表示幅を監視）
@@ -180,9 +183,16 @@ export const useGridVirtualizer = <T>({
     (index: number) => {
       const row = rows[index];
       if (!row) return estimatedRowHeight;
-      return row.isExpanded ? estimatedExpandedRowHeight : estimatedRowHeight;
+      if (row.isExpanded) return estimatedExpandedRowHeight;
+      if (!estimateItemHeight) return estimatedRowHeight;
+
+      let rowHeight = 0;
+      for (const item of row.items) {
+        rowHeight = Math.max(rowHeight, estimateItemHeight(item, itemWidth));
+      }
+      return rowHeight || estimatedRowHeight;
     },
-    [rows, estimatedRowHeight, estimatedExpandedRowHeight]
+    [rows, estimatedRowHeight, estimatedExpandedRowHeight, estimateItemHeight, itemWidth]
   );
 
   // 行のキーを事前計算してキャッシュ（getItemKeyの計算負荷を削減）
@@ -231,7 +241,7 @@ export const useGridVirtualizer = <T>({
         // 各行の位置を累積計算（展開行の高さを考慮）
         let currentStart = 0;
         return rows.slice(0, endIndex).map((row, index) => {
-          const size = row.isExpanded ? estimatedExpandedRowHeight : estimatedRowHeight;
+          const size = estimateSize(index);
           const result = {
             index,
             start: currentStart,

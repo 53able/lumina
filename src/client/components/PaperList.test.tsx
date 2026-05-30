@@ -24,24 +24,28 @@ vi.mock("../stores/syncStore", () => ({
     selector(mockSyncStoreState),
 }));
 
-vi.mock("../hooks/useGridVirtualizer", () => ({
-  useGridVirtualizer: (params: { items: Paper[] }) => {
+vi.mock("../hooks/useMasonryVirtualizer", () => ({
+  useMasonryVirtualizer: (params: { items: Paper[]; expandedItemId?: string | null }) => {
     const items = params.items;
     return {
-      virtualRows:
-        items.length === 0
-          ? []
-          : [
-              {
-                index: 0,
-                start: 0,
-                items,
-                isExpanded: false,
-              },
-            ],
+      virtualEntries: items.map((item, index) =>
+        params.expandedItemId === item.id
+          ? { kind: "expanded", item, index, top: index * 300, left: 0, width: 600, height: 400 }
+          : {
+              kind: "card",
+              item,
+              index,
+              columnIndex: index,
+              top: index * 300,
+              left: index * 320,
+              width: 300,
+              height: 280,
+            }
+      ),
       totalSize: items.length * 300,
       columnCount: Math.max(items.length, 1),
-      measureElement: () => undefined,
+      itemWidth: 300,
+      measureExpandedElement: () => undefined,
     };
   },
 }));
@@ -124,6 +128,24 @@ describe("PaperList", () => {
 
       // ローディング中のスケルトン要素を確認
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
+    });
+  });
+
+  describe("展開表示", () => {
+    it("正常系: 展開中の論文は詳細ブロックと一緒に表示される", async () => {
+      const { PaperList } = await import("./PaperList");
+      const papers = [createSamplePaper("2401.00001", "Expanded Paper")];
+
+      renderWithRouter(
+        <PaperList
+          papers={papers}
+          expandedPaperId="2401.00001"
+          renderExpandedDetail={(paper) => <div>Detail for {paper.title}</div>}
+        />
+      );
+
+      expect(screen.getByText("Expanded Paper")).toBeInTheDocument();
+      expect(screen.getByText("Detail for Expanded Paper")).toBeInTheDocument();
     });
   });
 
