@@ -594,6 +594,7 @@ export const useSyncPapers = (
         fetchEmbeddingBatch: (texts) =>
           embeddingBatchApi({ texts }, { apiKey }).then((r) => r.embeddings),
         addPaper,
+        addPapers,
         onProgress: (completed, total) => {
           useSyncStore.getState().setEmbeddingBackfillProgress({ completed, total });
         },
@@ -604,7 +605,7 @@ export const useSyncPapers = (
       useSyncStore.getState().setIsEmbeddingBackfilling(false);
       useSyncStore.getState().setEmbeddingBackfillProgress(null);
     }
-  }, [addPaper, getStorePapers]);
+  }, [addPaper, addPapers, getStorePapers]);
 
   /**
    * 指定した日を終了日として「最大365日前 〜 その日」の論文を、ページングで連続取得しストアに追加する。

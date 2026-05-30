@@ -1,5 +1,5 @@
 import { CheckCircle2, Loader2, Search } from "lucide-react";
-import { type FC, type ReactNode, useCallback, useEffect, useRef } from "react";
+import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useGridVirtualizer } from "../hooks/useGridVirtualizer";
 import { cn } from "../lib/utils";
@@ -157,6 +157,16 @@ export const PaperList: FC<PaperListProps> = ({
   // Paper IDを取得するコールバック（メモ化）
   const getPaperId = useCallback((paper: Paper) => paper.id, []);
 
+  const paperIndexById = useMemo(() => {
+    const entries = papers.map((paper, index) => [paper.id, index] as const);
+    return new Map(entries);
+  }, [papers]);
+
+  const getPaperIndex = useCallback(
+    (paper: Paper): number | undefined => paperIndexById.get(paper.id),
+    [paperIndexById]
+  );
+
   const showing: "skeleton" | "empty" | "grid" = isLoading
     ? "skeleton"
     : papers.length === 0
@@ -236,10 +246,7 @@ export const PaperList: FC<PaperListProps> = ({
                           onClick={onPaperClick}
                           whyRead={whyReadMap.get(getPaperId(rowItems[0]))}
                           isExpanded={true}
-                          index={(() => {
-                            const foundIndex = papers.findIndex((p) => p.id === rowItems[0].id);
-                            return foundIndex >= 0 ? foundIndex : undefined;
-                          })()}
+                          index={getPaperIndex(rowItems[0])}
                         />
                       </div>
                       {/* 右側: 詳細パネル（コンテンツに合わせた高さ） */}
@@ -262,8 +269,7 @@ export const PaperList: FC<PaperListProps> = ({
                       {rowItems.map((paper, colIndex) => {
                         // 展開アイテムがある場合でも正しいナンバリングを保つため、
                         // 行インデックスベースの計算ではなく、元のpapers配列でのインデックスを使用
-                        const actualIndex = papers.findIndex((p) => p.id === paper.id);
-                        const finalIndex = actualIndex >= 0 ? actualIndex : undefined;
+                        const finalIndex = getPaperIndex(paper);
                         return (
                           <div
                             key={getPaperId(paper)}

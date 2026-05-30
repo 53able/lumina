@@ -220,6 +220,32 @@ describe("runBackfillEmbeddings", () => {
       expect(mockAddPaper).toHaveBeenCalledTimes(2);
     });
 
+    it("性能: addPapers が渡された場合はチャンクごとに一括保存して再レンダー回数を抑える", async () => {
+      const papers: Paper[] = [
+        createPaperWithoutEmbedding("2401.00001", "Title One", "Abstract One"),
+        createPaperWithoutEmbedding("2401.00002", "Title Two", "Abstract Two"),
+      ];
+      const mockAddPapers = vi.fn().mockResolvedValue(undefined);
+      const onProgress = vi.fn();
+
+      await runBackfillEmbeddings(papers, {
+        fetchEmbedding: mockFetchEmbedding,
+        fetchEmbeddingBatch: mockFetchEmbeddingBatch,
+        addPaper: mockAddPaper,
+        addPapers: mockAddPapers,
+        onProgress,
+      });
+
+      expect(mockFetchEmbeddingBatch).toHaveBeenCalledTimes(1);
+      expect(mockAddPaper).not.toHaveBeenCalled();
+      expect(mockAddPapers).toHaveBeenCalledTimes(1);
+      expect(mockAddPapers).toHaveBeenCalledWith([
+        { ...papers[0], embedding: expect.any(Array) },
+        { ...papers[1], embedding: expect.any(Array) },
+      ]);
+      expect(onProgress).toHaveBeenCalledWith(2, 2);
+    });
+
     it("429 でバッチが失敗したときは完了分だけ保存して resolve", async () => {
       const papers: Paper[] = [
         createPaperWithoutEmbedding("2401.00001", "Title One", "Abstract One"),

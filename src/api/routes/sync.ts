@@ -62,10 +62,11 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
             const newInChunk = chunk.filter((p) => !existingIdSet.has(p.id));
             const withEmbedding =
               newInChunk.length > 0 ? await generatePapersEmbeddingsBatch(newInChunk, config) : [];
+            const embeddingById = new Map(withEmbedding.map((paper) => [paper.id, paper]));
             const ordered = chunk.map((paper) =>
               existingIdSet.has(paper.id)
                 ? { ...paper }
-                : (withEmbedding.find((e) => e.id === paper.id) ?? { ...paper })
+                : (embeddingById.get(paper.id) ?? { ...paper })
             );
             results.push(...ordered);
           }
