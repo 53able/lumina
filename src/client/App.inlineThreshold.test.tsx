@@ -363,6 +363,45 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     expect(announcer).toHaveTextContent("しきい値 0.80: 2件の論文を表示");
   });
 
+  it("モバイルの絞り込み操作としきい値操作は、それぞれの通知だけを1回ずつ鳴らし、二重に通知しない（#52）", async () => {
+    // 検索結果（Near・Mid）と検索対象外（NoEmbedding）でカテゴリを分ける
+    paperState.papers = [
+      NEAR,
+      createPaper("2401.00002", "Mid Paper", [1, 1], ["cs.LG"]),
+      FAR,
+      NO_EMBEDDING,
+    ];
+    const user = await search();
+    const thresholdAnnouncer = getAnnouncer();
+    const filterAnnouncer = screen.getByRole("status", { name: "絞り込みの結果" });
+    const waitForSettled = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+
+    // 絞り込み（cs.AI）: 絞り込みの通知だけが鳴る
+    const filterToggle = screen.getByRole("button", { name: /^絞り込み($|（)/ });
+    await user.click(filterToggle);
+    const filterPanel = document.getElementById(filterToggle.getAttribute("aria-controls") ?? "");
+    await user.click(within(filterPanel as HTMLElement).getByRole("button", { name: "cs.AI" }));
+    expect(screen.queryByText("Mid Paper")).not.toBeInTheDocument();
+    await waitFor(() => expect(filterAnnouncer).toHaveTextContent("cs.AI: 2件の論文を表示"));
+    // 画面の「N件の論文」と同じ件数
+    expect(getDisplayedCount()).toBe("2");
+    await waitForSettled();
+    expect(thresholdAnnouncer).toHaveTextContent("");
+
+    // しきい値: しきい値の通知だけが鳴り、件数が変わっても絞り込みの通知は更新しない
+    fireEvent.change(await openSlider(user), { target: { value: "1" } });
+    await waitFor(() =>
+      expect(thresholdAnnouncer).toHaveTextContent("しきい値 1.00: 1件の論文を表示")
+    );
+    expect(getDisplayedCount()).toBe("1");
+    await waitForSettled();
+    // 絞り込みの通知は再通知せず、古い件数（2件）も残さない
+    expect(filterAnnouncer).toHaveTextContent("");
+  });
+
   it("クエリEmbeddingがない検索では、スライダーを無効にして理由を表示する", async () => {
     mockFetch({ withEmbedding: false });
     const user = await search();
@@ -384,5 +423,22 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     await waitFor(() => expect(countSearchRequests()).toBe(2));
     await screen.findByRole("button", { name: /^しきい値/ });
     expect(getAnnouncer()).toHaveTextContent("");
+  });
+
+  it("別の検索をすると、前の検索で出した絞り込みの通知も残さない（#52）", async () => {
+    paperState.papers = [NEAR, createPaper("2401.00002", "Mid Paper", [1, 1], ["cs.LG"])];
+    const user = await search();
+    const filterToggle = screen.getByRole("button", { name: /^絞り込み($|（)/ });
+    await user.click(filterToggle);
+    await user.click(screen.getByRole("button", { name: "cs.AI" }));
+    const filterAnnouncer = screen.getByRole("status", { name: "絞り込みの結果" });
+    await waitFor(() => expect(filterAnnouncer).toHaveTextContent("1件の論文を表示"));
+
+    const searchbox = screen.getByRole("searchbox");
+    await user.clear(searchbox);
+    await user.type(searchbox, "diffusion{Enter}");
+    await waitFor(() => expect(countSearchRequests()).toBe(2));
+    await screen.findByRole("button", { name: /^しきい値/ });
+    expect(screen.getByRole("status", { name: "絞り込みの結果" })).toHaveTextContent("");
   });
 });
