@@ -1,3 +1,4 @@
+import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   Paper,
@@ -323,6 +324,47 @@ describe("LuminaDB", () => {
 
       // Assert
       expect(likes).toHaveLength(2);
+    });
+  });
+
+  describe("スキーマのアップグレード", () => {
+    it("正常系: v1 で保存した検索履歴は v2 で開いても失われず、originalQuery で引ける", async () => {
+      const name = `LuminaDB-upgrade-test-${testDbCounter}`;
+      const history: SearchHistory = {
+        id: "550e8400-e29b-41d4-a716-446655440000",
+        originalQuery: "強化学習",
+        expandedQuery: {
+          original: "強化学習",
+          english: "reinforcement learning",
+          synonyms: ["RL"],
+          searchText: "edited text",
+          originalSearchText: "reinforcement learning RL",
+        },
+        queryEmbedding: [0.1, 0.2, 0.3],
+        resultCount: 3,
+        createdAt: parseISO("2024-01-01T00:00:00Z"),
+      };
+      // 旧スキーマ（v1）で作成して保存する
+      const legacy = new Dexie(name);
+      legacy.version(1).stores({
+        papers: "id, publishedAt, *categories",
+        paperSummaries: "++, paperId, language, [paperId+language]",
+        searchHistories: "id, createdAt",
+        userInteractions: "id, paperId, type",
+      });
+      await legacy.table("searchHistories").add(history);
+      legacy.close();
+
+      const upgraded = createLuminaDb(name);
+      try {
+        expect(await upgraded.searchHistories.get(history.id)).toEqual(history);
+        expect(
+          await upgraded.searchHistories.where("originalQuery").equals("強化学習").toArray()
+        ).toEqual([history]);
+        expect(upgraded.verno).toBe(2);
+      } finally {
+        await upgraded.delete();
+      }
     });
   });
 });

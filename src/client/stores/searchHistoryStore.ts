@@ -119,9 +119,7 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
         // 同じクエリの既存履歴を新しい履歴で置き換える。
         // 復元（restoreHistory）と並行しても同じクエリが2件にならないよう、DB を基準に1トランザクションで判定・書き込みする
         await db.transaction("rw", db.searchHistories, async () => {
-          await db.searchHistories
-            .filter((h) => h.originalQuery === history.originalQuery)
-            .delete();
+          await db.searchHistories.where("originalQuery").equals(history.originalQuery).delete();
           await db.searchHistories.add(history);
         });
         set((state) => ({
@@ -183,15 +181,31 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
           const db = get()._db;
           if (!db) throw new Error("DB not initialized");
           // 同じクエリの履歴の有無を DB 基準で確かめてから書く（addHistory と同じトランザクション境界）
-          const restored = await db.transaction("rw", db.searchHistories, async () => {
+          const dbConflict = await db.transaction("rw", db.searchHistories, async () => {
             const conflict = await db.searchHistories
-              .filter((h) => h.originalQuery === target.originalQuery)
+              .where("originalQuery")
+              .equals(target.originalQuery)
               .first();
-            if (conflict) return false;
+            if (conflict) return conflict;
             await db.searchHistories.add(target);
-            return true;
+            return null;
           });
-          if (!restored) return;
+          if (dbConflict) {
+            // DB にだけ同じクエリの履歴がある（一覧が古い）場合も、一覧へ反映して競合として見せる
+            set((state) =>
+              state.histories.some((h) => h.id === dbConflict.id)
+                ? {}
+                : {
+                    histories: sortByCreatedAtDesc([
+                      ...state.histories.filter(
+                        (h) => h.originalQuery !== dbConflict.originalQuery
+                      ),
+                      dbConflict,
+                    ]),
+                  }
+            );
+            return;
+          }
           set((state) =>
             // 書き込み後に同じクエリの再検索が反映された場合、DB では新しい履歴が復元分を置き換えている
             findRestoreConflict(state.histories, target)
@@ -233,8 +247,8 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
         // IndexedDBをクリア
         await db.searchHistories.clear();
 
-        // Storeを更新
-        set({ histories: [] });
+        // Storeを更新（全件削除は元に戻せないため、個別削除の退避と失敗表示も破棄する）
+        set({ histories: [], deletedHistories: [], historyErrors: {} });
       },
 
       getHistoryCount: () => {

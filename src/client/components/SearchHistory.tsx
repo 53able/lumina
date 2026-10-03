@@ -14,9 +14,7 @@ interface SearchHistoryProps {
   histories: SearchHistoryType[];
   /** 再検索時のコールバック */
   onReSearch?: (history: SearchHistoryType) => void;
-  /** 削除時のコールバック（結果は undo で受け取る） */
-  onDelete?: (id: string) => void;
-  /** 削除の結果と取り消し（onDelete と同じ出どころ。未指定なら取り消し欄を出さない） */
+  /** 削除と取り消しの操作・結果（未指定なら削除ボタンと取り消し欄を出さない） */
   undo?: SearchHistoryUndo;
   /** コンパクト表示モード（サイドバー用） */
   compact?: boolean;
@@ -49,7 +47,6 @@ const EMPTY_ERRORS: SearchHistoryUndo["historyErrors"] = {};
 export const SearchHistory: FC<SearchHistoryProps> = ({
   histories,
   onReSearch,
-  onDelete,
   undo,
   compact = false,
 }) => {
@@ -80,7 +77,9 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
     if (operation.focusWasInside && focusLost) target?.focus();
   };
 
-  // 削除・元に戻すの完了を検知し、通知とフォーカス移動を行う
+  // 削除・元に戻すの完了を検知し、通知とフォーカス移動を行う。
+  // 完了は undo の複数の値（処理中・退避・失敗・競合）と一覧の組み合わせで決まるため、依存配列を付けず毎描画で確かめる。
+  // 追跡中の操作がなければ何もしない
   useEffect(() => {
     const messages: string[] = [];
 
@@ -140,13 +139,13 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
   };
 
   const handleDelete = (history: SearchHistoryType, index: number) => {
-    if (pendingHistoryIds.includes(history.id)) return;
+    if (!undo || pendingHistoryIds.includes(history.id)) return;
     deletingRef.current.set(history.id, {
       query: history.originalQuery,
       index,
       focusWasInside: isFocusInside(),
     });
-    onDelete?.(history.id);
+    void undo.deleteHistory(history.id);
   };
 
   const handleRestore = (deleted: SearchHistoryType) => {
@@ -302,23 +301,25 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                   </button>
 
                   {/* 右側: 削除ボタン（コンパクト時はホバーかキーボードフォーカスで表示。失敗中は常に表示） */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={`flex-shrink-0 ${
-                      compact
-                        ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"}`
-                        : "h-8 w-8"
-                    }`}
-                    aria-disabled={isPending}
-                    onClick={(e) => {
-                      e.stopPropagation(); // 親のクリックイベントを止める
-                      handleDelete(history, index);
-                    }}
-                    aria-label={`「${history.originalQuery}」を削除`}
-                  >
-                    <X className={compact ? "h-3 w-3" : "h-4 w-4"} />
-                  </Button>
+                  {undo && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`flex-shrink-0 ${
+                        compact
+                          ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"}`
+                          : "h-8 w-8"
+                      }`}
+                      aria-disabled={isPending}
+                      onClick={(e) => {
+                        e.stopPropagation(); // 親のクリックイベントを止める
+                        handleDelete(history, index);
+                      }}
+                      aria-label={`「${history.originalQuery}」を削除`}
+                    >
+                      <X className={compact ? "h-3 w-3" : "h-4 w-4"} />
+                    </Button>
+                  )}
                 </div>
 
                 {error?.kind === "delete" && (

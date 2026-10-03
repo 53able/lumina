@@ -430,6 +430,53 @@ describe("searchHistoryStore", () => {
       expect(state.deletedHistories).toEqual([original]);
     });
 
+    it("競合: 一覧になく DB にだけ同じクエリの履歴がある場合は書き込まず、その履歴を一覧へ反映する", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore, findRestoreConflict } =
+        await import("./searchHistoryStore");
+      await initializeSearchHistoryStore(mockDb);
+      const original = createSampleHistory({
+        id: "original-id",
+        createdAt: parseISO("2024-01-01T00:00:00Z"),
+      });
+      await useSearchHistoryStore.getState().addHistory(original);
+      await useSearchHistoryStore.getState().deleteHistory("original-id");
+      const other = createSampleHistory({
+        id: "other-id",
+        createdAt: parseISO("2024-02-01T00:00:00Z"),
+      });
+      await mockDb.searchHistories.add(other);
+
+      await useSearchHistoryStore.getState().restoreHistory("original-id");
+
+      expect(await mockDb.searchHistories.toArray()).toEqual([other]);
+      const state = useSearchHistoryStore.getState();
+      expect(state.histories).toEqual([other]);
+      expect(state.deletedHistories).toEqual([original]);
+      expect(findRestoreConflict(state.histories, original)).toEqual(other);
+      expect(state.pendingHistoryIds).toEqual([]);
+    });
+
+    it("正常系: 全件削除すると、個別削除の退避と失敗表示も破棄する", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      await useSearchHistoryStore.getState().addHistory(createSampleHistory({ id: "a-id" }));
+      await useSearchHistoryStore
+        .getState()
+        .addHistory(createSampleHistory({ id: "b-id", originalQuery: "深層学習" }));
+      await useSearchHistoryStore.getState().deleteHistory("a-id");
+      vi.spyOn(mockDb.searchHistories, "delete").mockRejectedValueOnce(new Error("失敗"));
+      await useSearchHistoryStore.getState().deleteHistory("b-id");
+
+      await useSearchHistoryStore.getState().clearAllHistories();
+
+      const state = useSearchHistoryStore.getState();
+      expect(state.histories).toEqual([]);
+      expect(state.deletedHistories).toEqual([]);
+      expect(state.historyErrors).toEqual({});
+    });
+
     it("正常系: 同じ履歴の削除を連続で呼んでもDB削除は1回だけ", async () => {
       const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
         "./searchHistoryStore"

@@ -1,13 +1,13 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { FC } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
 import { createLuminaDb, type LuminaDB } from "../db/db";
-import { useSearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
+import { type SearchHistoryUndo, useSearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import { initializeSearchHistoryStore, useSearchHistoryStore } from "../stores/searchHistoryStore";
 import { SearchHistory } from "./SearchHistory";
 
@@ -33,6 +33,19 @@ const createSampleHistory = (overrides: Partial<SearchHistoryType> = {}): Search
   },
   resultCount: 42,
   createdAt: new Date("2026-01-17T10:00:00Z"),
+  ...overrides,
+});
+
+/** 削除・取り消しの操作をモックした undo */
+const createUndo = (overrides: Partial<SearchHistoryUndo> = {}): SearchHistoryUndo => ({
+  deletedHistories: [],
+  historyErrors: {},
+  pendingHistoryIds: [],
+  restoreConflictIds: [],
+  deleteHistory: vi.fn(() => Promise.resolve()),
+  restoreHistory: vi.fn(() => Promise.resolve()),
+  discardDeletedHistory: vi.fn(),
+  dismissHistoryError: vi.fn(),
   ...overrides,
 });
 
@@ -82,7 +95,7 @@ describe("SearchHistory", () => {
     it("正常系: 履歴ごとに削除ボタンが表示される", () => {
       const histories = [createSampleHistory()];
 
-      render(<SearchHistory histories={histories} />);
+      render(<SearchHistory histories={histories} undo={createUndo()} />);
 
       expect(screen.getByRole("button", { name: "「強化学習」を削除" })).toBeInTheDocument();
     });
@@ -131,12 +144,20 @@ describe("SearchHistory", () => {
   });
 
   describe("削除機能", () => {
-    it("正常系: 削除ボタンをクリックするとonDeleteが呼ばれる", async () => {
+    it("正常系: 削除と取り消しを渡さない場合は削除ボタンを出さない", () => {
+      render(<SearchHistory histories={[createSampleHistory()]} />);
+
+      expect(screen.queryByRole("button", { name: "「強化学習」を削除" })).not.toBeInTheDocument();
+    });
+
+    it("正常系: 削除ボタンをクリックするとundo.deleteHistoryが呼ばれる", async () => {
       const user = userEvent.setup();
-      const mockOnDelete = vi.fn();
+      const mockOnDelete = vi.fn(() => Promise.resolve());
       const history = createSampleHistory();
 
-      render(<SearchHistory histories={[history]} onDelete={mockOnDelete} />);
+      render(
+        <SearchHistory histories={[history]} undo={createUndo({ deleteHistory: mockOnDelete })} />
+      );
 
       // 削除ボタンをクリック
       await user.click(screen.getByRole("button", { name: "「強化学習」を削除" }));
@@ -147,11 +168,15 @@ describe("SearchHistory", () => {
     it("正常系: 削除ボタンクリック時に再検索は呼ばれない", async () => {
       const user = userEvent.setup();
       const mockOnReSearch = vi.fn();
-      const mockOnDelete = vi.fn();
+      const mockOnDelete = vi.fn(() => Promise.resolve());
       const history = createSampleHistory();
 
       render(
-        <SearchHistory histories={[history]} onReSearch={mockOnReSearch} onDelete={mockOnDelete} />
+        <SearchHistory
+          histories={[history]}
+          onReSearch={mockOnReSearch}
+          undo={createUndo({ deleteHistory: mockOnDelete })}
+        />
       );
 
       // 削除ボタンをクリック
@@ -193,7 +218,7 @@ describe("SearchHistory", () => {
       return (
         <>
           <input aria-label="検索" />
-          <SearchHistory histories={histories} onDelete={undo.deleteHistory} undo={undo} compact />
+          <SearchHistory histories={histories} undo={undo} compact />
         </>
       );
     };
@@ -458,6 +483,44 @@ describe("SearchHistory", () => {
         expect(status).toHaveTextContent("「A検索」を削除しました");
         expect(status).toHaveTextContent("「B検索」を削除しました");
       });
+    });
+
+    it("開始時にフォーカスが履歴欄の外（body）にあれば、削除後もフォーカスを移さない", async () => {
+      await seed(["A検索", "B検索"]);
+      render(<ConnectedHistory />);
+      expect(document.activeElement).toBe(document.body);
+
+      // フォーカスを動かさずにクリックする
+      fireEvent.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+
+      await screen.findByRole("button", { name: "「A検索」を元に戻す" });
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「A検索」を削除しました")
+      );
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it("一覧に出ていない同じクエリの履歴が DB にあれば、元に戻さず一覧へ反映して競合を通知する", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索", "B検索"]);
+      render(<ConnectedHistory />);
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      // 別タブなどで DB にだけ同じクエリの履歴ができた状態
+      const other = createSampleHistory({ originalQuery: "A検索", resultCount: 7 });
+      await db.searchHistories.add(other);
+
+      await user.click(await screen.findByRole("button", { name: "「A検索」を元に戻す" }));
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "同じ検索語の新しい履歴があるため、「A検索」を元に戻しませんでした"
+        )
+      );
+      expect(screen.getByRole("button", { name: "新しい履歴を残して取りやめる" })).toHaveFocus();
+      expect(screen.getByText(/7件/)).toBeInTheDocument();
+      expect(await db.searchHistories.where("originalQuery").equals("A検索").toArray()).toEqual([
+        other,
+      ]);
     });
   });
 });

@@ -419,7 +419,6 @@ const HomePage: FC = () => {
         onDiscardSummaryVersion={discardSummaryVersion}
         recentHistories={recentHistories}
         onReSearch={handleReSearch}
-        onDeleteHistory={historyUndo.deleteHistory}
         historyUndo={historyUndo}
         hasMore={hasMorePapers}
         onSyncAll={syncAll}
