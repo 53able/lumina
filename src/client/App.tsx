@@ -133,6 +133,8 @@ const HomePage: FC = () => {
     handleSearch,
     handleClearSearch,
     handleReSearch,
+    handleSearchWithEditedText,
+    displayExpandedQuery,
   } = useHomeSearch({
     papers,
     scoreThreshold: searchScoreThreshold,
@@ -387,7 +389,8 @@ const HomePage: FC = () => {
               )
             : undefined
         }
-        expandedQuery={expandedQuery}
+        expandedQuery={displayExpandedQuery}
+        onSearchWithEditedText={handleSearchWithEditedText}
         results={results}
         isLoading={isLoading}
         selectedPaper={selectedPaper}

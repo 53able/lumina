@@ -455,4 +455,287 @@ describe("useHomeSearch", () => {
       expect(result.current.home.error).toBeNull();
     });
   });
+
+  describe("変換文を編集して再検索（#31）", () => {
+    const expandedWithSynonyms: ExpandedQuery = {
+      original: "深層学習",
+      english: "deep learning",
+      synonyms: ["neural network", "representation learning"],
+      searchText: "deep learning neural network representation learning",
+    };
+    /** サーバーは embeddingText を searchText として返す */
+    const editedResponse = (searchText: string) => ({
+      expandedQuery: { original: "深層学習", english: "深層学習", synonyms: [], searchText },
+      queryEmbedding: [0.3, 0.2, 0.1],
+    });
+
+    const searchOriginal = async () => {
+      mockSearchApi.mockResolvedValueOnce({
+        expandedQuery: expandedWithSynonyms,
+        queryEmbedding: embedding,
+      });
+      const view = renderHomeSearch();
+      act(() => {
+        view.result.current.home.setSearchInputValue("深層学習");
+      });
+      await act(async () => {
+        await view.result.current.home.handleSearch("深層学習");
+      });
+      await waitFor(() => expect(view.result.current.home.completedQuery).toBe("深層学習"));
+      return view;
+    };
+
+    it("編集した検索文を embeddingText として1回だけ送り、元の入力・URL を保持する", async () => {
+      const { result, addHistory } = await searchOriginal();
+      mockSearchApi.mockResolvedValueOnce(editedResponse("deep learning neural network"));
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning neural network");
+      });
+
+      await waitFor(() =>
+        expect(result.current.home.expandedQuery?.searchText).toBe("deep learning neural network")
+      );
+      expect(mockSearchApi).toHaveBeenCalledTimes(2);
+      expect(mockSearchApi.mock.calls[1]?.[0]).toEqual({
+        query: "深層学習",
+        limit: 20,
+        embeddingText: "deep learning neural network",
+      });
+      // 元の入力は保持する
+      expect(result.current.location.search).toBe(`?q=${encodeURIComponent("深層学習")}`);
+      expect(result.current.home.searchInputValue).toBe("深層学習");
+      expect(result.current.home.completedQuery).toBe("深層学習");
+      // 英訳・関連語は表示に残す（関連語を検索文へ戻せるようにする）
+      expect(result.current.home.expandedQuery?.english).toBe("deep learning");
+      expect(result.current.home.expandedQuery?.synonyms).toEqual(expandedWithSynonyms.synonyms);
+      expect(result.current.home.queryEmbedding).toEqual([0.3, 0.2, 0.1]);
+      // 履歴は元の入力をキーに、編集後の検索文と Embedding で更新する
+      await waitFor(() => expect(addHistory).toHaveBeenCalledTimes(2));
+      const saved = addHistory.mock.calls[1]?.[0];
+      expect(saved?.originalQuery).toBe("深層学習");
+      expect(saved?.expandedQuery.searchText).toBe("deep learning neural network");
+      // 編集前の検索文も履歴に残す（「元の検索文に戻す」用）
+      expect(saved?.expandedQuery.originalSearchText).toBe(expandedWithSynonyms.searchText);
+      expect(saved?.queryEmbedding).toEqual([0.3, 0.2, 0.1]);
+    });
+
+    it("編集を重ねても、元の検索文はクエリ拡張が返した最初の文のまま", async () => {
+      const { result } = await searchOriginal();
+      mockSearchApi
+        .mockResolvedValueOnce(editedResponse("deep learning"))
+        .mockResolvedValueOnce(editedResponse("deep learning graph"));
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() =>
+        expect(result.current.home.expandedQuery?.searchText).toBe("deep learning")
+      );
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning graph");
+      });
+      await waitFor(() =>
+        expect(result.current.home.expandedQuery?.searchText).toBe("deep learning graph")
+      );
+
+      expect(result.current.home.expandedQuery?.originalSearchText).toBe(
+        expandedWithSynonyms.searchText
+      );
+    });
+
+    it("編集文での再検索中も、表示用の拡張クエリは編集内容を保つ（エディタを消さない）", async () => {
+      const { result } = await searchOriginal();
+      const pending = deferred<ReturnType<typeof editedResponse>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(result.current.home.isLoading).toBe(true));
+
+      expect(result.current.home.expandedQuery).toBeNull();
+      expect(result.current.home.displayExpandedQuery?.searchText).toBe("deep learning");
+      expect(result.current.home.displayExpandedQuery?.synonyms).toEqual(
+        expandedWithSynonyms.synonyms
+      );
+
+      await act(async () => {
+        pending.resolve(editedResponse("deep learning"));
+        await pending.promise;
+      });
+    });
+
+    it.each([
+      ["ネットワークエラー", new TypeError("Failed to fetch")],
+      ["429", new Error("Rate limit exceeded")],
+      ["500", new Error("OpenAI API key is not configured.")],
+      ["API利用OFF", Object.assign(new Error("API利用がOFF"), { name: "ApiDisabledError" })],
+    ])("編集文での再検索が失敗（%s）しても、編集内容を表示に残す", async (_label, failure) => {
+      const { result, addHistory } = await searchOriginal();
+      mockSearchApi.mockRejectedValueOnce(failure);
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(result.current.home.error).not.toBeNull());
+
+      expect(result.current.home.isLoading).toBe(false);
+      expect(result.current.home.displayExpandedQuery?.searchText).toBe("deep learning");
+      expect(result.current.home.displayExpandedQuery?.originalSearchText).toBe(
+        expandedWithSynonyms.searchText
+      );
+      // 失敗した編集文の検索は履歴に残さない
+      expect(addHistory).toHaveBeenCalledTimes(1);
+      // 失敗後も同じ編集内容から再試行できる
+      mockSearchApi.mockResolvedValueOnce(editedResponse("deep learning"));
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() =>
+        expect(result.current.home.expandedQuery?.searchText).toBe("deep learning")
+      );
+      expect(mockSearchApi.mock.calls[2]?.[0]).toMatchObject({ embeddingText: "deep learning" });
+    });
+
+    /** 編集文での再検索を失敗させ、編集内容だけが表示に残る状態にする */
+    const failEditedSearch = async (view: Awaited<ReturnType<typeof searchOriginal>>) => {
+      mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+      act(() => {
+        view.result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(view.result.current.home.error).not.toBeNull());
+      expect(view.result.current.home.displayExpandedQuery?.searchText).toBe("deep learning");
+    };
+
+    it("クリアすると、編集内容の表示を残さない", async () => {
+      const view = await searchOriginal();
+      await failEditedSearch(view);
+
+      view.clear();
+
+      expect(view.result.current.home.displayExpandedQuery).toBeNull();
+    });
+
+    it("履歴から再検索すると、編集内容の表示を残さない", async () => {
+      const view = await searchOriginal();
+      await failEditedSearch(view);
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      // 保存済み Embedding のない履歴（API で検索し直す）
+      act(() => {
+        view.result.current.home.handleReSearch({
+          id: "00000000-0000-4000-8000-000000000001",
+          originalQuery: "B",
+          expandedQuery: expanded("B"),
+          resultCount: 1,
+          createdAt: new Date(),
+        });
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(3));
+
+      expect(view.result.current.home.displayExpandedQuery).toBeNull();
+      await act(async () => {
+        pending.resolve(response("B"));
+        await pending.promise;
+      });
+      expect(view.result.current.home.displayExpandedQuery?.searchText).toBe("B");
+    });
+
+    it("URL の q が外部から変わって検索すると、編集内容の表示を残さない", async () => {
+      const view = await searchOriginal();
+      await failEditedSearch(view);
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      act(() => {
+        view.result.current.filter.setSearchQuery("C");
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(3));
+
+      expect(view.result.current.home.displayExpandedQuery).toBeNull();
+      await act(async () => {
+        pending.resolve(response("C"));
+        await pending.promise;
+      });
+      expect(view.result.current.home.displayExpandedQuery?.searchText).toBe("C");
+    });
+
+    it("入力から新しく検索すると、編集内容の表示を残さない", async () => {
+      const { result } = await searchOriginal();
+      mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(result.current.home.error).not.toBeNull());
+
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+      act(() => {
+        void result.current.home.handleSearch("B");
+      });
+
+      expect(result.current.home.displayExpandedQuery).toBeNull();
+      await act(async () => {
+        pending.resolve(response("B"));
+        await pending.promise;
+      });
+    });
+
+    it("編集文での再検索中にクリアすると、後から届いた応答を採用しない（#34）", async () => {
+      const { result, addHistory, clear } = await searchOriginal();
+      const pending = deferred<ReturnType<typeof editedResponse>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(2));
+      clear();
+
+      await act(async () => {
+        pending.resolve(editedResponse("deep learning"));
+        await pending.promise;
+      });
+
+      expect(result.current.home.expandedQuery).toBeNull();
+      expect(result.current.location.search).toBe("");
+      expect(addHistory).toHaveBeenCalledTimes(1);
+    });
+
+    it("編集文での再検索の後に別の検索を始めると、編集文の応答が遅れて届いても新しい検索を維持する（#34）", async () => {
+      const { result } = await searchOriginal();
+      const editedPending = deferred<ReturnType<typeof editedResponse>>();
+      mockSearchApi.mockReturnValueOnce(editedPending.promise).mockResolvedValueOnce(response("B"));
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        await result.current.home.handleSearch("B");
+      });
+      await waitFor(() => expect(result.current.home.completedQuery).toBe("B"));
+
+      await act(async () => {
+        editedPending.resolve(editedResponse("deep learning"));
+        await editedPending.promise;
+      });
+
+      expect(result.current.home.expandedQuery?.searchText).toBe("B");
+      expect(result.current.location.search).toBe("?q=B");
+      expect(mockSearchApi).toHaveBeenCalledTimes(3);
+    });
+
+    it("検索していない状態では何もしない", () => {
+      const { result } = renderHomeSearch();
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+
+      expect(mockSearchApi).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -116,6 +116,45 @@ describe("useSemanticSearch", () => {
       );
     });
 
+    it("編集した拡張クエリを渡すと searchText を embeddingText として送り、表示用の英訳・関連語は保持する（#31）", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ...mockSearchResponse,
+            expandedQuery: {
+              original: "transformer",
+              english: "transformer",
+              synonyms: [],
+              searchText: "transformer attention mechanism",
+            },
+          }),
+      });
+      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+
+      await act(async () => {
+        await result.current.search("transformer", {
+          ...mockSearchResponse.expandedQuery,
+          searchText: "transformer attention mechanism",
+        });
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:3000/api/v1/search",
+        expect.objectContaining({
+          body: JSON.stringify({
+            query: "transformer",
+            limit: 20,
+            embeddingText: "transformer attention mechanism",
+          }),
+        })
+      );
+      expect(result.current.expandedQuery).toEqual({
+        ...mockSearchResponse.expandedQuery,
+        searchText: "transformer attention mechanism",
+      });
+    });
+
     it("検索中はisLoadingがtrueになる", async () => {
       // レスポンスを遅延させる
       mockFetch.mockImplementation(

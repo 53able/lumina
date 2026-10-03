@@ -32,8 +32,10 @@ interface UseSemanticSearchReturn {
    * 検索関数（結果を直接返す）。
    * 返り値は呼び出し時点の papers で計算したスナップショットで、その後の論文更新には追従しない
    * （追従する結果は results / papersExcludedFromSearch / totalMatchCount を参照する）。
+   * editedQuery を渡すとクエリ拡張を省き、その searchText をそのまま Embedding に使う
+   * （確認・編集した変換文での再検索用。英訳・関連語は editedQuery のものを表示に残す）。
    */
-  search: (query: string) => Promise<SearchResult[]>;
+  search: (query: string, editedQuery?: ExpandedQuery) => Promise<SearchResult[]>;
   /**
    * 保存済みデータで検索する関数（APIリクエストなし）。
    * 返り値は search と同じく呼び出し時点の papers によるスナップショット。
@@ -221,7 +223,7 @@ export const useSemanticSearch = ({
   );
 
   const search = useCallback(
-    async (query: string): Promise<SearchResult[]> => {
+    async (query: string, editedQuery?: ExpandedQuery): Promise<SearchResult[]> => {
       const generation = startGeneration();
       const isCurrent = () => generation === generationRef.current;
       const controller = new AbortController();
@@ -239,12 +241,19 @@ export const useSemanticSearch = ({
         if (!isCurrent()) return [];
 
         // 1. 検索APIを呼び出す（型安全なfetchラッパー経由）
-        const data = await searchApi({ query, limit }, { apiKey, signal: controller.signal });
+        const data = await searchApi(
+          editedQuery ? { query, limit, embeddingText: editedQuery.searchText } : { query, limit },
+          { apiKey, signal: controller.signal }
+        );
         // クリアや後続検索で無効化された応答は採用しない
         if (!isCurrent()) return [];
 
-        // 2. 拡張クエリを保存
-        setExpandedQuery(data.expandedQuery);
+        // 2. 拡張クエリを保存（編集した検索文の場合は、サーバーが実際に Embedding した searchText を採用する）
+        setExpandedQuery(
+          editedQuery
+            ? { ...editedQuery, searchText: data.expandedQuery.searchText }
+            : data.expandedQuery
+        );
 
         // 3. queryEmbeddingを取得（オプショナル対応）
         const embedding =
@@ -261,12 +270,14 @@ export const useSemanticSearch = ({
         setError(err);
         // 復号失敗時も「検索したが0件」として空メッセージを表示するため stub をセット
         if (err.name === "OperationError") {
-          setExpandedQuery({
-            original: query,
-            english: query,
-            synonyms: [],
-            searchText: query,
-          });
+          setExpandedQuery(
+            editedQuery ?? {
+              original: query,
+              english: query,
+              synonyms: [],
+              searchText: query,
+            }
+          );
           setQueryEmbedding(null);
         }
         return [];

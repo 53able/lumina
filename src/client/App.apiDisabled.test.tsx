@@ -6,7 +6,7 @@
  * - AI検索（入力・URL の ?q= 直開き）は検索 API を呼ばず、保存済み論文の一覧を残したまま停止理由を通知する
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -201,5 +201,103 @@ describe("App: API利用OFF", () => {
     );
     expect(countRequests("/api/v1/search")).toBe(0);
     expect(screen.getByText("Test Paper Title")).toBeInTheDocument();
+  });
+});
+
+describe("App: 検索文の確認・編集（#31）", () => {
+  const searchBody = (searchText: string) => ({
+    results: [],
+    expandedQuery: {
+      original: "transformer",
+      english: "transformer",
+      synonyms: ["attention mechanism"],
+      searchText,
+    },
+    queryEmbedding: [0.1, 0.2],
+    took: 1,
+  });
+
+  beforeEach(() => {
+    toastError.mockClear();
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/api/v1/search")) {
+        const request = JSON.parse(String(init?.body ?? "{}")) as { embeddingText?: string };
+        return new Response(
+          JSON.stringify(searchBody(request.embeddingText ?? "transformer attention mechanism")),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 0 }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    useSettingsStore.getState().resetAllSettings();
+    useSettingsStore.setState({ lastSyncedAt: new Date().toISOString(), apiEnabled: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  /** 検索して検索文エディタを開く */
+  const searchAndOpenEditor = async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await user.type(await screen.findByRole("searchbox"), "transformer{Enter}");
+    await user.click(await screen.findByText("Embeddingに使った検索文を確認・編集"));
+    const textarea = screen.getByRole("textbox", { name: /検索文/ }) as HTMLTextAreaElement;
+    return { user, textarea };
+  };
+
+  /** search リクエストの body */
+  const searchRequestBodies = () =>
+    fetchMock.mock.calls
+      .filter(([input]) =>
+        String(input instanceof Request ? input.url : input).includes("/api/v1/search")
+      )
+      .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")));
+
+  it("検索後に Embedding に使った検索文を表示し、編集して再検索すると embeddingText が送られる", async () => {
+    const { user, textarea } = await searchAndOpenEditor();
+    expect(textarea.value).toBe("transformer attention mechanism");
+
+    await user.click(screen.getByRole("checkbox", { name: "attention mechanism" }));
+    await user.click(screen.getByRole("button", { name: "この検索文で再検索" }));
+
+    await waitFor(() => expect(screen.getByText("検索文を編集済み")).toBeInTheDocument());
+    expect(searchRequestBodies()).toEqual([
+      { query: "transformer", limit: 20 },
+      { query: "transformer", limit: 20, embeddingText: "transformer" },
+    ]);
+    // 除外した関連語を見出しで区別する
+    expect(screen.getByText("（除外）", { exact: false })).toBeInTheDocument();
+    // 元の入力は保持する
+    expect(screen.getByRole("searchbox")).toHaveValue("transformer");
+  });
+
+  it("API利用OFFにすると編集文で再検索できず、fetch は増えない", async () => {
+    const { user, textarea } = await searchAndOpenEditor();
+    expect(countRequests("/api/v1/search")).toBe(1);
+
+    act(() => {
+      useSettingsStore.setState({ apiEnabled: false });
+    });
+    await user.clear(textarea);
+    await user.type(textarea, "transformer");
+    const button = screen.getByRole("button", { name: "この検索文で再検索" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(/API利用OFFのため再検索を停止中/);
+    // ボタンを経由しない送信（Enter 等）でも送らない
+    fireEvent.submit(textarea.closest("form") as HTMLFormElement);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(countRequests("/api/v1/search")).toBe(1);
   });
 });

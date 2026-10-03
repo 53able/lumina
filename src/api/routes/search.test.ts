@@ -162,6 +162,88 @@ describe("検索API", () => {
       expect(body.expandedQuery).toHaveProperty("searchText");
     });
 
+    describe("embeddingText（確認・編集した検索文での再検索 #31）", () => {
+      const postSearch = (body: Record<string, unknown>, withKey = true) =>
+        app.request(
+          new Request("http://localhost/api/v1/search", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(withKey ? { "X-OpenAI-API-Key": openAIKeyHeader } : {}),
+            },
+            body: JSON.stringify(body),
+          })
+        );
+
+      it("指定した検索文をそのまま Embedding に渡し、クエリ拡張を呼ばない", async () => {
+        const response = await postSearch({
+          query: "深層学習",
+          embeddingText: "deep learning text classification",
+        });
+
+        expect(response.status).toBe(200);
+        expect(expandQuery).not.toHaveBeenCalled();
+        expect(createEmbedding).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(createEmbedding).mock.calls[0]?.[0]).toBe(
+          "deep learning text classification"
+        );
+        const body = await response.json();
+        expect(body.expandedQuery).toEqual({
+          original: "深層学習",
+          english: "深層学習",
+          synonyms: [],
+          searchText: "deep learning text classification",
+        });
+        expect(body.queryEmbedding).toHaveLength(EMBEDDING_DIMENSION);
+      });
+
+      it("前後の空白は除いて Embedding に渡す", async () => {
+        await postSearch({ query: "深層学習", embeddingText: "  deep learning  " });
+
+        expect(vi.mocked(createEmbedding).mock.calls[0]?.[0]).toBe("deep learning");
+      });
+
+      it("未指定ならクエリ拡張の searchText を Embedding に渡す", async () => {
+        await postSearch({ query: "深層学習" });
+
+        expect(expandQuery).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(createEmbedding).mock.calls[0]?.[0]).toBe("deep learning neural network");
+      });
+
+      it("APIキーなしではスタブにせずエラーを返す（Embedding できなかったことを隠さない）", async () => {
+        const response = await postSearch(
+          { query: "深層学習", embeddingText: "deep learning" },
+          false
+        );
+
+        expect(response.status).toBe(500);
+        const body = await response.json();
+        expect(body).toHaveProperty("error");
+        expect(body).not.toHaveProperty("expandedQuery");
+        expect(createEmbedding).not.toHaveBeenCalled();
+      });
+
+      it("異常系: 空白のみの検索文は400エラー", async () => {
+        const response = await postSearch({ query: "深層学習", embeddingText: "   " });
+
+        expect(response.status).toBe(400);
+        expect(createEmbedding).not.toHaveBeenCalled();
+      });
+
+      it("異常系: 8,000文字を超える検索文は400エラー", async () => {
+        const response = await postSearch({ query: "深層学習", embeddingText: "a".repeat(8001) });
+
+        expect(response.status).toBe(400);
+        expect(createEmbedding).not.toHaveBeenCalled();
+      });
+
+      it("8,000文字ちょうどの検索文は受け付ける", async () => {
+        const response = await postSearch({ query: "深層学習", embeddingText: "a".repeat(8000) });
+
+        expect(response.status).toBe(200);
+      });
+    });
+
     it("異常系: 空のクエリの場合は400エラー", async () => {
       // Arrange
       const request = new Request("http://localhost/api/v1/search", {

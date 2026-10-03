@@ -10,8 +10,13 @@ export const ExpandedQuerySchema = z.object({
   english: z.string(),
   /** 同義語・関連語リスト */
   synonyms: z.array(z.string()),
-  /** 検索用統合テキスト */
+  /** 検索用統合テキスト（Embedding に渡した検索文） */
   searchText: z.string(),
+  /**
+   * 利用者が検索文を編集して再検索した場合の、編集前（クエリ拡張が返した）検索文。
+   * クライアントが検索履歴に保持し「元の検索文に戻す」に使う。サーバーは返さない。
+   */
+  originalSearchText: z.string().optional(),
 });
 
 export type ExpandedQuery = z.infer<typeof ExpandedQuerySchema>;
@@ -39,6 +44,9 @@ export type SearchHistory = z.infer<typeof SearchHistorySchema>;
 /** 検索クエリの最大長（SearchRequestSchema の query.max と一致） */
 export const MAX_QUERY_LENGTH = 500;
 
+/** Embedding に直接渡す検索文の最大長（EmbeddingRequestSchema の text.max と一致） */
+export const MAX_EMBEDDING_TEXT_LENGTH = 8000;
+
 /**
  * 検索リクエストのスキーマ
  */
@@ -49,6 +57,11 @@ export const SearchRequestSchema = z.object({
   limit: z.number().int().min(1).max(100).default(20),
   /** カテゴリフィルタ */
   categories: z.array(z.string()).optional(),
+  /**
+   * Embedding に直接渡す検索文（利用者が確認・編集した変換文）。
+   * 指定時はクエリ拡張（LLM呼び出し）を行わず、この文をそのまま Embedding する。
+   */
+  embeddingText: z.string().trim().min(1).max(MAX_EMBEDDING_TEXT_LENGTH).optional(),
 });
 
 export type SearchRequest = z.infer<typeof SearchRequestSchema>;

@@ -45,6 +45,7 @@ export {
 export {
   type ExpandedQuery,
   ExpandedQuerySchema,
+  MAX_EMBEDDING_TEXT_LENGTH,
   type SearchHistory,
   SearchHistorySchema,
   type SearchRequest,
