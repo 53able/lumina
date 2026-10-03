@@ -69,6 +69,7 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
   );
   const textareaId = useId();
   const statusId = useId();
+  const editHintId = useId();
   const finalTextId = useId();
   const apiDisabledId = useId();
 
@@ -99,8 +100,10 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
     onSubmit(trimmedFinalText);
   };
 
+  // 自由編集で開いた（直前の選択がない）場合は、選択の起点が AIが作った検索文になる
+  const resetButtonLabel = selection === null ? "AIが作った検索文に戻す" : "関連語の選択に戻す";
   const statusMessage = isFreeEditing
-    ? "自由編集中（関連語の選択は無効）。直接編集した文で検索します。関連語のチェックを使うには「関連語の選択に戻す」を押してください。"
+    ? `自由編集中（関連語の選択は無効）。直接編集した文で検索します。関連語のチェックを使うには「${resetButtonLabel}」を押してください。`
     : selection === null
       ? "AIが作った検索文をそのまま使います（AIは関連語を言い換えて含めることがあります）。関連語のチェックを変えると、英訳とチェックした関連語から検索文を作り直します。"
       : "英訳とチェックした関連語から作った検索文を使います。チェックを外した語は検索に含めません。";
@@ -122,7 +125,11 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
         {synonyms.length > 0 ? (
           <fieldset disabled={isFreeEditing} className="flex flex-col gap-1 disabled:opacity-60">
             <legend className="text-xs text-muted-foreground">
-              AIが追加した関連語（チェックした語を検索に含める）
+              {isFreeEditing
+                ? "AIが追加した関連語（自由編集中のため選択は無効）"
+                : selection === null
+                  ? "AIが追加した関連語（チェックを変えると、英訳と選んだ語から検索文を作り直します）"
+                  : "AIが追加した関連語（チェックした語を検索に含めます）"}
             </legend>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {synonyms.map((term) => (
@@ -159,13 +166,16 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
           </summary>
           <div className="mt-2 flex flex-col gap-1">
             <label htmlFor={textareaId} className="text-xs text-muted-foreground">
-              検索文を直接編集（編集すると関連語の選択は無効になります。元の入力は変わりません）
+              検索文を直接編集
             </label>
+            <p id={editHintId} className="text-xs text-muted-foreground">
+              編集すると関連語の選択は無効になります。元の入力は変わりません。
+            </p>
             <textarea
               id={textareaId}
               value={finalText}
               onChange={(e) => handleFreeEdit(e.target.value)}
-              aria-describedby={statusId}
+              aria-describedby={`${editHintId} ${statusId}`}
               maxLength={MAX_EMBEDDING_TEXT_LENGTH}
               rows={3}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -181,7 +191,7 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
           >
             この検索文で再検索
           </Button>
-          {isFreeEditing ? (
+          {isFreeEditing && selection !== null ? (
             <Button
               type="button"
               size="sm"

@@ -46,9 +46,11 @@ const FREE_EDITING = /自由編集中（関連語の選択は無効）/;
 
 const submitButton = () => screen.getByRole("button", { name: "この検索文で再検索" });
 const textarea = () =>
-  screen.getByRole("textbox", { name: /検索文を直接編集/ }) as HTMLTextAreaElement;
+  screen.getByRole("textbox", { name: "検索文を直接編集" }) as HTMLTextAreaElement;
 const finalText = () => screen.getByRole("status", { name: /^検索に使う文/ }).textContent;
-const modeStatus = () => screen.getByText(/検索文を(そのまま使い|使い)ます|自由編集中/);
+/** 状態の説明（名前のない status。「検索に使う文」とは別） */
+const modeStatus = () =>
+  screen.getAllByRole("status").find((el) => !el.hasAttribute("aria-labelledby")) as HTMLElement;
 const checkbox = (name: string) => screen.getByRole("checkbox", { name });
 
 describe("SearchTextEditor", () => {
@@ -224,9 +226,58 @@ describe("SearchTextEditor", () => {
     expect(modeStatus()).toHaveTextContent(FREE_EDITING);
     expect(finalText()).toBe("deep learning graph neural networks");
     expect(textarea().closest("details")?.open).toBe(true);
+    // 戻せる選択はないので「AIが作った検索文に戻す」だけを出す
+    expect(screen.queryByRole("button", { name: "関連語の選択に戻す" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AIが作った検索文に戻す" })).toBeInTheDocument();
 
     await user.click(submitButton());
     expect(onSubmit).toHaveBeenCalledWith("deep learning graph neural networks");
+  });
+
+  it("関連語の見出しは状態に応じてチェックの意味を説明する", async () => {
+    const { user } = renderEditor();
+    const group = () => screen.getByRole("group", { name: /AIが追加した関連語/ });
+
+    // 初期状態はAIの文をそのまま送るので「チェックした語を含める」とは言わない
+    expect(group()).toHaveAccessibleName(
+      "AIが追加した関連語（チェックを変えると、英訳と選んだ語から検索文を作り直します）"
+    );
+    await user.click(checkbox("graph"));
+    expect(group()).toHaveAccessibleName("AIが追加した関連語（チェックした語を検索に含めます）");
+    await user.type(textarea(), " extra");
+    expect(group()).toHaveAccessibleName("AIが追加した関連語（自由編集中のため選択は無効）");
+  });
+
+  it("「検索に使う文」は入力のたびに読み上げない（aria-live=off）、状態の説明だけを読み上げる", () => {
+    renderEditor();
+
+    expect(screen.getByRole("status", { name: /^検索に使う文/ })).toHaveAttribute(
+      "aria-live",
+      "off"
+    );
+    expect(modeStatus()).not.toHaveAttribute("aria-live");
+    expect(modeStatus().tagName).toBe("OUTPUT");
+  });
+
+  it("直接編集欄の名前は「検索文を直接編集」で、補足と状態を説明として伝える", () => {
+    renderEditor();
+
+    expect(textarea()).toHaveAccessibleName("検索文を直接編集");
+    expect(textarea()).toHaveAccessibleDescription(/編集すると関連語の選択は無効になります/);
+    expect(textarea()).toHaveAccessibleDescription(/AIが作った検索文をそのまま使います/);
+  });
+
+  it("選択を経ずに自由編集した場合は「関連語の選択に戻す」を出さず、AIが作った検索文に戻す", async () => {
+    const { user } = renderEditor();
+
+    await user.type(textarea(), " extra");
+    expect(modeStatus()).toHaveTextContent(FREE_EDITING);
+    expect(modeStatus()).toHaveTextContent("「AIが作った検索文に戻す」を押してください");
+    expect(screen.queryByRole("button", { name: "関連語の選択に戻す" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "AIが作った検索文に戻す" }));
+    expect(finalText()).toBe(expandedQuery.searchText);
+    expect(screen.queryByText(FREE_EDITING)).not.toBeInTheDocument();
   });
 
   it("直接編集した検索文（前後の空白を除く）で再検索する", async () => {

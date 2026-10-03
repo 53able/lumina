@@ -62,6 +62,14 @@ describe("searchTextTerms（#31, #72）", () => {
       expect(parseSelectedTerms("gnn graph graph neural network", "gnn", terms)).toEqual(terms);
       expect(parseSelectedTerms("gnn graph", "gnn", terms)).toEqual(["graph"]);
     });
+
+    it("複数の選択が同じ文になる場合は選択を決められないので null（自由編集として扱う）", () => {
+      const terms = ["neural network", "neural", "network"];
+      expect(parseSelectedTerms("dl neural network", "dl", terms)).toBe(null);
+      // 一意に決まる部分は従来どおり
+      expect(parseSelectedTerms("dl neural", "dl", terms)).toEqual(["neural"]);
+      expect(parseSelectedTerms("dl network", "dl", terms)).toEqual(["network"]);
+    });
   });
 
   describe("編集済み・除外の判定", () => {

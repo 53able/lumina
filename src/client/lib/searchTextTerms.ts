@@ -33,6 +33,7 @@ export const buildSearchText = (english: string, selectedTerms: readonly string[
  * 検索文が buildSearchText(english, 選択) の形そのものなら、その選択（synonyms の順）を返す。
  * 形が一致しない（自由編集・AIが作った文・語順の入れ替えなど）なら null。
  * 関連語どうしが前方一致する場合（graph と graph neural network）も取り違えないよう候補を順に試す。
+ * 複数の選択が同じ文になる（"a b" と "a"+"b" など）場合は選択を決められないため null（自由編集として扱う）。
  */
 export const parseSelectedTerms = (
   text: string,
@@ -40,19 +41,17 @@ export const parseSelectedTerms = (
   synonyms: readonly string[]
 ): string[] | null => {
   const candidates = synonyms.filter((term) => term.trim() !== "");
-  const match = (from: number, chosen: string[]): string[] | null => {
-    if (buildSearchText(english, chosen) === text) return chosen;
-    for (let i = from; i < candidates.length; i += 1) {
+  const solutions: string[][] = [];
+  const collect = (from: number, chosen: string[]): void => {
+    if (buildSearchText(english, chosen) === text) solutions.push(chosen);
+    for (let i = from; i < candidates.length && solutions.length < 2; i += 1) {
       const next = [...chosen, candidates[i] as string];
       const prefix = buildSearchText(english, next);
-      if (text === prefix || text.startsWith(`${prefix} `)) {
-        const found = match(i + 1, next);
-        if (found) return found;
-      }
+      if (text === prefix || text.startsWith(`${prefix} `)) collect(i + 1, next);
     }
-    return null;
   };
-  return match(0, []);
+  collect(0, []);
+  return solutions.length === 1 ? (solutions[0] as string[]) : null;
 };
 
 /** 利用者が検索文を編集して検索したか（元の検索文と異なるか） */
