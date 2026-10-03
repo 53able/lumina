@@ -990,4 +990,140 @@ describe("useSyncPapers", () => {
       expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
     });
   });
+  describe("同期エラーの記録と再試行（retrySync）", () => {
+    it("初回同期の再試行は5分キャッシュを使わず API を叩き、失敗ならエラーを残す", async () => {
+      vi.useRealTimers();
+      mockSyncApi.mockResolvedValueOnce(createMockResponse(0, 2));
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+      await act(async () => {
+        result.current.sync();
+      });
+      await waitFor(() => expect(useSyncStore.getState().totalResults).toBe(2));
+
+      // キャッシュが新しいまま、初回同期の失敗が記録されている状態
+      useSyncStore.getState().setLastSyncError(new Error("Sync failed: 503"), { kind: "initial" });
+      mockSyncApi.mockRejectedValueOnce(new Error("Sync failed: 503 again"));
+
+      await act(async () => {
+        result.current.retrySync();
+      });
+
+      await waitFor(() => expect(mockSyncApi).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(useSyncStore.getState().lastSyncError?.message).toBe("Sync failed: 503 again")
+      );
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "initial" });
+    });
+
+    it("追加取得の失敗は more として記録し、再試行は追加取得をやり直す", async () => {
+      vi.useRealTimers();
+      papersRef.current = Array.from({ length: 50 }, (_, i) => ({ id: `paper-${i}` }));
+      useSyncStore.getState().setRequestedRanges([[0, 50]]);
+      useSyncStore.getState().setTotalResults(125);
+      mockSyncApi.mockRejectedValueOnce(new Error("Sync failed: 500"));
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        await result.current.syncMore().catch(() => {});
+      });
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "more" });
+
+      mockSyncApi.mockResolvedValueOnce(createMockResponse(50, 125));
+      await act(async () => {
+        result.current.retrySync();
+      });
+
+      await waitFor(() => expect(useSyncStore.getState().lastSyncError).toBeNull());
+      const [request] = mockSyncApi.mock.calls[1] as [{ start?: number }];
+      expect(request.start).toBe(50);
+    });
+
+    it("syncFromDate の失敗も記録し、再試行は同じ日付で取得し直す", async () => {
+      vi.useRealTimers();
+      mockSyncApi.mockRejectedValueOnce(new Error("Sync failed: 500"));
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        await result.current.syncFromDate("2026-01-10").catch(() => {});
+      });
+      expect(useSyncStore.getState().lastSyncError?.message).toBe("Sync failed: 500");
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({
+        kind: "from-date",
+        date: "2026-01-10",
+      });
+
+      mockSyncApi.mockResolvedValueOnce(createSyncFromDateResponse(0, 1));
+      await act(async () => {
+        result.current.retrySync();
+      });
+
+      await waitFor(() => expect(useSyncStore.getState().lastSyncError).toBeNull());
+      const [request] = mockSyncApi.mock.calls[1] as [{ toDate?: string }];
+      expect(request.toDate).toBe("2026-01-10");
+    });
+
+    it("一覧へ戻って再マウントしても、閉じた初回同期エラーと通知を復活させない", async () => {
+      vi.useRealTimers();
+      const client = createTestQueryClient();
+      const sharedWrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children);
+      mockSyncApi.mockRejectedValue(new Error("Sync failed: 503"));
+      const onError = vi.fn();
+
+      const first = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onError }),
+        { wrapper: sharedWrapper }
+      );
+      await act(async () => {
+        first.result.current.sync();
+      });
+      await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        useSyncStore.getState().setLastSyncError(null);
+      });
+      first.unmount();
+
+      renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onError }), {
+        wrapper: sharedWrapper,
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(useSyncStore.getState().lastSyncError).toBeNull();
+    });
+
+    it("初回同期で取得した論文の保存が終わるまで isSavingSyncedPapers を立てる", async () => {
+      vi.useRealTimers();
+      let resolveSave: () => void = () => {};
+      mockAddPapers.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSave = resolve;
+          })
+      );
+      mockSyncApi.mockResolvedValueOnce(createMockResponse(0, 2));
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        result.current.sync();
+      });
+      await waitFor(() => expect(useSyncStore.getState().isSavingSyncedPapers).toBe(true));
+
+      await act(async () => {
+        resolveSave();
+      });
+      expect(useSyncStore.getState().isSavingSyncedPapers).toBe(false);
+    });
+  });
 });

@@ -9,6 +9,7 @@ import {
 } from "../lib/paperListEmptyState";
 import { cn } from "../lib/utils";
 import { usePaperStore } from "../stores/paperStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
 import { PaperCard } from "./PaperCard";
 import { Button } from "./ui/button";
@@ -50,8 +51,12 @@ interface PaperListProps {
   expandedPaperId?: string | null;
   /** 展開中の論文の詳細コンテンツをレンダリング */
   renderExpandedDetail?: (paper: Paper) => ReactNode;
-  /** 0件時の「論文を同期」「同期を再試行」 */
+  /** 0件時の「論文を同期」 */
   onSync?: () => void;
+  /** 0件時の「同期を再試行」（失敗した同期を同じ処理でやり直す） */
+  onRetrySync?: () => void;
+  /** 初回の自動同期を予定している（論文がこれから届くので0件の説明を「取得中」にする） */
+  isSyncPending?: boolean;
   /** 0件時の「設定を開く」 */
   onOpenSettings?: () => void;
   /** 0件時の「検索・絞り込みを解除」 */
@@ -170,6 +175,8 @@ export const PaperList: FC<PaperListProps> = ({
   expandedPaperId = null,
   renderExpandedDetail,
   onSync,
+  onRetrySync,
+  isSyncPending = false,
   onOpenSettings,
   onClearConditions,
 }) => {
@@ -177,8 +184,11 @@ export const PaperList: FC<PaperListProps> = ({
   const isLoadingMore = useSyncStore((s) => s.isLoadingMore);
   const isSyncing = isFetching || isLoadingMore;
   const lastSyncError = useSyncStore((s) => s.lastSyncError);
+  const isSavingSyncedPapers = useSyncStore((s) => s.isSavingSyncedPapers);
   const storedPaperCount = usePaperStore((s) => s.papers.length);
+  // IndexedDB からの初期読み込み中（initializePaperStore が true にする）
   const isPaperStoreLoading = usePaperStore((s) => s.isLoading);
+  const hasSynced = useSettingsStore((s) => s.lastSyncedAt !== null);
 
   // スクロールコンテナへの参照
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -359,13 +369,18 @@ export const PaperList: FC<PaperListProps> = ({
               <EmptyMessage
                 state={getPaperListEmptyState({
                   storedPaperCount,
-                  isLoading: isSyncing || isPaperStoreLoading,
+                  isLoading:
+                    isSyncing ||
+                    isSyncPending ||
+                    Boolean(isSavingSyncedPapers) ||
+                    isPaperStoreLoading,
                   lastSyncError: lastSyncError ?? null,
+                  hasSynced,
                 })}
                 customMessage={emptyMessageProp}
                 handlers={{
                   sync: onSync,
-                  "retry-sync": onSync,
+                  "retry-sync": onRetrySync,
                   "open-settings": onOpenSettings,
                   "clear-conditions": onClearConditions,
                 }}

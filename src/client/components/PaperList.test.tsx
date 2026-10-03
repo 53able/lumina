@@ -23,6 +23,7 @@ interface MockSyncStoreState {
   isFetching: boolean;
   isLoadingMore: boolean;
   lastSyncError?: Error | null;
+  isSavingSyncedPapers?: boolean;
 }
 let mockSyncStoreState: MockSyncStoreState = { isFetching: false, isLoadingMore: false };
 vi.mock("../stores/syncStore", () => ({
@@ -34,6 +35,13 @@ let mockPaperStoreState = { papers: [] as Paper[], isLoading: false };
 vi.mock("../stores/paperStore", () => ({
   usePaperStore: (selector: (s: typeof mockPaperStoreState) => unknown) =>
     selector(mockPaperStoreState),
+}));
+
+/** 同期に成功したことがあるか（最終同期日時）で「未同期」と「同期済み・該当なし」を分ける */
+let mockLastSyncedAt: string | null = null;
+vi.mock("../stores/settingsStore", () => ({
+  useSettingsStore: (selector: (s: { lastSyncedAt: string | null }) => unknown) =>
+    selector({ lastSyncedAt: mockLastSyncedAt }),
 }));
 
 vi.mock("../hooks/useGridVirtualizer", () => ({
@@ -92,6 +100,7 @@ describe("PaperList", () => {
   afterEach(() => {
     mockSyncStoreState = { isFetching: false, isLoadingMore: false };
     mockPaperStoreState = { papers: [], isLoading: false };
+    mockLastSyncedAt = null;
     cleanup();
     vi.clearAllMocks();
   });
@@ -137,16 +146,74 @@ describe("PaperList", () => {
         lastSyncError: new Error("Sync failed: 503"),
       };
       const onSync = vi.fn();
+      const onRetrySync = vi.fn();
 
-      renderWithRouter(<PaperList papers={[]} onSync={onSync} onOpenSettings={vi.fn()} />);
+      renderWithRouter(
+        <PaperList papers={[]} onSync={onSync} onRetrySync={onRetrySync} onOpenSettings={vi.fn()} />
+      );
 
       expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "sync-failed");
       expect(screen.getByText("論文を同期できませんでした")).toBeInTheDocument();
       expect(screen.getByText(/Sync failed: 503/)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "設定を開く" })).not.toBeInTheDocument();
 
+      // 再試行は失敗した処理をやり直す onRetrySync を呼ぶ（キャッシュを使う onSync ではない）
       await userEvent.click(screen.getByRole("button", { name: "同期を再試行" }));
-      expect(onSync).toHaveBeenCalledTimes(1);
+      expect(onRetrySync).toHaveBeenCalledTimes(1);
+      expect(onSync).not.toHaveBeenCalled();
+    });
+
+    it("正常系: 同期に成功して論文が0件の場合は同期期間・カテゴリの見直しを案内する", async () => {
+      const { PaperList } = await import("./PaperList");
+      mockLastSyncedAt = "2026-10-01T00:00:00.000Z";
+      const onOpenSettings = vi.fn();
+
+      renderWithRouter(<PaperList papers={[]} onSync={vi.fn()} onOpenSettings={onOpenSettings} />);
+
+      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "synced-empty");
+      expect(screen.getByText("同期期間に該当する論文がありませんでした")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "設定を開く" }));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("正常系: 自動同期の予定中や取得した論文の保存中は「論文がありません」を出さず取得中にする", async () => {
+      const { PaperList } = await import("./PaperList");
+
+      const { rerender } = renderWithRouter(
+        <PaperList papers={[]} isSyncPending onSync={vi.fn()} />
+      );
+      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "loading");
+
+      mockSyncStoreState = { isFetching: false, isLoadingMore: false, isSavingSyncedPapers: true };
+      mockLastSyncedAt = "2026-10-01T00:00:00.000Z";
+      rerender(
+        <MemoryRouter>
+          <PaperList papers={[]} onSync={vi.fn()} />
+        </MemoryRouter>
+      );
+      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "loading");
+      expect(screen.queryByRole("button", { name: "論文を同期" })).not.toBeInTheDocument();
+    });
+
+    it("正常系: 論文が保存済みなら同期中でも検索0件の理由と解除操作を出す", async () => {
+      const { PaperList } = await import("./PaperList");
+      mockPaperStoreState = {
+        papers: [createSamplePaper("2401.00001", "Stored Paper")],
+        isLoading: false,
+      };
+      mockSyncStoreState = { isFetching: true, isLoadingMore: false };
+
+      renderWithRouter(
+        <PaperList
+          papers={[]}
+          emptyMessage={<p>該当する論文がありませんでした</p>}
+          onClearConditions={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText("該当する論文がありませんでした")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "検索・絞り込みを解除" })).toBeInTheDocument();
+      expect(screen.queryByText(/論文を取得しています/)).not.toBeInTheDocument();
     });
 
     it("正常系: 論文は保存済みで検索・絞り込みが0件の場合は条件の説明と「検索・絞り込みを解除」が表示される", async () => {

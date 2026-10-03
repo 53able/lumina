@@ -17,6 +17,7 @@ import {
 } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
 import { useHomeSearch } from "../hooks/useHomeSearch";
+import { usePaperStore } from "../stores/paperStore";
 import { PaperExplorer } from "./PaperExplorer";
 
 const {
@@ -214,10 +215,10 @@ describe("PaperExplorer", () => {
       expect(screen.getByRole("button", { name: "検索" })).toBeInTheDocument();
     });
 
-    it("論文がない場合は空メッセージが表示される", () => {
+    it("論文がない場合は未同期の空メッセージが表示される", () => {
       renderExplorer();
 
-      expect(screen.getByText(/論文が見つかりません/i)).toBeInTheDocument();
+      expect(screen.getByText("このデバイスにはまだ論文がありません")).toBeInTheDocument();
     });
 
     it("論文がある場合はリストが表示される", () => {
@@ -354,6 +355,22 @@ describe("PaperExplorer", () => {
   });
 
   describe("クリア操作の配線", () => {
+    it("検索0件の空表示の「検索・絞り込みを解除」は見出し横の「クリア」と同じく検索語とフィルターを消す", async () => {
+      // 論文は保存済み（0件の原因は検索条件）
+      usePaperStore.setState({ papers: mockPapers });
+      try {
+        renderExplorer({ initialPapers: [], externalQuery: "transformer" }, "/?q=transformer");
+
+        const user = userEvent.setup({ delay: null });
+        await user.click(screen.getByRole("button", { name: "検索・絞り込みを解除" }));
+
+        expect(mockClearSearchAndFilters).toHaveBeenCalledTimes(1);
+        expect(getLocationSearch()).toBe("");
+      } finally {
+        usePaperStore.setState({ papers: [] });
+      }
+    });
+
     it("見出し横の「クリア」は検索語とフィルターをまとめて消す", async () => {
       renderExplorer(
         { initialPapers: mockPapers, externalQuery: "transformer" },

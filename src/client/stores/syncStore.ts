@@ -3,6 +3,19 @@ import { devtools } from "zustand/middleware";
 import type { EmbeddingBackfillOutcome } from "../lib/embeddingBackfillOutcome";
 
 /**
+ * 同期エラーが起きた処理。再試行は同じ処理をやり直す
+ * - initial: 初回同期（sync）
+ * - more: 追加取得（syncMore）
+ * - all: 同期期間の論文をすべて取得（syncAll）
+ * - from-date: 指定日以前の取得（syncFromDate）。date に取得対象の終了日を持つ
+ */
+export type SyncErrorSource =
+  | { kind: "initial" }
+  | { kind: "more" }
+  | { kind: "all" }
+  | { kind: "from-date"; date: string };
+
+/**
  * syncStore の状態型
  *
  * 同期の UI/プロセス状態のみを保持する（永続化しない）。
@@ -33,6 +46,10 @@ interface SyncState {
   embeddingBackfillOutcome: EmbeddingBackfillOutcome | null;
   /** 直近の同期エラー（429 時は SyncRateLimitError） */
   lastSyncError: Error | null;
+  /** lastSyncError が起きた処理（再試行で同じ処理をやり直すため） */
+  lastSyncErrorSource: SyncErrorSource | null;
+  /** 初回同期の結果をストアへ保存中か（取得完了から論文が一覧に出るまでの間） */
+  isSavingSyncedPapers: boolean;
 }
 
 /**
@@ -55,7 +72,9 @@ interface SyncActions {
     } | null
   ) => void;
   setEmbeddingBackfillOutcome: (outcome: EmbeddingBackfillOutcome | null) => void;
-  setLastSyncError: (error: Error | null) => void;
+  /** エラーと発生元を記録する。null を渡すと発生元も消える */
+  setLastSyncError: (error: Error | null, source?: SyncErrorSource) => void;
+  setIsSavingSyncedPapers: (value: boolean) => void;
   /** すべての同期状態を初期値に戻す */
   reset: () => void;
 }
@@ -75,6 +94,8 @@ const initialState: SyncState = {
   embeddingBackfillProgress: null,
   embeddingBackfillOutcome: null,
   lastSyncError: null,
+  lastSyncErrorSource: null,
+  isSavingSyncedPapers: false,
 };
 
 /**
@@ -98,7 +119,9 @@ export const useSyncStore = create<SyncStore>()(
       setIsEmbeddingBackfilling: (value) => set({ isEmbeddingBackfilling: value }),
       setEmbeddingBackfillProgress: (progress) => set({ embeddingBackfillProgress: progress }),
       setEmbeddingBackfillOutcome: (outcome) => set({ embeddingBackfillOutcome: outcome }),
-      setLastSyncError: (error) => set({ lastSyncError: error }),
+      setLastSyncError: (error, source) =>
+        set({ lastSyncError: error, lastSyncErrorSource: error ? (source ?? null) : null }),
+      setIsSavingSyncedPapers: (value) => set({ isSavingSyncedPapers: value }),
       reset: () => set(initialState),
     }),
     { name: "sync-store" }

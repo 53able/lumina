@@ -185,9 +185,10 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
     >
       {/*
         同期エラー: トーストが消えても、次の同期成功か「閉じる」まで一覧のそばに残す。
+        論文が0件のときは一覧の空表示（PaperList）が理由と再試行を出すため、ここでは重ねて出さない。
         429 レート制限は何が起きたか・どうするかを明示（ペルソナ5流: メインカラーで主張、視線を誘導）
       */}
-      {lastSyncError ? (
+      {lastSyncError && paperCount > 0 ? (
         <div
           data-testid="sync-error"
           className={
@@ -220,7 +221,9 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             }
           >
             {syncRateLimitError
-              ? "再度「同期」または「同期期間の論文をすべて取得」を押すと再試行できます。"
+              ? onRetrySync
+                ? "しばらく待ってから「同期を再試行」を押してください。"
+                : "再度「同期」または「同期期間の論文をすべて取得」を押すと再試行できます。"
               : "接続を確認してから、同期を再試行してください。"}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
