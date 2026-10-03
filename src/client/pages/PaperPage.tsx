@@ -44,6 +44,7 @@ export const PaperPage: FC = () => {
     isLoading,
     error,
     failedTarget,
+    generatingTarget,
     generateSummary,
   } = usePaperSummary({
     paperId: paper?.id ?? "",
@@ -145,6 +146,7 @@ export const PaperPage: FC = () => {
             isSummaryLoading={isLoading}
             summaryError={error}
             summaryFailedTarget={failedTarget}
+            summaryGeneratingTarget={generatingTarget}
             selectedSummaryLanguage={summaryLanguage}
             onSummaryLanguageChange={setSummaryLanguage}
             autoGenerateSummary={autoGenerateSummary}

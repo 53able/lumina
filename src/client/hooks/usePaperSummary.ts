@@ -77,6 +77,8 @@ interface UsePaperSummaryReturn {
    * "explanation" なら説明文だけの生成が失敗しており、保存済みの要約は残っている
    */
   failedTarget: GenerateTarget | null;
+  /** 生成中の生成の対象（isLoading と同じ生成。生成中でなければ null） */
+  generatingTarget: GenerateTarget | null;
   /**
    * 要約を生成する。同じ論文・言語の生成が実行中なら何もせずに返る
    * 失敗は error・onError で扱うため、この Promise は reject しない
@@ -241,6 +243,10 @@ export const usePaperSummary = ({
     error: currentGeneration?.status === "error" ? currentGeneration.error : null,
     failedTarget:
       currentGeneration?.status === "error" ? (currentGeneration.variables?.target ?? null) : null,
+    generatingTarget:
+      currentGeneration?.status === "pending"
+        ? (currentGeneration.variables?.target ?? null)
+        : null,
     generateSummary,
   };
 };

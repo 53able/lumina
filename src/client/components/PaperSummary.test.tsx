@@ -141,13 +141,212 @@ describe("PaperSummary", () => {
       expect(screen.getByText(/生成中/i)).toBeInTheDocument();
     });
 
-    it("正常系: ローディング中は生成ボタンが無効になる", () => {
-      render(<PaperSummary paperId="2401.00001" isLoading />);
+    it("正常系: ローディング中は生成ボタンを残したまま無効にし、押しても生成しない", async () => {
+      const user = userEvent.setup();
+      const mockOnGenerate = vi.fn();
+      render(<PaperSummary paperId="2401.00001" isLoading onGenerate={mockOnGenerate} />);
 
-      const generateButton = screen.queryByRole("button", { name: /要約を生成/i });
-      if (generateButton) {
-        expect(generateButton).toBeDisabled();
-      }
+      const generateButton = screen.getByRole("button", { name: /要約 \+ 説明文/ });
+      expect(generateButton).toHaveAttribute("aria-disabled", "true");
+      // aria-busy はボタンではなく、要約なしの状態のブロックに付ける
+      expect(generateButton).not.toHaveAttribute("aria-busy");
+      expect(generateButton.closest('[aria-busy="true"]')).not.toBeNull();
+
+      generateButton.focus();
+      await user.keyboard("{Enter}");
+      expect(mockOnGenerate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("生成中のフォーカス", () => {
+    it("正常系: 「要約 + 説明文」で生成を始めてもフォーカスは押したボタンに残り、失敗後はそのまま再試行できる", async () => {
+      const user = userEvent.setup();
+      const mockOnGenerate = vi.fn();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" onGenerate={mockOnGenerate} />
+      );
+
+      const generateButton = screen.getByRole("button", { name: /要約 \+ 説明文/ });
+      generateButton.focus();
+      await user.keyboard("{Enter}");
+      expect(mockOnGenerate).toHaveBeenCalledTimes(1);
+
+      rerender(<PaperSummary paperId="2401.00001" isLoading onGenerate={mockOnGenerate} />);
+      expect(document.activeElement).not.toBe(document.body);
+      expect(generateButton).toHaveFocus();
+      expect(screen.getByText("生成中...")).toBeInTheDocument();
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          error={new Error("timeout")}
+          onGenerate={mockOnGenerate}
+        />
+      );
+      expect(generateButton).toHaveFocus();
+      expect(generateButton).not.toHaveAttribute("aria-disabled");
+
+      await user.keyboard("{Enter}");
+      expect(mockOnGenerate).toHaveBeenCalledTimes(2);
+    });
+
+    it("正常系: 「なぜ読むべきかを生成」で生成を始めても要約とボタンを残し、フォーカスを保つ", async () => {
+      const user = userEvent.setup();
+      const mockOnGenerate = vi.fn();
+      const summary = createSampleSummary();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" summary={summary} onGenerate={mockOnGenerate} />
+      );
+
+      const explanationButton = screen.getByRole("button", { name: /なぜ読むべきかを生成/ });
+      explanationButton.focus();
+      await user.keyboard("{Enter}");
+      expect(mockOnGenerate).toHaveBeenCalledWith("2401.00001", "ja", "explanation");
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          isLoading
+          onGenerate={mockOnGenerate}
+        />
+      );
+      expect(document.activeElement).not.toBe(document.body);
+      expect(explanationButton).toHaveFocus();
+      expect(explanationButton).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText(summary.summary)).toBeInTheDocument();
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          error={new Error("timeout")}
+          failedTarget="explanation"
+          onGenerate={mockOnGenerate}
+        />
+      );
+      expect(explanationButton).toHaveFocus();
+    });
+
+    it("正常系: 完了で押したボタンが消えたときは、AI要約の見出しへフォーカスを戻す", async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<PaperSummary paperId="2401.00001" onGenerate={vi.fn()} />);
+
+      screen.getByRole("button", { name: /要約 \+ 説明文/ }).focus();
+      await user.keyboard("{Enter}");
+      rerender(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={createSampleSummary({ explanation: "説明文" })}
+        />
+      );
+
+      expect(screen.queryByRole("button", { name: /要約 \+ 説明文/ })).not.toBeInTheDocument();
+      expect(document.activeElement).not.toBe(document.body);
+      expect(screen.getByRole("heading", { name: "AI要約" })).toHaveFocus();
+    });
+
+    it("異常系: 生成開始時に外の要素にあったフォーカスは、その要素が生成中に消えても見出しへ移さない", async () => {
+      const Harness: FC<{
+        showOutside: boolean;
+        isLoading?: boolean;
+        summary?: PaperSummaryType;
+      }> = ({ showOutside, ...props }) => (
+        <>
+          {showOutside && <button type="button">外のボタン</button>}
+          <PaperSummary paperId="2401.00001" {...props} />
+        </>
+      );
+      const { rerender } = render(<Harness showOutside />);
+
+      screen.getByRole("button", { name: "外のボタン" }).focus();
+      rerender(<Harness showOutside isLoading />);
+      // 生成中に外の要素が消える（フォーカスは body に落ちる）
+      rerender(<Harness showOutside={false} isLoading />);
+      expect(document.activeElement).toBe(document.body);
+
+      rerender(
+        <Harness showOutside={false} summary={createSampleSummary({ explanation: "説明文" })} />
+      );
+      expect(screen.getByRole("heading", { name: "AI要約" })).not.toHaveFocus();
+    });
+
+    it("正常系: 生成中に利用者が移したフォーカスは、完了後も動かさない", async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<PaperSummary paperId="2401.00001" onGenerate={vi.fn()} />);
+
+      screen.getByRole("button", { name: /要約 \+ 説明文/ }).focus();
+      await user.keyboard("{Enter}");
+      rerender(<PaperSummary paperId="2401.00001" isLoading />);
+
+      const languageTab = screen.getByRole("tab", { name: "English" });
+      languageTab.focus();
+
+      rerender(<PaperSummary paperId="2401.00001" summary={createSampleSummary()} />);
+      expect(languageTab).toHaveFocus();
+    });
+  });
+
+  describe("生成中の表示", () => {
+    const summaryWithoutExplanation = createSampleSummary();
+
+    it("正常系: 説明文だけの生成中は「なぜ読むべきかを生成」の隣にだけ生成中を出し、要約は薄くしない", () => {
+      render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summaryWithoutExplanation}
+          isLoading
+          generatingTarget="explanation"
+        />
+      );
+
+      const loadingTexts = screen.getAllByText("生成中...");
+      expect(loadingTexts).toHaveLength(1);
+      expect(loadingTexts[0]?.parentElement).toContainElement(
+        screen.getByRole("button", { name: /なぜ読むべきかを生成/ })
+      );
+      expect(screen.getByText(summaryWithoutExplanation.summary).parentElement).not.toHaveClass(
+        "opacity-50"
+      );
+    });
+
+    it("正常系: 再生成中は「再生成」の隣にだけ生成中を出し、置き換わる前の要約を薄く表示する", () => {
+      render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summaryWithoutExplanation}
+          isLoading
+          generatingTarget="both"
+        />
+      );
+
+      const loadingTexts = screen.getAllByText("生成中...");
+      expect(loadingTexts).toHaveLength(1);
+      expect(loadingTexts[0]?.parentElement).toContainElement(
+        screen.getByRole("button", { name: "再生成" })
+      );
+      expect(screen.getByText(summaryWithoutExplanation.summary).parentElement).toHaveClass(
+        "opacity-50"
+      );
+    });
+
+    it("正常系: aria-busy はボタンではなく要約ブロックに付ける", () => {
+      render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summaryWithoutExplanation}
+          isLoading
+          generatingTarget="both"
+        />
+      );
+
+      const regenerateButton = screen.getByRole("button", { name: "再生成" });
+      expect(regenerateButton).not.toHaveAttribute("aria-busy");
+      expect(regenerateButton.closest('[aria-busy="true"]')).toContainElement(
+        screen.getByText(summaryWithoutExplanation.summary)
+      );
     });
   });
 
@@ -521,6 +720,7 @@ describe("PaperSummary", () => {
     const HookedPaperSummary: FC<{
       onGenerate?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
       autoGenerate?: boolean;
+      isLoading?: boolean;
     }> = (props) => {
       const { summary, versions, adoptVersion, discardVersion } = usePaperSummary({
         paperId: "2401.00001",
@@ -540,6 +740,7 @@ describe("PaperSummary", () => {
     const ConnectedPaperSummary: FC<{
       onGenerate?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
       autoGenerate?: boolean;
+      isLoading?: boolean;
     }> = (props) => (
       <QueryClientProvider client={new QueryClient()}>
         <HookedPaperSummary {...props} />
@@ -577,6 +778,39 @@ describe("PaperSummary", () => {
 
       expect(onGenerate).toHaveBeenCalledWith("2401.00001", "ja", "both");
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("正常系: 再生成中も再生成ボタンにフォーカスを残し、版の破棄・比較は出さない", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      await addVersions(["第1版の要約", "第2版の要約"]);
+      const queryClient = new QueryClient();
+      const renderWith = (isLoading: boolean) => (
+        <QueryClientProvider client={queryClient}>
+          <HookedPaperSummary onGenerate={onGenerate} isLoading={isLoading} />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(renderWith(false));
+
+      const regenerateButton = screen.getByRole("button", { name: "再生成" });
+      regenerateButton.focus();
+      await user.keyboard("{Enter}");
+      expect(onGenerate).toHaveBeenCalledTimes(1);
+
+      rerender(renderWith(true));
+      expect(document.activeElement).not.toBe(document.body);
+      expect(regenerateButton).toHaveFocus();
+      expect(regenerateButton).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText("生成中...")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "採用中の版を破棄" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /版を比較/ })).not.toBeInTheDocument();
+
+      await user.keyboard("{Enter}");
+      expect(onGenerate).toHaveBeenCalledTimes(1);
+
+      rerender(renderWith(false));
+      expect(regenerateButton).toHaveFocus();
+      expect(screen.getByRole("button", { name: "採用中の版を破棄" })).toBeInTheDocument();
     });
 
     it("正常系: API利用OFF中は再生成を無効にし、理由を関連付けて表示する", async () => {
