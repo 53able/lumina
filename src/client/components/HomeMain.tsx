@@ -9,6 +9,7 @@ import type { SearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import type { GenerateTarget } from "../lib/api";
 import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTextTerms";
 import type { SummaryVersion } from "../stores/summaryStore";
+import { MobileSearchHistory } from "./MobileSearchHistory";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
@@ -123,7 +124,7 @@ interface HomeMainProps {
  * HomeMain - ホームページのメインコンテンツコンポーネント
  *
  * 責務:
- * - サイドバー（検索履歴）
+ * - サイドバー（検索履歴。モバイルは検索欄の手前の折りたたみ）
  * - メインコンテンツ（PaperExplorer、詳細パネル）
  * - モバイル用Sheet（論文詳細）
  *
@@ -234,12 +235,15 @@ const HomeMainInner: FC<HomeMainProps> = ({
             <Suspense
               fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
             >
-              <SearchHistory
-                histories={recentHistories}
-                onReSearch={onReSearch}
-                undo={historyUndo}
-                compact
-              />
+              {/* モバイルの折りたたみと同時にマウントしない（通知・フォーカス先の重複を防ぐ） */}
+              {isDesktop ? (
+                <SearchHistory
+                  histories={recentHistories}
+                  onReSearch={onReSearch}
+                  undo={historyUndo}
+                  compact
+                />
+              ) : null}
             </Suspense>
           </div>
         </aside>
@@ -255,6 +259,15 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
                 onStopSync={onStopSync}
                 onRetrySync={onRetrySync}
+              />
+            )}
+
+            {/* モバイル: 検索履歴は検索欄の手前の折りたたみ（一覧を覆わない） */}
+            {!isDesktop && (
+              <MobileSearchHistory
+                histories={recentHistories}
+                onReSearch={onReSearch}
+                undo={historyUndo}
               />
             )}
 

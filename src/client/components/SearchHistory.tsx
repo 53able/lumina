@@ -300,14 +300,14 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                     </div>
                   </button>
 
-                  {/* 右側: 削除ボタン（コンパクト時はホバーかキーボードフォーカスで表示。失敗中は常に表示） */}
+                  {/* 右側: 削除ボタン（コンパクト時はホバーかキーボードフォーカスで表示。タッチ端末と失敗中は常に表示） */}
                   {undo && (
                     <Button
                       variant="ghost"
                       size="icon"
                       className={`flex-shrink-0 ${
                         compact
-                          ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"}`
+                          ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"}`
                           : "h-8 w-8"
                       }`}
                       aria-disabled={isPending}

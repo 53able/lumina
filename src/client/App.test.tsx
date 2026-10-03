@@ -265,10 +265,11 @@ describe("App", () => {
       mockRecentHistories = mockSearchHistories;
     });
 
+    // テスト環境の matchMedia はモバイル幅（lg未満）。履歴は検索欄の手前の折りたたみに出る
     it("正常系: 検索履歴セクションが表示される", () => {
       renderWithProviders(<App />);
 
-      expect(screen.getByText("検索履歴")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "検索履歴" })).toBeInTheDocument();
     });
 
     it("正常系: 検索履歴が表示される", () => {
@@ -280,6 +281,7 @@ describe("App", () => {
     it("正常系: 検索履歴の削除ボタンをクリックするとdeleteHistoryが呼ばれる", async () => {
       const user = userEvent.setup();
       renderWithProviders(<App />);
+      await user.click(screen.getByRole("button", { name: "検索履歴" }));
 
       // 削除ボタンをクリック
       const deleteButton = screen.getByRole("button", { name: "「強化学習」を削除" });
