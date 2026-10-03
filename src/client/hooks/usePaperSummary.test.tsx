@@ -43,9 +43,89 @@ const renderUsePaperSummary = (initialPaperId = "2401.00001") =>
     initialProps: { paperId: initialPaperId },
   });
 
+/** 外から解決・失敗させられる Promise */
+const createDeferred = <T,>() => {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+const createSummaryResponse = (paperId: string) => ({
+  paperId,
+  summary: "要約",
+  keyPoints: [],
+  language: "ja",
+  createdAt: "2026-01-01T00:00:00.000Z",
+});
+
 describe("usePaperSummary", () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+  });
+
+  it("正常系: 生成に成功すると isLoading は false、error は null になる", async () => {
+    mockSummaryApi.mockResolvedValueOnce(createSummaryResponse("2401.00001"));
+    const { result } = renderUsePaperSummary();
+
+    await act(async () => {
+      await result.current.generateSummary();
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(mockSummaryApi).toHaveBeenCalledTimes(1);
+  });
+
+  it("正常系: Aの生成中にBで生成してからAに戻ると、Aは生成中のまま", async () => {
+    const generationA = createDeferred<unknown>();
+    mockSummaryApi.mockReturnValueOnce(generationA.promise);
+    mockSummaryApi.mockReturnValueOnce(new Promise(() => undefined));
+    const { result, rerender } = renderUsePaperSummary("paper-a");
+
+    act(() => {
+      void result.current.generateSummary().catch(() => undefined);
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+
+    rerender({ paperId: "paper-b" });
+    act(() => {
+      void result.current.generateSummary();
+    });
+    await waitFor(() => expect(mockSummaryApi).toHaveBeenCalledTimes(2));
+
+    rerender({ paperId: "paper-a" });
+    expect(result.current.isLoading).toBe(true);
+
+    // 最後に開始した生成（B）でなくても、Aの失敗を返す
+    await act(async () => {
+      generationA.reject(new Error("timeout"));
+    });
+    await waitFor(() => expect(result.current.error?.message).toBe("timeout"));
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it("正常系: 同じ論文・言語の生成が実行中なら、再度呼んでもAPIは1回だけ呼ばれる", async () => {
+    mockSummaryApi.mockReturnValue(new Promise(() => undefined));
+    const { result, rerender } = renderUsePaperSummary("paper-a");
+
+    act(() => {
+      void result.current.generateSummary();
+    });
+    await waitFor(() => expect(mockSummaryApi).toHaveBeenCalledTimes(1));
+
+    // 別の論文に移って戻ってきてから再度生成しても送らない
+    rerender({ paperId: "paper-b" });
+    rerender({ paperId: "paper-a" });
+    await act(async () => {
+      await result.current.generateSummary();
+    });
+
+    expect(mockSummaryApi).toHaveBeenCalledTimes(1);
+    expect(result.current.isLoading).toBe(true);
   });
 
   it("異常系: 生成に失敗すると error が設定され、再生成の開始で null に戻る", async () => {

@@ -28,10 +28,12 @@ export const PaperPage: FC = () => {
     usePaperSummary({
       paperId: paper?.id ?? "",
       abstract: paper?.abstract ?? "",
-      onError: (err) => {
+      onError: (err, paperId) => {
         console.error("Summary generation error:", err);
+        // 生成中に別の論文へ移動している場合があるため、どの論文の失敗かを示す
+        const title = getPaperById(paperId)?.title;
         toast.error("要約生成エラー", {
-          description: err.message,
+          description: title ? `${title}: ${err.message}` : err.message,
         });
       },
     });

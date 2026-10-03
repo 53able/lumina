@@ -89,6 +89,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   const hasExplanation = Boolean(summary?.explanation);
 
   // 同じ論文・言語での生成中 → 完了の遷移でだけ結果を記録する（キャッシュ済み要約の表示や切替では通知しない）
+  // 生成中に論文・言語を切り替え、完了後に戻った場合は通知しない（要約の表示とトーストで伝わる）。
+  // 戻った時点でまだ生成中なら、その完了・失敗を通知する。
   useEffect(() => {
     if (isLoading) {
       loadingKeyRef.current = generationKey;

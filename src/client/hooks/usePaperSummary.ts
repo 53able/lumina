@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
@@ -12,9 +12,26 @@ interface UsePaperSummaryOptions {
   paperId: string;
   /** 論文のアブストラクト */
   abstract: string;
-  /** エラー時のコールバック */
-  onError?: (error: Error) => void;
+  /** エラー時のコールバック（paperId: 失敗した生成の論文ID。表示中の論文とは限らない） */
+  onError?: (error: Error, paperId: string) => void;
 }
+
+/** 要約生成の mutation 変数 */
+interface GenerateVariables {
+  paperId: string;
+  language: "ja" | "en";
+  target: GenerateTarget;
+}
+
+/** 要約生成の mutation を論文・言語をまたいで追跡するためのキー */
+const SUMMARY_MUTATION_KEY = ["summary"];
+
+/** 同じ論文・言語の生成か */
+const isSameTarget = (
+  variables: GenerateVariables | undefined,
+  paperId: string,
+  language: "ja" | "en"
+): boolean => variables?.paperId === paperId && variables.language === language;
 
 /**
  * usePaperSummary の戻り値
@@ -96,16 +113,12 @@ export const usePaperSummary = ({
   // 現在の論文・言語に対応するサマリーを取得
   const summary = getSummaryByPaperIdAndLanguage(paperId, summaryLanguage);
 
+  const queryClient = useQueryClient();
+
   // React QueryのuseMutationでサマリー生成を管理（自動デデュープ・キャッシュ）
   const mutation = useMutation({
-    mutationFn: async ({
-      language,
-      target,
-    }: {
-      paperId: string;
-      language: "ja" | "en";
-      target: GenerateTarget;
-    }): Promise<PaperSummary> => {
+    mutationKey: SUMMARY_MUTATION_KEY,
+    mutationFn: async ({ paperId, language, target }: GenerateVariables): Promise<PaperSummary> => {
       // API key を復号化して取得（早期開始パターン）
       const apiKeyPromise = getDecryptedApiKey();
       const apiKey = await apiKeyPromise;
@@ -133,30 +146,43 @@ export const usePaperSummary = ({
       await addSummary(mergedSummary);
       return mergedSummary;
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       const err = error instanceof Error ? error : new Error("要約の生成に失敗しました");
-      onError?.(err);
+      onError?.(err, variables.paperId);
     },
   });
 
   const generateSummary = useCallback(
     async (languageOverride?: "ja" | "en", target: GenerateTarget = "both") => {
       const language = languageOverride ?? summaryLanguage;
+      // 同じ論文・言語の生成が実行中なら送らない（論文を行き来したときの二重送信防止）
+      const isPending = queryClient
+        .getMutationCache()
+        .findAll({ mutationKey: SUMMARY_MUTATION_KEY, status: "pending" })
+        .some((m) => isSameTarget(m.state.variables as GenerateVariables, paperId, language));
+      if (isPending) return;
       await mutation.mutateAsync({ paperId, language, target });
     },
-    [paperId, summaryLanguage, mutation]
+    [queryClient, paperId, summaryLanguage, mutation]
   );
 
-  // mutation は論文・言語をまたいで共有されるため、表示中の論文・言語の生成状態だけを返す
-  const isCurrentTarget =
-    mutation.variables?.paperId === paperId && mutation.variables.language === summaryLanguage;
+  // useMutation の状態は最後の生成しか追わないため、全生成から表示中の論文・言語の最新の生成を選ぶ
+  const generations = useMutationState({
+    filters: { mutationKey: SUMMARY_MUTATION_KEY },
+    select: (m) => m.state,
+  });
+  const currentGeneration = generations
+    .filter((state) =>
+      isSameTarget(state.variables as GenerateVariables | undefined, paperId, summaryLanguage)
+    )
+    .at(-1);
 
   return {
     summary,
     summaryLanguage,
     setSummaryLanguage,
-    isLoading: isCurrentTarget && mutation.isPending,
-    error: isCurrentTarget ? mutation.error : null,
+    isLoading: currentGeneration?.status === "pending",
+    error: currentGeneration?.status === "error" ? (currentGeneration.error as Error) : null,
     generateSummary,
   };
 };

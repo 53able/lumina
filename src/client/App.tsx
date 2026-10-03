@@ -155,11 +155,13 @@ const HomePage: FC = () => {
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
     abstract: selectedPaper?.abstract ?? "",
-    onError: (err) => {
+    onError: (err, paperId) => {
       console.error("Summary generation error:", err);
       const message = err instanceof Error ? err.message : "要約の生成に失敗しました";
+      // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
+      const title = papers.find((p) => p.id === paperId)?.title;
       toast.error("要約生成エラー", {
-        description: message,
+        description: title ? `${title}: ${message}` : message,
       });
     },
   });
