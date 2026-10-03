@@ -143,7 +143,142 @@ describe("PaperSummary", () => {
     it("正常系: サマリーセクションのタイトルが表示される", () => {
       render(<PaperSummary paperId="2401.00001" />);
 
-      expect(screen.getByText("AI分析")).toBeInTheDocument();
+      expect(screen.getByText("AI要約")).toBeInTheDocument();
+    });
+  });
+
+  describe("参照範囲の表示", () => {
+    const scopeNote = /Abstractから生成。本文・図表は未参照/;
+    const sourceLinkProps = {
+      abstractId: "paper-abstract-2401.00001",
+      pdfUrl: "https://arxiv.org/pdf/2401.00001.pdf",
+      arxivUrl: "https://arxiv.org/abs/2401.00001",
+    };
+
+    it("正常系: 生成前に参照範囲の注記が表示される", () => {
+      render(<PaperSummary paperId="2401.00001" />);
+
+      expect(screen.getByText(scopeNote)).toBeInTheDocument();
+    });
+
+    it("正常系: 生成中に参照範囲の注記が表示される", () => {
+      render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      expect(screen.getByText(scopeNote)).toBeInTheDocument();
+    });
+
+    it("正常系: 生成後に参照範囲の注記が表示される", () => {
+      render(<PaperSummary paperId="2401.00001" summary={createSampleSummary()} />);
+
+      expect(screen.getByText(scopeNote)).toBeInTheDocument();
+    });
+
+    it("正常系: 生成後に原文（Abstract・PDF・arXivページ）へのリンクが表示される", () => {
+      render(
+        <PaperSummary paperId="2401.00001" summary={createSampleSummary()} {...sourceLinkProps} />
+      );
+
+      expect(screen.getByRole("link", { name: "Abstract" })).toHaveAttribute(
+        "href",
+        "#paper-abstract-2401.00001"
+      );
+      // 外部リンクは新しいタブで開くことを支援技術にも伝える
+      const pdfLink = screen.getByRole("link", { name: "本文PDF（新しいタブで開く）" });
+      expect(pdfLink).toHaveAttribute("href", sourceLinkProps.pdfUrl);
+      expect(pdfLink).toHaveAttribute("target", "_blank");
+      const arxivLink = screen.getByRole("link", { name: "arXivページ（新しいタブで開く）" });
+      expect(arxivLink).toHaveAttribute("href", sourceLinkProps.arxivUrl);
+      expect(arxivLink).toHaveAttribute("target", "_blank");
+    });
+
+    it("正常系: リンクは「 / 」区切りで並び、一部だけ渡しても先頭に区切り記号が付かない", () => {
+      const { container, unmount } = render(
+        <PaperSummary paperId="2401.00001" {...sourceLinkProps} />
+      );
+      expect(container.querySelector("p")).toHaveTextContent(
+        /原文を確認: Abstract \/ 本文PDF（新しいタブで開く） \/ arXivページ（新しいタブで開く）$/
+      );
+      unmount();
+
+      const { container: pdfOnly } = render(
+        <PaperSummary paperId="2401.00001" pdfUrl={sourceLinkProps.pdfUrl} />
+      );
+      expect(pdfOnly.querySelector("p")).toHaveTextContent(
+        /原文を確認: 本文PDF（新しいタブで開く）$/
+      );
+    });
+
+    it("正常系: Abstractリンクはページ内へスクロールし、URLと履歴を変えない", async () => {
+      const user = userEvent.setup();
+      const target = document.createElement("p");
+      target.id = sourceLinkProps.abstractId;
+      document.body.appendChild(target);
+      const scrollIntoView = vi.fn();
+      target.scrollIntoView = scrollIntoView;
+      const hrefBefore = window.location.href;
+      const historyLengthBefore = window.history.length;
+
+      render(<PaperSummary paperId="2401.00001" {...sourceLinkProps} />);
+      await user.click(screen.getByRole("link", { name: "Abstract" }));
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(window.location.href).toBe(hrefBefore);
+      expect(window.history.length).toBe(historyLengthBefore);
+      target.remove();
+    });
+
+    it("正常系: 原文URLが渡されない場合はリンクを表示しない", () => {
+      render(<PaperSummary paperId="2401.00001" summary={createSampleSummary()} />);
+
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    });
+
+    it("正常系: 全文分析と誤認させる文言を表示しない", async () => {
+      const misleading = /AI分析|論文の内容/;
+      const { container, unmount } = render(<PaperSummary paperId="2401.00001" />);
+      expect(container).not.toHaveTextContent(misleading);
+      unmount();
+
+      const { container: loading, unmount: unmountLoading } = render(
+        <PaperSummary paperId="2401.00001" isLoading />
+      );
+      expect(loading).not.toHaveTextContent(misleading);
+      unmountLoading();
+
+      const { container: generated } = render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={createSampleSummary({
+            explanation: "説明文",
+            targetAudience: "強化学習の研究者",
+            whyRead: "サンプル効率改善の手法が分かる",
+          })}
+        />
+      );
+      expect(generated).not.toHaveTextContent(misleading);
+
+      // 説明文タブに切り替えた後も同様
+      await userEvent.setup().click(screen.getByRole("tab", { name: /なぜ読むべきか/ }));
+      expect(screen.getByText("サンプル効率改善の手法が分かる")).toBeInTheDocument();
+      expect(generated).not.toHaveTextContent(misleading);
+    });
+
+    it("正常系: 説明文はAIの推奨として論文中の記述と区別して表示される", async () => {
+      const user = userEvent.setup();
+      render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={createSampleSummary({
+            explanation: "説明文",
+            targetAudience: "強化学習の研究者",
+            whyRead: "サンプル効率改善の手法が分かる",
+          })}
+        />
+      );
+
+      await user.click(screen.getByRole("tab", { name: /なぜ読むべきか/ }));
+
+      expect(screen.getByText(/AIの推奨です。論文中の記述ではありません/)).toBeInTheDocument();
     });
   });
 });

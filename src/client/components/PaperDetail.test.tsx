@@ -109,7 +109,7 @@ describe("PaperDetail", () => {
       const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
-      const pdfLink = screen.getByRole("link", { name: /PDF/i });
+      const pdfLink = screen.getByRole("link", { name: "PDF" });
       expect(pdfLink).toHaveAttribute("href", mockPaper.pdfUrl);
       expect(pdfLink).toHaveAttribute("target", "_blank");
     });
@@ -118,7 +118,7 @@ describe("PaperDetail", () => {
       const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
-      const arxivLink = screen.getByRole("link", { name: /arXiv/i });
+      const arxivLink = screen.getByRole("link", { name: "arXiv" });
       expect(arxivLink).toHaveAttribute("href", mockPaper.arxivUrl);
       expect(arxivLink).toHaveAttribute("target", "_blank");
     });
@@ -179,8 +179,28 @@ describe("PaperDetail", () => {
       const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
-      // セクションタイトルは「AI分析」に変更
-      expect(screen.getByText("AI分析")).toBeInTheDocument();
+      expect(screen.getByText("AI要約")).toBeInTheDocument();
+    });
+
+    it("正常系: AI要約の参照範囲注記から原文（Abstract・PDF・arXivページ）へリンクする", async () => {
+      const { PaperDetail } = await import("./PaperDetail");
+      render(<PaperDetail paper={mockPaper} />);
+
+      expect(screen.getByText(/Abstractから生成。本文・図表は未参照/)).toBeInTheDocument();
+
+      // Abstractリンクのリンク先が、詳細画面に表示されたAbstract本文である
+      const abstractLink = screen.getByRole("link", { name: "Abstract" });
+      const abstractId = abstractLink.getAttribute("href")?.slice(1) ?? "";
+      expect(document.getElementById(abstractId)).toHaveTextContent(mockPaper.abstract);
+
+      expect(screen.getByRole("link", { name: /^本文PDF/ })).toHaveAttribute(
+        "href",
+        mockPaper.pdfUrl
+      );
+      expect(screen.getByRole("link", { name: /^arXivページ/ })).toHaveAttribute(
+        "href",
+        mockPaper.arxivUrl
+      );
     });
 
     it("正常系: 要約生成ボタンが表示される", async () => {

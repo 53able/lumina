@@ -49,6 +49,9 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   // Context経由でいいね/ブックマーク状態を取得
   const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
 
+  /** AI要約の参照範囲注記からリンクするAbstract要素のID */
+  const abstractId = `paper-abstract-${paper.id}`;
+
   const handleLikeClick = () => {
     toggleLike();
   };
@@ -82,7 +85,9 @@ export const PaperDetail: FC<PaperDetailProps> = ({
         {/* アブストラクト */}
         <div>
           <h3 className="mb-2 text-sm font-bold text-muted-foreground">Abstract</h3>
-          <p className="text-sm leading-relaxed">{paper.abstract}</p>
+          <p id={abstractId} className="text-sm leading-relaxed">
+            {paper.abstract}
+          </p>
         </div>
 
         {/* AI要約セクション */}
@@ -95,6 +100,9 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             onGenerate={onGenerateSummary}
             onLanguageChange={onSummaryLanguageChange}
             autoGenerate={autoGenerateSummary}
+            abstractId={abstractId}
+            pdfUrl={paper.pdfUrl}
+            arxivUrl={paper.arxivUrl}
           />
         </div>
 
