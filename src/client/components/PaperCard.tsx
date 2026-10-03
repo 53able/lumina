@@ -181,7 +181,10 @@ const PaperCardComponent: FC<PaperCardProps> = ({
               className="card-text-hover text-sm line-clamp-2 mt-2"
               style={{ color: "hsl(var(--primary-light))", opacity: 0.9 }}
             >
-              {whyRead}
+              <span className="mr-1 rounded border border-current px-1 text-[10px] align-middle">
+                AIの推奨
+              </span>
+              <span>{whyRead}</span>
             </p>
           )}
           <p className="card-text-hover text-sm text-foreground" style={{ opacity: 0.8 }}>

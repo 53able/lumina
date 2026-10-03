@@ -214,6 +214,25 @@ describe("PaperCard", () => {
       expect(screen.getByText(whyRead)).toBeInTheDocument();
     });
 
+    it("正常系: whyReadにはAIの推奨であることを示すラベルが付く", async () => {
+      const { PaperCard } = await import("./PaperCard");
+      const paper = createSamplePaper();
+      const whyRead = "機械学習モデルの効率的な学習方法を理解できます";
+
+      renderWithRouter(<PaperCard paper={paper} whyRead={whyRead} />);
+
+      const whyReadLine = screen.getByText(whyRead).parentElement;
+      expect(whyReadLine).toHaveTextContent(`AIの推奨${whyRead}`);
+    });
+
+    it("正常系: whyReadが未指定の場合はAIの推奨ラベルを表示しない", async () => {
+      const { PaperCard } = await import("./PaperCard");
+
+      renderWithRouter(<PaperCard paper={createSamplePaper()} />);
+
+      expect(screen.queryByText("AIの推奨")).not.toBeInTheDocument();
+    });
+
     it("正常系: whyReadが未指定の場合は表示されない", async () => {
       const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();

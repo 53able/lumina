@@ -193,11 +193,11 @@ describe("PaperDetail", () => {
       const abstractId = abstractLink.getAttribute("href")?.slice(1) ?? "";
       expect(document.getElementById(abstractId)).toHaveTextContent(mockPaper.abstract);
 
-      expect(screen.getByRole("link", { name: "本文PDF" })).toHaveAttribute(
+      expect(screen.getByRole("link", { name: /^本文PDF/ })).toHaveAttribute(
         "href",
         mockPaper.pdfUrl
       );
-      expect(screen.getByRole("link", { name: "arXivページ" })).toHaveAttribute(
+      expect(screen.getByRole("link", { name: /^arXivページ/ })).toHaveAttribute(
         "href",
         mockPaper.arxivUrl
       );

@@ -182,12 +182,49 @@ describe("PaperSummary", () => {
         "href",
         "#paper-abstract-2401.00001"
       );
-      const pdfLink = screen.getByRole("link", { name: "本文PDF" });
+      // 外部リンクは新しいタブで開くことを支援技術にも伝える
+      const pdfLink = screen.getByRole("link", { name: "本文PDF（新しいタブで開く）" });
       expect(pdfLink).toHaveAttribute("href", sourceLinkProps.pdfUrl);
       expect(pdfLink).toHaveAttribute("target", "_blank");
-      const arxivLink = screen.getByRole("link", { name: "arXivページ" });
+      const arxivLink = screen.getByRole("link", { name: "arXivページ（新しいタブで開く）" });
       expect(arxivLink).toHaveAttribute("href", sourceLinkProps.arxivUrl);
       expect(arxivLink).toHaveAttribute("target", "_blank");
+    });
+
+    it("正常系: リンクは「 / 」区切りで並び、一部だけ渡しても先頭に区切り記号が付かない", () => {
+      const { container, unmount } = render(
+        <PaperSummary paperId="2401.00001" {...sourceLinkProps} />
+      );
+      expect(container.querySelector("p")).toHaveTextContent(
+        /原文を確認: Abstract \/ 本文PDF（新しいタブで開く） \/ arXivページ（新しいタブで開く）$/
+      );
+      unmount();
+
+      const { container: pdfOnly } = render(
+        <PaperSummary paperId="2401.00001" pdfUrl={sourceLinkProps.pdfUrl} />
+      );
+      expect(pdfOnly.querySelector("p")).toHaveTextContent(
+        /原文を確認: 本文PDF（新しいタブで開く）$/
+      );
+    });
+
+    it("正常系: Abstractリンクはページ内へスクロールし、URLと履歴を変えない", async () => {
+      const user = userEvent.setup();
+      const target = document.createElement("p");
+      target.id = sourceLinkProps.abstractId;
+      document.body.appendChild(target);
+      const scrollIntoView = vi.fn();
+      target.scrollIntoView = scrollIntoView;
+      const hrefBefore = window.location.href;
+      const historyLengthBefore = window.history.length;
+
+      render(<PaperSummary paperId="2401.00001" {...sourceLinkProps} />);
+      await user.click(screen.getByRole("link", { name: "Abstract" }));
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(window.location.href).toBe(hrefBefore);
+      expect(window.history.length).toBe(historyLengthBefore);
+      target.remove();
     });
 
     it("正常系: 原文URLが渡されない場合はリンクを表示しない", () => {
@@ -196,10 +233,17 @@ describe("PaperSummary", () => {
       expect(screen.queryByRole("link")).not.toBeInTheDocument();
     });
 
-    it("正常系: 全文分析と誤認させる文言を表示しない", () => {
+    it("正常系: 全文分析と誤認させる文言を表示しない", async () => {
+      const misleading = /AI分析|論文の内容/;
       const { container, unmount } = render(<PaperSummary paperId="2401.00001" />);
-      expect(container).not.toHaveTextContent(/AI分析|論文の内容/);
+      expect(container).not.toHaveTextContent(misleading);
       unmount();
+
+      const { container: loading, unmount: unmountLoading } = render(
+        <PaperSummary paperId="2401.00001" isLoading />
+      );
+      expect(loading).not.toHaveTextContent(misleading);
+      unmountLoading();
 
       const { container: generated } = render(
         <PaperSummary
@@ -211,7 +255,12 @@ describe("PaperSummary", () => {
           })}
         />
       );
-      expect(generated).not.toHaveTextContent(/AI分析|論文の内容/);
+      expect(generated).not.toHaveTextContent(misleading);
+
+      // 説明文タブに切り替えた後も同様
+      await userEvent.setup().click(screen.getByRole("tab", { name: /なぜ読むべきか/ }));
+      expect(screen.getByText("サンプル効率改善の手法が分かる")).toBeInTheDocument();
+      expect(generated).not.toHaveTextContent(misleading);
     });
 
     it("正常系: 説明文はAIの推奨として論文中の記述と区別して表示される", async () => {

@@ -1,5 +1,5 @@
 import { BookOpen, Loader2, Sparkles, Target, Users } from "lucide-react";
-import { type FC, useEffect, useRef, useState } from "react";
+import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
@@ -95,6 +95,45 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     }
   }, [paperId, summary, isLoading, autoGenerate, onGenerate, selectedLanguage]);
 
+  /** 外部リンクのクラス */
+  const sourceLinkClassName = "underline hover:text-foreground";
+  /** 参照範囲の注記から辿れる原文へのリンク（渡されたものだけを並べる） */
+  const sourceLinks: { key: string; node: ReactNode }[] = [];
+  if (abstractId) {
+    sourceLinks.push({
+      key: "abstract",
+      node: (
+        <a
+          href={`#${abstractId}`}
+          className={sourceLinkClassName}
+          onClick={(e) => {
+            // ルーターのURLにフラグメントを残さず、履歴も増やさずにスクロールする
+            e.preventDefault();
+            document.getElementById(abstractId)?.scrollIntoView();
+          }}
+        >
+          Abstract
+        </a>
+      ),
+    });
+  }
+  for (const { key, url, label } of [
+    { key: "pdf", url: pdfUrl, label: "本文PDF" },
+    { key: "arxiv", url: arxivUrl, label: "arXivページ" },
+  ]) {
+    if (url) {
+      sourceLinks.push({
+        key,
+        node: (
+          <a href={url} target="_blank" rel="noopener noreferrer" className={sourceLinkClassName}>
+            {label}
+            <span className="sr-only">（新しいタブで開く）</span>
+          </a>
+        ),
+      });
+    }
+  }
+
   const handleLanguageChange = (value: string) => {
     const newLanguage = value as "ja" | "en";
     onLanguageChange?.(newLanguage);
@@ -136,40 +175,15 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       {/* 参照範囲の注記: 生成前後を通じて、AIが何を入力にしたかを明示する */}
       <p className="text-xs text-muted-foreground">
         Abstractから生成。本文・図表は未参照
-        {(abstractId || pdfUrl || arxivUrl) && (
+        {sourceLinks.length > 0 && (
           <>
-            {" ・ 原文を確認: "}
-            {abstractId && (
-              <a href={`#${abstractId}`} className="underline hover:text-foreground">
-                Abstract
-              </a>
-            )}
-            {pdfUrl && (
-              <>
-                {abstractId && " / "}
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:text-foreground"
-                >
-                  本文PDF
-                </a>
-              </>
-            )}
-            {arxivUrl && (
-              <>
-                {(abstractId || pdfUrl) && " / "}
-                <a
-                  href={arxivUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:text-foreground"
-                >
-                  arXivページ
-                </a>
-              </>
-            )}
+            {"。原文を確認: "}
+            {sourceLinks.map((link, i) => (
+              <Fragment key={link.key}>
+                {i > 0 && " / "}
+                {link.node}
+              </Fragment>
+            ))}
           </>
         )}
       </p>
