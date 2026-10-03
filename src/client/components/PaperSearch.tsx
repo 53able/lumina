@@ -61,6 +61,7 @@ export const PaperSearch: FC<PaperSearchProps> = ({
           type="search"
           role="searchbox"
           placeholder="論文を検索..."
+          aria-label="論文を検索"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={isLoading}

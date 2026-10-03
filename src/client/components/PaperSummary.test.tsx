@@ -139,6 +139,85 @@ describe("PaperSummary", () => {
     });
   });
 
+  describe("生成状態の通知", () => {
+    it("正常系: 生成開始と完了を status で通知し、要約本文は読み上げ対象に含めない", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" />);
+      const status = screen.getByRole("status");
+      expect(status).toBeEmptyDOMElement();
+
+      rerender(<PaperSummary paperId="2401.00001" isLoading />);
+      expect(status).toHaveTextContent("要約を生成しています");
+
+      const summary = createSampleSummary();
+      rerender(<PaperSummary paperId="2401.00001" summary={summary} />);
+      expect(status).toHaveTextContent("要約の生成が完了しました");
+      expect(status).not.toHaveTextContent(summary.summary);
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    });
+
+    it("正常系: キャッシュ済みの要約を表示しただけでは完了を通知しない", () => {
+      render(<PaperSummary paperId="2401.00001" summary={createSampleSummary()} />);
+
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    });
+
+    it("異常系: 生成失敗を理由と再試行方法つきで通知する", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(<PaperSummary paperId="2401.00001" error={new Error("APIキーが無効です")} />);
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約を生成できませんでした（APIキーが無効です）。「要約 + 説明文」ボタンで再試行できます。"
+      );
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+      expect(screen.getByRole("button", { name: /要約 \+ 説明文/i })).toBeInTheDocument();
+    });
+
+    it("異常系: 説明文のみの生成に失敗した場合は説明文の生成ボタンを案内する", () => {
+      const summary = createSampleSummary();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" summary={summary} isLoading />
+      );
+
+      rerender(
+        <PaperSummary paperId="2401.00001" summary={summary} error={new Error("timeout")} />
+      );
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "「なぜ読むべきかを生成」ボタンで再試行できます。"
+      );
+    });
+
+    it("異常系: 再試行を開始すると失敗の通知を消す", () => {
+      const error = new Error("timeout");
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+      rerender(<PaperSummary paperId="2401.00001" error={error} />);
+      expect(screen.getByRole("alert")).not.toBeEmptyDOMElement();
+
+      rerender(<PaperSummary paperId="2401.00001" isLoading />);
+
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+      expect(screen.getByRole("status")).toHaveTextContent("要約を生成しています");
+    });
+
+    it("正常系: 状態通知でフォーカスを移動しない", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" />);
+      const languageTab = screen.getByRole("tab", { name: "English" });
+      languageTab.focus();
+      expect(languageTab).toHaveFocus();
+
+      rerender(<PaperSummary paperId="2401.00001" isLoading />);
+      expect(languageTab).toHaveFocus();
+
+      rerender(<PaperSummary paperId="2401.00001" error={new Error("timeout")} />);
+      expect(languageTab).toHaveFocus();
+
+      rerender(<PaperSummary paperId="2401.00001" isLoading />);
+      rerender(<PaperSummary paperId="2401.00001" summary={createSampleSummary()} />);
+      expect(languageTab).toHaveFocus();
+    });
+  });
+
   describe("セクションタイトル", () => {
     it("正常系: サマリーセクションのタイトルが表示される", () => {
       render(<PaperSummary paperId="2401.00001" />);

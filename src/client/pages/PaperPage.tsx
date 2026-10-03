@@ -24,7 +24,7 @@ export const PaperPage: FC = () => {
   const paper = id ? getPaperById(id) : undefined;
 
   // サマリー管理（カスタムフックに責務を委譲）
-  const { summary, summaryLanguage, setSummaryLanguage, isLoading, generateSummary } =
+  const { summary, summaryLanguage, setSummaryLanguage, isLoading, error, generateSummary } =
     usePaperSummary({
       paperId: paper?.id ?? "",
       abstract: paper?.abstract ?? "",
@@ -80,6 +80,7 @@ export const PaperPage: FC = () => {
             summary={summary}
             onGenerateSummary={(_paperId, language, target) => generateSummary(language, target)}
             isSummaryLoading={isLoading}
+            summaryError={error}
             selectedSummaryLanguage={summaryLanguage}
             onSummaryLanguageChange={setSummaryLanguage}
             autoGenerateSummary={autoGenerateSummary}

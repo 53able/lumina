@@ -150,6 +150,7 @@ const HomePage: FC = () => {
     summaryLanguage,
     setSummaryLanguage,
     isLoading: isSummaryLoading,
+    error: summaryError,
     generateSummary,
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
@@ -354,6 +355,7 @@ const HomePage: FC = () => {
                     summary={getSummaryByPaperIdAndLanguage(paper.id, summaryLanguage)}
                     onGenerateSummary={handleGenerateSummary}
                     isSummaryLoading={isSummaryLoading}
+                    summaryError={summaryError}
                     selectedSummaryLanguage={summaryLanguage}
                     onSummaryLanguageChange={handleSummaryLanguageChange}
                     autoGenerateSummary={autoGenerateSummary}
@@ -370,6 +372,7 @@ const HomePage: FC = () => {
         currentSummary={currentSummary}
         onGenerateSummary={handleGenerateSummary}
         isSummaryLoading={isSummaryLoading}
+        summaryError={summaryError}
         summaryLanguage={summaryLanguage}
         onSummaryLanguageChange={handleSummaryLanguageChange}
         autoGenerateSummary={autoGenerateSummary}

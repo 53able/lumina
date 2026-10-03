@@ -28,6 +28,8 @@ interface UsePaperSummaryReturn {
   setSummaryLanguage: (language: "ja" | "en") => void;
   /** ローディング状態 */
   isLoading: boolean;
+  /** 直近の生成エラー（次の生成開始でクリアされる） */
+  error: Error | null;
   /**
    * 要約を生成する
    * @param language - 言語（省略時は summaryLanguage を使用）
@@ -149,6 +151,7 @@ export const usePaperSummary = ({
     summaryLanguage,
     setSummaryLanguage,
     isLoading: mutation.isPending,
+    error: mutation.error,
     generateSummary,
   };
 };

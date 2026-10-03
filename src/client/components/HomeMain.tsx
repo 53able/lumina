@@ -66,6 +66,8 @@ interface HomeMainProps {
   ) => Promise<void>;
   /** サマリーローディング中かどうか */
   isSummaryLoading: boolean;
+  /** 直近のサマリー生成エラー */
+  summaryError: Error | null;
   /** 選択中のサマリー言語 */
   summaryLanguage: "ja" | "en";
   /** サマリー言語変更ハンドラー */
@@ -121,6 +123,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   currentSummary,
   onGenerateSummary,
   isSummaryLoading,
+  summaryError,
   summaryLanguage,
   onSummaryLanguageChange,
   autoGenerateSummary,
@@ -148,6 +151,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 summary={currentSummary}
                 onGenerateSummary={onGenerateSummary}
                 isSummaryLoading={isSummaryLoading}
+                summaryError={summaryError}
                 selectedSummaryLanguage={summaryLanguage}
                 onSummaryLanguageChange={onSummaryLanguageChange}
                 autoGenerateSummary={autoGenerateSummary}
