@@ -41,6 +41,14 @@ describe("PaperSearch", () => {
 
       expect(screen.getByPlaceholderText(/論文を検索/i)).toBeInTheDocument();
     });
+
+    it("正常系: 検索ボックスにplaceholderとは別のアクセシブルネームがある", async () => {
+      const { PaperSearch } = await import("./PaperSearch");
+
+      render(<PaperSearch onSearch={vi.fn()} />);
+
+      expect(screen.getByRole("searchbox", { name: "論文を検索" })).toBeInTheDocument();
+    });
   });
 
   describe("検索機能", () => {

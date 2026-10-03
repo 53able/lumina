@@ -1,4 +1,9 @@
-import { useMutation } from "@tanstack/react-query";
+import {
+  type MutationState,
+  useMutation,
+  useMutationState,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
@@ -12,9 +17,32 @@ interface UsePaperSummaryOptions {
   paperId: string;
   /** 論文のアブストラクト */
   abstract: string;
-  /** エラー時のコールバック */
-  onError?: (error: Error) => void;
+  /** エラー時のコールバック（paperId: 失敗した生成の論文ID。表示中の論文とは限らない） */
+  onError?: (error: Error, paperId: string) => void;
 }
+
+/** 要約生成の mutation 変数 */
+interface GenerateVariables {
+  paperId: string;
+  language: "ja" | "en";
+  target: GenerateTarget;
+}
+
+/** 要約生成の mutation を論文・言語をまたいで追跡するためのキー */
+const SUMMARY_MUTATION_KEY = ["paperSummary", "generate"];
+
+/** 要約生成の mutation の状態 */
+type GenerationState = MutationState<PaperSummary, Error, GenerateVariables>;
+
+/** 指定した論文・言語の要約生成の状態か（mutation cache の状態は型を持たないため、ここで絞り込む） */
+const isGenerationFor = (
+  state: MutationState,
+  paperId: string,
+  language: "ja" | "en"
+): state is GenerationState => {
+  const variables = state.variables as Partial<GenerateVariables> | undefined;
+  return variables?.paperId === paperId && variables.language === language;
+};
 
 /**
  * usePaperSummary の戻り値
@@ -26,10 +54,15 @@ interface UsePaperSummaryReturn {
   summaryLanguage: "ja" | "en";
   /** 言語を切り替える */
   setSummaryLanguage: (language: "ja" | "en") => void;
-  /** ローディング状態 */
+  /** ローディング状態（表示中の論文・言語の生成のみ） */
   isLoading: boolean;
   /**
-   * 要約を生成する
+   * 直近の生成エラー（表示中の論文・言語のみ。次の生成開始でクリアされる）
+   * mutation cache から読むため、寿命は mutation の gcTime（既定5分）に依存する
+   */
+  error: Error | null;
+  /**
+   * 要約を生成する。同じ論文・言語の生成が実行中なら何もせずに返る
    * @param language - 言語（省略時は summaryLanguage を使用）
    * @param target - 生成対象（デフォルト: "both"）
    */
@@ -94,15 +127,12 @@ export const usePaperSummary = ({
   // 現在の論文・言語に対応するサマリーを取得
   const summary = getSummaryByPaperIdAndLanguage(paperId, summaryLanguage);
 
+  const queryClient = useQueryClient();
+
   // React QueryのuseMutationでサマリー生成を管理（自動デデュープ・キャッシュ）
   const mutation = useMutation({
-    mutationFn: async ({
-      language,
-      target,
-    }: {
-      language: "ja" | "en";
-      target: GenerateTarget;
-    }): Promise<PaperSummary> => {
+    mutationKey: SUMMARY_MUTATION_KEY,
+    mutationFn: async ({ paperId, language, target }: GenerateVariables): Promise<PaperSummary> => {
       // API key を復号化して取得（早期開始パターン）
       const apiKeyPromise = getDecryptedApiKey();
       const apiKey = await apiKeyPromise;
@@ -130,25 +160,42 @@ export const usePaperSummary = ({
       await addSummary(mergedSummary);
       return mergedSummary;
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       const err = error instanceof Error ? error : new Error("要約の生成に失敗しました");
-      onError?.(err);
+      onError?.(err, variables.paperId);
     },
   });
 
+  const { mutateAsync } = mutation;
   const generateSummary = useCallback(
     async (languageOverride?: "ja" | "en", target: GenerateTarget = "both") => {
       const language = languageOverride ?? summaryLanguage;
-      await mutation.mutateAsync({ language, target });
+      // 同じ論文・言語の生成が実行中なら送らない（論文を行き来したときの二重送信防止）
+      const isPending = queryClient
+        .getMutationCache()
+        .findAll({ mutationKey: SUMMARY_MUTATION_KEY, status: "pending" })
+        .some((m) => isGenerationFor(m.state, paperId, language));
+      if (isPending) return;
+      await mutateAsync({ paperId, language, target });
     },
-    [summaryLanguage, mutation]
+    [queryClient, paperId, summaryLanguage, mutateAsync]
   );
+
+  // useMutation の状態は最後の生成しか追わないため、全生成から表示中の論文・言語の最新の生成を選ぶ
+  const generations = useMutationState({
+    filters: { mutationKey: SUMMARY_MUTATION_KEY },
+    select: (m) => m.state,
+  });
+  const currentGeneration = generations
+    .filter((state) => isGenerationFor(state, paperId, summaryLanguage))
+    .at(-1);
 
   return {
     summary,
     summaryLanguage,
     setSummaryLanguage,
-    isLoading: mutation.isPending,
+    isLoading: currentGeneration?.status === "pending",
+    error: currentGeneration?.status === "error" ? currentGeneration.error : null,
     generateSummary,
   };
 };

@@ -19,6 +19,8 @@ interface PaperDetailProps {
   onGenerateSummary?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
   /** 要約ローディング状態 */
   isSummaryLoading?: boolean;
+  /** 直近の要約生成エラー */
+  summaryError?: Error | null;
   /** 選択中の言語 */
   selectedSummaryLanguage?: "ja" | "en";
   /** 言語切替時のコールバック */
@@ -42,6 +44,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   summary,
   onGenerateSummary,
   isSummaryLoading = false,
+  summaryError = null,
   selectedSummaryLanguage = "ja",
   onSummaryLanguageChange,
   autoGenerateSummary = false,
@@ -97,6 +100,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             summary={summary}
             selectedLanguage={selectedSummaryLanguage}
             isLoading={isSummaryLoading}
+            error={summaryError}
             onGenerate={onGenerateSummary}
             onLanguageChange={onSummaryLanguageChange}
             autoGenerate={autoGenerateSummary}

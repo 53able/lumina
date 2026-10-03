@@ -150,15 +150,18 @@ const HomePage: FC = () => {
     summaryLanguage,
     setSummaryLanguage,
     isLoading: isSummaryLoading,
+    error: summaryError,
     generateSummary,
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
     abstract: selectedPaper?.abstract ?? "",
-    onError: (err) => {
+    onError: (err, paperId) => {
       console.error("Summary generation error:", err);
       const message = err instanceof Error ? err.message : "要約の生成に失敗しました";
+      // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
+      const title = papers.find((p) => p.id === paperId)?.title;
       toast.error("要約生成エラー", {
-        description: message,
+        description: title ? `${title}: ${message}` : message,
       });
     },
   });
@@ -193,8 +196,8 @@ const HomePage: FC = () => {
   // サマリー生成ハンドラー（PaperDetailのインターフェースに合わせたラッパー）
   const handleGenerateSummary = useCallback(
     async (_paperId: string, language: "ja" | "en", target: "explanation" | "both" = "both") => {
-      // usePaperSummaryのgenerateSummaryはlanguageがオプショナルなので、明示的に渡す
-      // paperIdはusePaperSummaryの初期化時に設定されているため、ここでは使用しない
+      // 表示中の言語を明示的に渡す。paperId は usePaperSummary に渡した選択中の論文を使うため、ここでは使用しない
+      // 同じ論文・言語の生成が実行中なら generateSummary は何もせずに返る
       await generateSummary(language, target);
     },
     [generateSummary]
@@ -354,6 +357,7 @@ const HomePage: FC = () => {
                     summary={getSummaryByPaperIdAndLanguage(paper.id, summaryLanguage)}
                     onGenerateSummary={handleGenerateSummary}
                     isSummaryLoading={isSummaryLoading}
+                    summaryError={summaryError}
                     selectedSummaryLanguage={summaryLanguage}
                     onSummaryLanguageChange={handleSummaryLanguageChange}
                     autoGenerateSummary={autoGenerateSummary}
@@ -370,6 +374,7 @@ const HomePage: FC = () => {
         currentSummary={currentSummary}
         onGenerateSummary={handleGenerateSummary}
         isSummaryLoading={isSummaryLoading}
+        summaryError={summaryError}
         summaryLanguage={summaryLanguage}
         onSummaryLanguageChange={handleSummaryLanguageChange}
         autoGenerateSummary={autoGenerateSummary}

@@ -24,14 +24,16 @@ export const PaperPage: FC = () => {
   const paper = id ? getPaperById(id) : undefined;
 
   // サマリー管理（カスタムフックに責務を委譲）
-  const { summary, summaryLanguage, setSummaryLanguage, isLoading, generateSummary } =
+  const { summary, summaryLanguage, setSummaryLanguage, isLoading, error, generateSummary } =
     usePaperSummary({
       paperId: paper?.id ?? "",
       abstract: paper?.abstract ?? "",
-      onError: (err) => {
+      onError: (err, paperId) => {
         console.error("Summary generation error:", err);
+        // 生成中に別の論文へ移動している場合があるため、どの論文の失敗かを示す
+        const title = getPaperById(paperId)?.title;
         toast.error("要約生成エラー", {
-          description: err.message,
+          description: title ? `${title}: ${err.message}` : err.message,
         });
       },
     });
@@ -80,6 +82,7 @@ export const PaperPage: FC = () => {
             summary={summary}
             onGenerateSummary={(_paperId, language, target) => generateSummary(language, target)}
             isSummaryLoading={isLoading}
+            summaryError={error}
             selectedSummaryLanguage={summaryLanguage}
             onSummaryLanguageChange={setSummaryLanguage}
             autoGenerateSummary={autoGenerateSummary}
