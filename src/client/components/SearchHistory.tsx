@@ -2,9 +2,8 @@ import { formatDistanceToNow } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Clock, Search, X } from "lucide-react";
 import { type FC, useEffect, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
-import { useSearchHistoryStore } from "../stores/searchHistoryStore";
+import type { SearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import { Button } from "./ui/button";
 
 /**
@@ -15,17 +14,29 @@ interface SearchHistoryProps {
   histories: SearchHistoryType[];
   /** 再検索時のコールバック */
   onReSearch?: (history: SearchHistoryType) => void;
-  /** 削除時のコールバック（結果は searchHistoryStore の状態で受け取る） */
+  /** 削除時のコールバック（結果は undo で受け取る） */
   onDelete?: (id: string) => void;
+  /** 削除の結果と取り消し（onDelete と同じ出どころ。未指定なら取り消し欄を出さない） */
+  undo?: SearchHistoryUndo;
   /** コンパクト表示モード（サイドバー用） */
   compact?: boolean;
 }
 
-/** フォーカスが外れている（削除・復元で押したボタンが消えた）か */
-const isFocusLost = (): boolean =>
-  document.activeElement === null ||
-  document.activeElement === document.body ||
-  !document.activeElement.isConnected;
+/** 操作を始めたときの情報（完了後の通知・フォーカス移動に使う） */
+interface StartedOperation {
+  query: string;
+  /** 一覧上の位置（削除後に次の行を選ぶ） */
+  index: number;
+  /** 開始時にフォーカスが履歴欄の中にあったか */
+  focusWasInside: boolean;
+}
+
+/** live region に残す通知の件数 */
+const MAX_ANNOUNCEMENTS = 3;
+
+const EMPTY_HISTORIES: SearchHistoryType[] = [];
+const EMPTY_IDS: string[] = [];
+const EMPTY_ERRORS: SearchHistoryUndo["historyErrors"] = {};
 
 /**
  * SearchHistory - 検索履歴コンポーネント
@@ -39,96 +50,123 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
   histories,
   onReSearch,
   onDelete,
+  undo,
   compact = false,
 }) => {
-  const {
-    allHistories,
-    deletedHistories,
-    pendingHistoryIds,
-    historyErrors,
-    restoreHistory,
-    discardDeletedHistory,
-    dismissHistoryError,
-  } = useSearchHistoryStore(
-    useShallow((state) => ({
-      allHistories: state.histories,
-      deletedHistories: state.deletedHistories,
-      pendingHistoryIds: state.pendingHistoryIds,
-      historyErrors: state.historyErrors,
-      restoreHistory: state.restoreHistory,
-      discardDeletedHistory: state.discardDeletedHistory,
-      dismissHistoryError: state.dismissHistoryError,
-    }))
-  );
+  const deletedHistories = undo?.deletedHistories ?? EMPTY_HISTORIES;
+  const historyErrors = undo?.historyErrors ?? EMPTY_ERRORS;
+  const pendingHistoryIds = undo?.pendingHistoryIds ?? EMPTY_IDS;
+  const restoreConflictIds = undo?.restoreConflictIds ?? EMPTY_IDS;
 
-  /** スクリーンリーダー向けの結果通知 */
-  const [announcement, setAnnouncement] = useState("");
-  /** 削除を始めた行（成功したら次の行へフォーカスを移す） */
-  const deletingRef = useRef<{ id: string; index: number } | null>(null);
-  /** 復元を始めた履歴（成功したら復元した行へフォーカスを戻す） */
-  const restoringIdRef = useRef<string | null>(null);
+  /**
+   * スクリーンリーダー向けの結果通知（直近の数件）
+   * 置き換えではなく追加にして、連続した操作の通知が後の通知で上書きされないようにする
+   */
+  const [announcements, setAnnouncements] = useState<{ key: number; text: string }[]>([]);
+  const announcementKeyRef = useRef(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** 削除を始めた履歴（ID ごと。連続削除でも通知・フォーカスを取りこぼさない） */
+  const deletingRef = useRef(new Map<string, StartedOperation>());
+  /** 元に戻すを始めた履歴（ID ごと） */
+  const restoringRef = useRef(new Map<string, StartedOperation>());
   const rowButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const undoButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const discardButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
-  // 削除の成功（退避に入った）を検知し、通知とフォーカス移動を行う
-  useEffect(() => {
-    const deleting = deletingRef.current;
-    if (!deleting) return;
-    if (historyErrors[deleting.id]) {
-      deletingRef.current = null;
-      return;
-    }
-    const deleted = deletedHistories.find((h) => h.id === deleting.id);
-    if (!deleted) return;
-    deletingRef.current = null;
-    setAnnouncement(`「${deleted.originalQuery}」を削除しました。再読み込みするまで元に戻せます。`);
-    if (!isFocusLost()) return;
-    const next = histories[deleting.index] ?? histories[deleting.index - 1];
-    const target = next
-      ? rowButtonRefs.current.get(next.id)
-      : undoButtonRefs.current.get(deleting.id);
-    target?.focus();
-  }, [histories, deletedHistories, historyErrors]);
+  /** 開始時に履歴欄の中にあったフォーカスが、押したボタンが消えて外れたときだけ移す */
+  const moveFocus = (operation: StartedOperation, target: HTMLElement | undefined) => {
+    const active = document.activeElement;
+    const focusLost = active === null || active === document.body || !active.isConnected;
+    if (operation.focusWasInside && focusLost) target?.focus();
+  };
 
-  // 復元の成功（履歴に戻った）を検知し、通知とフォーカス移動を行う
+  // 削除・元に戻すの完了を検知し、通知とフォーカス移動を行う
   useEffect(() => {
-    const restoringId = restoringIdRef.current;
-    if (!restoringId) return;
-    if (historyErrors[restoringId]) {
-      restoringIdRef.current = null;
-      return;
+    const messages: string[] = [];
+
+    for (const [id, operation] of deletingRef.current) {
+      if (pendingHistoryIds.includes(id)) continue;
+      deletingRef.current.delete(id);
+      // 失敗は行内の alert で伝わる。退避に入っていれば削除の成功
+      if (!deletedHistories.some((h) => h.id === id)) continue;
+      messages.push(`「${operation.query}」を削除しました。再読み込みするまで元に戻せます。`);
+      const next = histories[operation.index] ?? histories[operation.index - 1];
+      moveFocus(
+        operation,
+        next ? rowButtonRefs.current.get(next.id) : undoButtonRefs.current.get(id)
+      );
     }
-    const restored = allHistories.find((h) => h.id === restoringId);
-    if (!restored) return;
-    restoringIdRef.current = null;
-    setAnnouncement(`「${restored.originalQuery}」を元に戻しました。`);
-    if (isFocusLost()) {
-      rowButtonRefs.current.get(restoringId)?.focus();
+
+    for (const [id, operation] of restoringRef.current) {
+      if (pendingHistoryIds.includes(id)) continue;
+      restoringRef.current.delete(id);
+      if (historyErrors[id]) continue;
+      if (deletedHistories.some((h) => h.id === id)) {
+        // 退避に残っている: 同じクエリの新しい履歴と競合して中止した
+        if (restoreConflictIds.includes(id)) {
+          messages.push(
+            `同じ検索語の新しい履歴があるため、「${operation.query}」を元に戻しませんでした。`
+          );
+          moveFocus(operation, discardButtonRefs.current.get(id));
+        }
+        continue;
+      }
+      if (histories.some((h) => h.id === id)) {
+        messages.push(`「${operation.query}」を元に戻しました。`);
+        moveFocus(operation, rowButtonRefs.current.get(id));
+      } else {
+        // 表示件数より古い履歴は一覧に出ないため、一覧の先頭へ移す
+        messages.push(
+          `「${operation.query}」を元に戻しました。古い履歴のため、この一覧には表示されません。`
+        );
+        const first = histories[0];
+        moveFocus(operation, first ? rowButtonRefs.current.get(first.id) : undefined);
+      }
     }
-  }, [allHistories, historyErrors]);
+
+    if (messages.length > 0) {
+      const added = messages.map((text) => {
+        announcementKeyRef.current += 1;
+        return { key: announcementKeyRef.current, text };
+      });
+      setAnnouncements((prev) => [...prev, ...added].slice(-MAX_ANNOUNCEMENTS));
+    }
+  });
+
+  const isFocusInside = (): boolean => rootRef.current?.contains(document.activeElement) ?? false;
 
   const handleItemClick = (history: SearchHistoryType) => {
     onReSearch?.(history);
   };
 
-  const handleDelete = (id: string, index: number) => {
-    if (pendingHistoryIds.includes(id)) return;
-    deletingRef.current = { id, index };
-    onDelete?.(id);
+  const handleDelete = (history: SearchHistoryType, index: number) => {
+    if (pendingHistoryIds.includes(history.id)) return;
+    deletingRef.current.set(history.id, {
+      query: history.originalQuery,
+      index,
+      focusWasInside: isFocusInside(),
+    });
+    onDelete?.(history.id);
   };
 
-  const handleRestore = (id: string) => {
-    if (pendingHistoryIds.includes(id)) return;
-    restoringIdRef.current = id;
-    void restoreHistory(id);
+  const handleRestore = (deleted: SearchHistoryType) => {
+    if (!undo || pendingHistoryIds.includes(deleted.id)) return;
+    restoringRef.current.set(deleted.id, {
+      query: deleted.originalQuery,
+      index: -1,
+      focusWasInside: isFocusInside(),
+    });
+    void undo.restoreHistory(deleted.id);
   };
 
   const textSize = compact ? "text-xs" : "text-sm";
 
   return (
-    <div className={compact ? "space-y-2" : "space-y-3"}>
+    <div ref={rootRef} className={compact ? "space-y-2" : "space-y-3"}>
       <output aria-live="polite" className="sr-only">
-        {announcement}
+        {announcements.map((a) => (
+          <span key={a.key}>{a.text} </span>
+        ))}
       </output>
 
       {deletedHistories.length > 0 && (
@@ -140,9 +178,7 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
             {deletedHistories.map((deleted) => {
               const isPending = pendingHistoryIds.includes(deleted.id);
               const error = historyErrors[deleted.id];
-              const hasConflict = allHistories.some(
-                (h) => h.id !== deleted.id && h.originalQuery === deleted.originalQuery
-              );
+              const hasConflict = restoreConflictIds.includes(deleted.id);
               return (
                 <li
                   key={deleted.id}
@@ -155,10 +191,14 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                         同じ検索語の新しい履歴があるため元に戻せません（新しい履歴は上書きしません）。
                       </p>
                       <Button
+                        ref={(el) => {
+                          if (el) discardButtonRefs.current.set(deleted.id, el);
+                          else discardButtonRefs.current.delete(deleted.id);
+                        }}
                         variant="outline"
                         size="sm"
                         className="h-7"
-                        onClick={() => discardDeletedHistory(deleted.id)}
+                        onClick={() => undo?.discardDeletedHistory(deleted.id)}
                       >
                         新しい履歴を残して取りやめる
                       </Button>
@@ -175,7 +215,7 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                         className="h-7"
                         aria-disabled={isPending}
                         aria-label={`「${deleted.originalQuery}」を${error ? "再度" : ""}元に戻す`}
-                        onClick={() => handleRestore(deleted.id)}
+                        onClick={() => handleRestore(deleted)}
                       >
                         {isPending ? "元に戻しています…" : error ? "再試行" : "元に戻す"}
                       </Button>
@@ -183,10 +223,10 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                         variant="ghost"
                         size="sm"
                         className="h-7"
-                        aria-label={`「${deleted.originalQuery}」の取り消しを閉じる`}
-                        onClick={() => discardDeletedHistory(deleted.id)}
+                        aria-label={`「${deleted.originalQuery}」を元に戻すのをやめる`}
+                        onClick={() => undo?.discardDeletedHistory(deleted.id)}
                       >
-                        閉じる
+                        元に戻すのをやめる
                       </Button>
                     </div>
                   )}
@@ -273,7 +313,7 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                     aria-disabled={isPending}
                     onClick={(e) => {
                       e.stopPropagation(); // 親のクリックイベントを止める
-                      handleDelete(history.id, index);
+                      handleDelete(history, index);
                     }}
                     aria-label={`「${history.originalQuery}」を削除`}
                   >
@@ -290,7 +330,7 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                         size="sm"
                         className="h-7"
                         aria-label={`「${history.originalQuery}」の削除を再試行`}
-                        onClick={() => handleDelete(history.id, index)}
+                        onClick={() => handleDelete(history, index)}
                       >
                         再試行
                       </Button>
@@ -299,7 +339,7 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                         size="sm"
                         className="h-7"
                         aria-label={`「${history.originalQuery}」の削除エラーを閉じる`}
-                        onClick={() => dismissHistoryError(history.id)}
+                        onClick={() => undo?.dismissHistoryError(history.id)}
                       >
                         閉じる
                       </Button>

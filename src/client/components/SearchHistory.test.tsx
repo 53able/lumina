@@ -7,6 +7,7 @@ import type { FC } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { useSearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import { initializeSearchHistoryStore, useSearchHistoryStore } from "../stores/searchHistoryStore";
 import { SearchHistory } from "./SearchHistory";
 
@@ -185,21 +186,31 @@ describe("SearchHistory", () => {
     let dbCounter = 0;
 
     /** HomeMain と同じく、ストアの履歴と deleteHistory を渡す */
-    const ConnectedHistory: FC = () => {
-      const histories = useSearchHistoryStore((s) => s.histories);
-      const deleteHistory = useSearchHistoryStore((s) => s.deleteHistory);
+    /** App と同じく、useSearchHistoryUndo の削除と結果を渡す（limit は App の最近N件に相当） */
+    const ConnectedHistory: FC<{ limit?: number }> = ({ limit = 10 }) => {
+      const histories = useSearchHistoryStore((s) => s.histories).slice(0, limit);
+      const undo = useSearchHistoryUndo();
       return (
         <>
           <input aria-label="検索" />
-          <SearchHistory
-            histories={histories}
-            onDelete={(id) => {
-              void deleteHistory(id);
-            }}
-            compact
-          />
+          <SearchHistory histories={histories} onDelete={undo.deleteHistory} undo={undo} compact />
         </>
       );
+    };
+
+    /** 次の db.transaction（元に戻すの書き込み）を、返り値の関数を呼ぶまで保留する */
+    const holdNextTransaction = (): (() => void) => {
+      let release: () => void = () => {};
+      const realTransaction = db.transaction.bind(db) as (...args: unknown[]) => Promise<unknown>;
+      vi.spyOn(db, "transaction").mockImplementationOnce(
+        ((...args: unknown[]) =>
+          new Promise((resolve, reject) => {
+            release = () => {
+              realTransaction(...args).then(resolve, reject);
+            };
+          })) as typeof db.transaction
+      );
+      return () => release();
     };
 
     const seed = async (queries: string[]) => {
@@ -232,7 +243,9 @@ describe("SearchHistory", () => {
       const undo = await screen.findByRole("button", { name: "「B検索」を元に戻す" });
       expect(screen.queryByRole("button", { name: "「B検索」を削除" })).not.toBeInTheDocument();
       expect(screen.getByText("削除した履歴は再読み込みするまで元に戻せます")).toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent("「B検索」を削除しました");
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「B検索」を削除しました")
+      );
       await waitFor(() => expect(screen.getByRole("button", { name: /^C検索/ })).toHaveFocus());
 
       await user.click(undo);
@@ -347,6 +360,104 @@ describe("SearchHistory", () => {
 
       expect(screen.queryByRole("region", { name: "削除した検索履歴" })).not.toBeInTheDocument();
       expect(screen.getByText(/5件/)).toBeInTheDocument();
+    });
+
+    it("元に戻す途中で検索欄へ移ったフォーカスを奪わない", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索", "B検索"]);
+      render(<ConnectedHistory />);
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      const release = holdNextTransaction();
+
+      await user.click(await screen.findByRole("button", { name: "「A検索」を元に戻す" }));
+      await user.click(screen.getByRole("textbox", { name: "検索" }));
+      release();
+
+      await screen.findByRole("button", { name: "「A検索」を削除" });
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「A検索」を元に戻しました")
+      );
+      expect(screen.getByRole("textbox", { name: "検索" })).toHaveFocus();
+    });
+
+    it("元に戻す途中で同じクエリが再検索されたら中止を通知し、フォーカスを「取りやめる」へ移す", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索", "B検索"]);
+      render(<ConnectedHistory />);
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      const release = holdNextTransaction();
+
+      await user.click(await screen.findByRole("button", { name: "「A検索」を元に戻す" }));
+      await act(async () => {
+        await useSearchHistoryStore
+          .getState()
+          .addHistory(createSampleHistory({ originalQuery: "A検索", resultCount: 5 }));
+      });
+      release();
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "同じ検索語の新しい履歴があるため、「A検索」を元に戻しませんでした"
+        )
+      );
+      expect(screen.getByRole("button", { name: "新しい履歴を残して取りやめる" })).toHaveFocus();
+      expect(await db.searchHistories.toArray()).toHaveLength(2);
+      expect(
+        (await db.searchHistories.toArray()).filter((h) => h.originalQuery === "A検索")
+      ).toHaveLength(1);
+    });
+
+    it("表示件数より古い位置に戻った履歴は、その旨を通知し一覧の先頭へフォーカスを移す", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索", "B検索"]);
+      render(<ConnectedHistory limit={2} />);
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      const undo = await screen.findByRole("button", { name: "「A検索」を元に戻す" });
+      await act(async () => {
+        for (const query of ["D検索", "E検索"]) {
+          await useSearchHistoryStore
+            .getState()
+            .addHistory(createSampleHistory({ originalQuery: query, createdAt: new Date() }));
+        }
+      });
+
+      await user.click(undo);
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "「A検索」を元に戻しました。古い履歴のため、この一覧には表示されません。"
+        )
+      );
+      expect(screen.getByRole("button", { name: /^E検索/ })).toHaveFocus();
+    });
+
+    it("連続で削除しても、それぞれの削除を通知する", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索", "B検索", "C検索"]);
+      const releases: Array<() => void> = [];
+      const realDelete = db.searchHistories.delete.bind(db.searchHistories);
+      vi.spyOn(db.searchHistories, "delete").mockImplementation(
+        (key) =>
+          new Promise<void>((resolve) => {
+            releases.push(() => {
+              void realDelete(key).then(() => resolve());
+            });
+          })
+      );
+      render(<ConnectedHistory />);
+
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      await user.click(screen.getByRole("button", { name: "「B検索」を削除" }));
+      await act(async () => {
+        for (const release of releases) release();
+      });
+
+      await screen.findByRole("button", { name: "「B検索」を元に戻す" });
+      await waitFor(() => {
+        const status = screen.getByRole("status");
+        expect(status).toHaveTextContent("「A検索」を削除しました");
+        expect(status).toHaveTextContent("「B検索」を削除しました");
+      });
     });
   });
 });

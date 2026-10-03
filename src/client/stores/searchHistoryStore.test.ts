@@ -336,7 +336,10 @@ describe("searchHistoryStore", () => {
       });
       await useSearchHistoryStore.getState().addHistory(researched);
 
-      expect(useSearchHistoryStore.getState().hasRestoreConflict("original-id")).toBe(true);
+      const { findRestoreConflict } = await import("./searchHistoryStore");
+      expect(findRestoreConflict(useSearchHistoryStore.getState().histories, original)).toEqual(
+        researched
+      );
 
       await useSearchHistoryStore.getState().restoreHistory("original-id");
 
@@ -351,6 +354,80 @@ describe("searchHistoryStore", () => {
       state = useSearchHistoryStore.getState();
       expect(state.deletedHistories).toEqual([]);
       expect(state.histories).toEqual([researched]);
+    });
+
+    it.each([
+      ["元に戻す→再検索", "restore-first"],
+      ["再検索→元に戻す", "add-first"],
+    ] as const)("競合: 元に戻すと同じクエリの再検索が並行しても、DBと一覧で同じクエリは1件になる（%s）", async (_label, order) => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      const original = createSampleHistory({
+        id: "original-id",
+        createdAt: parseISO("2024-01-01T00:00:00Z"),
+      });
+      await useSearchHistoryStore.getState().addHistory(original);
+      await useSearchHistoryStore.getState().deleteHistory("original-id");
+      const researched = createSampleHistory({
+        id: "researched-id",
+        createdAt: parseISO("2024-02-01T00:00:00Z"),
+      });
+
+      const { restoreHistory, addHistory } = useSearchHistoryStore.getState();
+      await Promise.all(
+        order === "restore-first"
+          ? [restoreHistory("original-id"), addHistory(researched)]
+          : [addHistory(researched), restoreHistory("original-id")]
+      );
+
+      const dbRecords = await mockDb.searchHistories.toArray();
+      expect(dbRecords).toEqual([researched]);
+      const state = useSearchHistoryStore.getState();
+      expect(state.histories).toEqual([researched]);
+      expect(state.pendingHistoryIds).toEqual([]);
+    });
+
+    it("競合: 復元の書き込み後、一覧へ反映する前に同じクエリの再検索が反映されたら、新しい履歴だけを残す", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      const original = createSampleHistory({
+        id: "original-id",
+        createdAt: parseISO("2024-01-01T00:00:00Z"),
+      });
+      await useSearchHistoryStore.getState().addHistory(original);
+      await useSearchHistoryStore.getState().deleteHistory("original-id");
+      const researched = createSampleHistory({
+        id: "researched-id",
+        createdAt: parseISO("2024-02-01T00:00:00Z"),
+      });
+
+      // 復元のトランザクションは実行するが、完了の通知だけを遅らせる
+      let releaseRestore: () => void = () => {};
+      const realTransaction = mockDb.transaction.bind(mockDb) as (
+        ...args: unknown[]
+      ) => Promise<unknown>;
+      vi.spyOn(mockDb, "transaction").mockImplementationOnce(((...args: unknown[]) => {
+        const committed = realTransaction(...args);
+        return new Promise((resolve, reject) => {
+          releaseRestore = () => {
+            committed.then(resolve, reject);
+          };
+        });
+      }) as typeof mockDb.transaction);
+
+      const restoring = useSearchHistoryStore.getState().restoreHistory("original-id");
+      await useSearchHistoryStore.getState().addHistory(researched);
+      releaseRestore();
+      await restoring;
+
+      expect(await mockDb.searchHistories.toArray()).toEqual([researched]);
+      const state = useSearchHistoryStore.getState();
+      expect(state.histories).toEqual([researched]);
+      expect(state.deletedHistories).toEqual([original]);
     });
 
     it("正常系: 同じ履歴の削除を連続で呼んでもDB削除は1回だけ", async () => {

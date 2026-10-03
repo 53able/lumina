@@ -52,7 +52,7 @@ interface SearchHistoryActions {
   deleteHistory: (id: string) => Promise<void>;
   /**
    * 削除した検索履歴を元のレコードのまま戻す
-   * 同じクエリの新しい履歴がある場合は上書きせず、何もしない（競合は hasRestoreConflict で判定する）。
+   * 同じクエリの履歴がある場合は上書きせず、退避を残したまま終える（競合は findRestoreConflict で判定する）。
    * 失敗しても退避内容は破棄せず historyErrors に残す。
    */
   restoreHistory: (id: string) => Promise<void>;
@@ -60,8 +60,6 @@ interface SearchHistoryActions {
   discardDeletedHistory: (id: string) => void;
   /** 操作失敗の表示を閉じる */
   dismissHistoryError: (id: string) => void;
-  /** 削除した履歴と同じクエリの履歴が現在あるか（Undo すると新しい履歴と衝突する） */
-  hasRestoreConflict: (id: string) => boolean;
   /** 全検索履歴を削除する */
   clearAllHistories: () => Promise<void>;
   /** 検索履歴数を取得する */
@@ -70,18 +68,29 @@ interface SearchHistoryActions {
 
 type SearchHistoryStore = SearchHistoryState & SearchHistoryActions;
 
-/**
- * 検索履歴を新しい順にソートする
- */
 /** 操作失敗の表示用メッセージ */
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : "不明なエラー";
 
+/** 指定キーを除いたレコードを返す */
 const withoutKey = <T>(record: Record<string, T>, key: string): Record<string, T> => {
   const { [key]: _removed, ...rest } = record;
   return rest;
 };
 
+/**
+ * 削除した履歴を戻すと衝突する履歴（同じクエリで別IDのもの）を返す
+ * 削除後に同じクエリで再検索すると新しい履歴ができるため、Undo でそれを上書きしない判定に使う。
+ */
+export const findRestoreConflict = (
+  histories: SearchHistory[],
+  deleted: SearchHistory
+): SearchHistory | undefined =>
+  histories.find((h) => h.id !== deleted.id && h.originalQuery === deleted.originalQuery);
+
+/**
+ * 検索履歴を新しい順にソートする
+ */
 const sortByCreatedAtDesc = (histories: SearchHistory[]): SearchHistory[] => {
   return [...histories].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 };
@@ -107,31 +116,20 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
         const db = get()._db;
         if (!db) throw new Error("DB not initialized");
 
-        // 同じクエリの既存履歴を検索
-        const existingHistory = get().histories.find(
-          (h) => h.originalQuery === history.originalQuery
-        );
-
-        if (existingHistory) {
-          // 既存履歴をIndexedDBから削除
-          await db.searchHistories.delete(existingHistory.id);
-          // 新しい履歴をIndexedDBに保存
+        // 同じクエリの既存履歴を新しい履歴で置き換える。
+        // 復元（restoreHistory）と並行しても同じクエリが2件にならないよう、DB を基準に1トランザクションで判定・書き込みする
+        await db.transaction("rw", db.searchHistories, async () => {
+          await db.searchHistories
+            .filter((h) => h.originalQuery === history.originalQuery)
+            .delete();
           await db.searchHistories.add(history);
-          // Storeを更新（既存を削除して新しい履歴を追加）
-          set((state) => ({
-            histories: sortByCreatedAtDesc([
-              ...state.histories.filter((h) => h.id !== existingHistory.id),
-              history,
-            ]),
-          }));
-        } else {
-          // IndexedDBに保存
-          await db.searchHistories.add(history);
-          // Storeを更新（新しい順にソート）
-          set((state) => ({
-            histories: sortByCreatedAtDesc([...state.histories, history]),
-          }));
-        }
+        });
+        set((state) => ({
+          histories: sortByCreatedAtDesc([
+            ...state.histories.filter((h) => h.originalQuery !== history.originalQuery),
+            history,
+          ]),
+        }));
       },
 
       getHistoryById: (id) => {
@@ -175,7 +173,7 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
       restoreHistory: async (id) => {
         const target = get().deletedHistories.find((h) => h.id === id);
         if (!target || get().pendingHistoryIds.includes(id)) return;
-        if (get().hasRestoreConflict(id)) return;
+        if (findRestoreConflict(get().histories, target)) return;
 
         set((state) => ({
           pendingHistoryIds: [...state.pendingHistoryIds, id],
@@ -184,16 +182,25 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
         try {
           const db = get()._db;
           if (!db) throw new Error("DB not initialized");
-          await db.searchHistories.add(target);
-          // 書き込み中に同じクエリで新しい履歴ができた場合は、新しい履歴を残して復元を戻す
-          if (get().hasRestoreConflict(id)) {
-            await db.searchHistories.delete(id);
-            return;
-          }
-          set((state) => ({
-            histories: sortByCreatedAtDesc([...state.histories, target]),
-            deletedHistories: state.deletedHistories.filter((h) => h.id !== id),
-          }));
+          // 同じクエリの履歴の有無を DB 基準で確かめてから書く（addHistory と同じトランザクション境界）
+          const restored = await db.transaction("rw", db.searchHistories, async () => {
+            const conflict = await db.searchHistories
+              .filter((h) => h.originalQuery === target.originalQuery)
+              .first();
+            if (conflict) return false;
+            await db.searchHistories.add(target);
+            return true;
+          });
+          if (!restored) return;
+          set((state) =>
+            // 書き込み後に同じクエリの再検索が反映された場合、DB では新しい履歴が復元分を置き換えている
+            findRestoreConflict(state.histories, target)
+              ? {}
+              : {
+                  histories: sortByCreatedAtDesc([...state.histories, target]),
+                  deletedHistories: state.deletedHistories.filter((h) => h.id !== id),
+                }
+          );
         } catch (error) {
           set((state) => ({
             historyErrors: {
@@ -217,12 +224,6 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
 
       dismissHistoryError: (id) => {
         set((state) => ({ historyErrors: withoutKey(state.historyErrors, id) }));
-      },
-
-      hasRestoreConflict: (id) => {
-        const target = get().deletedHistories.find((h) => h.id === id);
-        if (!target) return false;
-        return get().histories.some((h) => h.id !== id && h.originalQuery === target.originalQuery);
       },
 
       clearAllHistories: async () => {
