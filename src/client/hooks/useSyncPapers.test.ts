@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EmbeddingApiError } from "../lib/api";
 import { useSyncStore } from "../stores/syncStore";
 import { useSyncPapers } from "./useSyncPapers";
 
@@ -233,6 +234,130 @@ describe("useSyncPapers", () => {
       const papers = papersPassed as Array<{ embedding?: number[] }>;
       const allWithoutEmbedding = papers.every((p) => !p.embedding || p.embedding.length === 0);
       expect(allWithoutEmbedding).toBe(true);
+    });
+  });
+
+  describe("Embedding補完の結果（成功／部分成功／失敗）", () => {
+    const papersWithoutEmbedding = [
+      { id: "p1", title: "T1", abstract: "A1" },
+      { id: "p2", title: "T2", abstract: "A2" },
+      { id: "p3", title: "T3", abstract: "A3" },
+    ];
+
+    const runBackfill = async (result: { current: ReturnType<typeof useSyncPapers> }) => {
+      await act(async () => {
+        await result.current.runEmbeddingBackfill();
+      });
+    };
+
+    beforeEach(() => {
+      papersRef.current = [...papersWithoutEmbedding];
+    });
+
+    it("全件成功すると success を残す", async () => {
+      mockRunBackfillEmbeddings.mockImplementation(
+        async (_papers: unknown, deps: { onProgress: (c: number, t: number) => void }) => {
+          deps.onProgress(3, 3);
+          return { rateLimited: false };
+        }
+      );
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await runBackfill(result);
+
+      const outcome = useSyncStore.getState().embeddingBackfillOutcome;
+      expect(outcome).toMatchObject({ status: "success", completed: 3, total: 3, failure: null });
+      expect(useSyncStore.getState().isEmbeddingBackfilling).toBe(false);
+    });
+
+    it("途中で500になると partial と完了件数・失敗理由を残す", async () => {
+      mockRunBackfillEmbeddings.mockImplementation(
+        async (_papers: unknown, deps: { onProgress: (c: number, t: number) => void }) => {
+          deps.onProgress(1, 3);
+          throw new EmbeddingApiError("Internal Server Error", 500);
+        }
+      );
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await runBackfill(result);
+
+      const outcome = useSyncStore.getState().embeddingBackfillOutcome;
+      expect(outcome?.status).toBe("partial");
+      expect(outcome?.completed).toBe(1);
+      expect(outcome?.failure?.kind).toBe("server");
+      expect(useSyncStore.getState().isEmbeddingBackfilling).toBe(false);
+      expect(useSyncStore.getState().embeddingBackfillProgress).toBeNull();
+    });
+
+    it("429 で中断すると rate_limit として残す", async () => {
+      mockRunBackfillEmbeddings.mockResolvedValue({ rateLimited: true });
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await runBackfill(result);
+
+      expect(useSyncStore.getState().embeddingBackfillOutcome?.failure?.kind).toBe("rate_limit");
+    });
+
+    it("キー復号が例外になっても実行中状態を解除し、認証の失敗として残す", async () => {
+      mockGetDecryptedApiKey.mockRejectedValue(new DOMException("decrypt", "OperationError"));
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await runBackfill(result);
+
+      expect(mockRunBackfillEmbeddings).not.toHaveBeenCalled();
+      expect(useSyncStore.getState().isEmbeddingBackfilling).toBe(false);
+      expect(useSyncStore.getState().embeddingBackfillProgress).toBeNull();
+      const outcome = useSyncStore.getState().embeddingBackfillOutcome;
+      expect(outcome?.status).toBe("failed");
+      expect(outcome?.failure?.kind).toBe("auth");
+    });
+
+    it("APIキー未設定なら補完を開始せず、設定修正を案内する", async () => {
+      mockGetDecryptedApiKey.mockResolvedValue(undefined);
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await runBackfill(result);
+
+      expect(mockRunBackfillEmbeddings).not.toHaveBeenCalled();
+      expect(useSyncStore.getState().isEmbeddingBackfilling).toBe(false);
+      expect(useSyncStore.getState().embeddingBackfillOutcome?.failure?.kind).toBe("auth");
+    });
+
+    it("再試行すると前回の結果を消し、未処理分だけを対象にする", async () => {
+      papersRef.current = [
+        { id: "p1", title: "T1", abstract: "A1", embedding: [0.1] },
+        { id: "p2", title: "T2", abstract: "A2" },
+      ];
+      useSyncStore.getState().setEmbeddingBackfillOutcome({
+        status: "partial",
+        completed: 1,
+        total: 2,
+        failure: { kind: "server", reason: "r", guidance: "g" },
+      });
+      let outcomeDuringRun: unknown = "unset";
+      mockRunBackfillEmbeddings.mockImplementation(async () => {
+        outcomeDuringRun = useSyncStore.getState().embeddingBackfillOutcome;
+        return { rateLimited: false };
+      });
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      await runBackfill(result);
+
+      expect(outcomeDuringRun).toBeNull();
+      const [papersPassed] = mockRunBackfillEmbeddings.mock.calls[0] as [Array<{ id: string }>];
+      expect(papersPassed.map((p) => p.id)).toEqual(["p2"]);
     });
   });
 

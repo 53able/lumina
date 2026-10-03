@@ -2,6 +2,7 @@ import { Calendar, FileText, SearchX, StopCircle } from "lucide-react";
 import type { FC } from "react";
 import { useEffect, useState } from "react";
 import { SyncRateLimitError } from "../lib/api";
+import type { EmbeddingBackfillOutcome } from "../lib/embeddingBackfillOutcome";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
@@ -24,6 +25,88 @@ interface SyncStatusBarProps {
   /** 同期を停止する（取得中のみ有効） */
   onStopSync?: () => void;
 }
+
+interface EmbeddingBackfillOutcomeNoticeProps {
+  outcome: EmbeddingBackfillOutcome;
+  compact: boolean;
+  /** 現在の Embedding 未設定件数（未処理分） */
+  remainingCount: number;
+  onRetry?: () => void | Promise<void>;
+  onDismiss: () => void;
+}
+
+/** 結果の見出し（表示と読み上げで共通） */
+const getOutcomeTitle = ({ status, completed, total }: EmbeddingBackfillOutcome): string =>
+  status === "success"
+    ? `Embeddingを${completed.toLocaleString("ja-JP")}件補完しました`
+    : status === "partial"
+      ? `Embeddingを一部補完しました（${completed.toLocaleString("ja-JP")} / ${total.toLocaleString("ja-JP")}件）`
+      : "Embeddingを補完できませんでした";
+
+/**
+ * Embedding 補完の結果表示。トーストと違い、次の実行か「閉じる」まで補完欄の近くに残す。
+ * 支援技術への通知は SyncStatusBar の常設 live region が担う（件数の変化で再読み上げさせない）。
+ */
+const EmbeddingBackfillOutcomeNotice: FC<EmbeddingBackfillOutcomeNoticeProps> = ({
+  outcome,
+  compact,
+  remainingCount,
+  onRetry,
+  onDismiss,
+}) => {
+  const { status, failure } = outcome;
+  const title = getOutcomeTitle(outcome);
+  const textSize = compact ? "text-xs" : "text-sm";
+  const subTextSize = compact ? "text-[10px]" : "text-xs";
+  const buttonClassName = compact
+    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2";
+
+  return (
+    <div
+      data-testid="embedding-backfill-outcome"
+      data-status={status}
+      className={
+        failure
+          ? compact
+            ? "mt-2 rounded-lg border-2 border-primary/60 bg-primary/10 px-3 py-2"
+            : "mt-3 rounded-xl border-2 border-primary/70 bg-primary/15 px-4 py-3"
+          : compact
+            ? "mt-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
+            : "mt-3 rounded-xl border border-border/60 bg-muted/30 px-4 py-3"
+      }
+    >
+      <p className={`${textSize} font-bold ${failure ? "text-primary" : ""}`}>{title}</p>
+      {failure ? (
+        <>
+          <p className={`mt-1 ${textSize}`}>{failure.reason}</p>
+          {failure.detail ? (
+            <p className={`mt-0.5 break-all ${subTextSize} text-muted-foreground`}>
+              詳細: {failure.detail}
+            </p>
+          ) : null}
+          <p className={`mt-1 ${subTextSize} text-muted-foreground`}>
+            {status === "partial" ? "補完済みの分は保存されています。" : null}
+            {failure.guidance}
+            {remainingCount > 0
+              ? ` 未処理: ${remainingCount.toLocaleString("ja-JP")}件（セマンティック検索の対象外）`
+              : null}
+          </p>
+        </>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {failure && onRetry && remainingCount > 0 ? (
+          <Button variant="default" size="sm" onClick={onRetry} className={buttonClassName}>
+            未処理分を再試行（{remainingCount.toLocaleString("ja-JP")}件）
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="sm" onClick={onDismiss} className={buttonClassName}>
+          閉じる
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 /**
  * SyncStatusBar - メイン画面用の同期ステータスバー
@@ -51,6 +134,8 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   const syncFromDateTarget = useSyncStore((s) => s.syncFromDateTarget);
   const isEmbeddingBackfilling = useSyncStore((s) => s.isEmbeddingBackfilling);
   const embeddingBackfillProgress = useSyncStore((s) => s.embeddingBackfillProgress);
+  const embeddingBackfillOutcome = useSyncStore((s) => s.embeddingBackfillOutcome);
+  const setEmbeddingBackfillOutcome = useSyncStore((s) => s.setEmbeddingBackfillOutcome);
   const lastSyncError = useSyncStore((s) => s.lastSyncError);
 
   const isSyncing = isFetching || isLoadingMore;
@@ -76,6 +161,10 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   const papersWithoutEmbeddingCount = usePaperStore(
     (state) => state.papers.filter((p) => !p.embedding || p.embedding.length === 0).length
   );
+  // 補完中は前回の結果を出さない
+  const visibleOutcome = isEmbeddingBackfilling ? null : embeddingBackfillOutcome;
+  // 失敗結果の表示中は、結果欄の「未処理分を再試行」に操作を集約する
+  const hasBackfillFailure = visibleOutcome?.failure != null;
 
   return (
     <div
@@ -271,7 +360,8 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
             )}
             {onRunEmbeddingBackfill &&
               papersWithoutEmbeddingCount > 0 &&
-              !isEmbeddingBackfilling && (
+              !isEmbeddingBackfilling &&
+              !hasBackfillFailure && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -289,6 +379,27 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           </div>
         </div>
       </div>
+      {/*
+        Embedding 補完の結果の通知: 成功用と失敗用の live region を常設し、中身だけを差し替える。
+        確定した見出しと理由だけを入れ、変動する未処理件数やボタンは含めない。
+      */}
+      <output className="sr-only" aria-live="polite" aria-atomic="true">
+        {visibleOutcome && !visibleOutcome.failure ? getOutcomeTitle(visibleOutcome) : null}
+      </output>
+      <div className="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+        {visibleOutcome?.failure
+          ? `${getOutcomeTitle(visibleOutcome)}。${visibleOutcome.failure.reason}`
+          : null}
+      </div>
+      {visibleOutcome ? (
+        <EmbeddingBackfillOutcomeNotice
+          outcome={visibleOutcome}
+          compact={compact}
+          remainingCount={papersWithoutEmbeddingCount}
+          onRetry={onRunEmbeddingBackfill}
+          onDismiss={() => setEmbeddingBackfillOutcome(null)}
+        />
+      ) : null}
       {!compact && (
         <p className="mt-2 text-xs text-muted-foreground/70">
           24時間以上経過すると自動で同期が実行されます

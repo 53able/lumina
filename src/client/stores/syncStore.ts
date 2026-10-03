@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import type { EmbeddingBackfillOutcome } from "../lib/embeddingBackfillOutcome";
 
 /**
  * syncStore の状態型
@@ -28,6 +29,8 @@ interface SyncState {
   isEmbeddingBackfilling: boolean;
   /** Embedding バックフィル進捗 */
   embeddingBackfillProgress: { completed: number; total: number } | null;
+  /** 直近の Embedding バックフィルの結果（次の実行開始・閉じる操作まで保持） */
+  embeddingBackfillOutcome: EmbeddingBackfillOutcome | null;
   /** 直近の同期エラー（429 時は SyncRateLimitError） */
   lastSyncError: Error | null;
 }
@@ -51,6 +54,7 @@ interface SyncActions {
       total: number;
     } | null
   ) => void;
+  setEmbeddingBackfillOutcome: (outcome: EmbeddingBackfillOutcome | null) => void;
   setLastSyncError: (error: Error | null) => void;
   /** すべての同期状態を初期値に戻す */
   reset: () => void;
@@ -69,6 +73,7 @@ const initialState: SyncState = {
   syncFromDateTarget: null,
   isEmbeddingBackfilling: false,
   embeddingBackfillProgress: null,
+  embeddingBackfillOutcome: null,
   lastSyncError: null,
 };
 
@@ -92,6 +97,7 @@ export const useSyncStore = create<SyncStore>()(
       setSyncFromDateTarget: (target) => set({ syncFromDateTarget: target }),
       setIsEmbeddingBackfilling: (value) => set({ isEmbeddingBackfilling: value }),
       setEmbeddingBackfillProgress: (progress) => set({ embeddingBackfillProgress: progress }),
+      setEmbeddingBackfillOutcome: (outcome) => set({ embeddingBackfillOutcome: outcome }),
       setLastSyncError: (error) => set({ lastSyncError: error }),
       reset: () => set(initialState),
     }),

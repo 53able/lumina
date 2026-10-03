@@ -1,5 +1,5 @@
 import { Bookmark, Heart, SlidersHorizontal, X } from "lucide-react";
-import { type FC, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FC, type ReactNode, useMemo, useRef, useState } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteractionContext } from "../contexts/InteractionContext";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -25,7 +25,7 @@ interface PaperExplorerProps {
   onClear?: () => void;
   /** 論文クリック時のコールバック */
   onPaperClick?: (paper: Paper) => void;
-  /** 外部から設定される検索クエリ（検索履歴からの再検索用） */
+  /** 検索が完了したクエリ（URL の q と一致するとき initialPapers を検索結果として表示する） */
   externalQuery?: string | null;
   /** 検索入力欄の値（制御モード時。親で一元管理） */
   searchInputValue?: string;
@@ -76,7 +76,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     searchQuery,
     filterMode,
     selectedCategories,
-    setSearchQuery,
     toggleFilterMode,
     toggleCategory,
     clearAllFilters,
@@ -90,11 +89,12 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const storePapers = usePaperStore((s) => s.papers);
   // 検索結果用のローカル state（検索時のみ使用）
   const [searchResultPapers, setSearchResultPapers] = useState<Paper[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // 検索の世代（クリアや後続検索の後に届いた古い結果を採用しない）
+  const searchGenerationRef = useRef(0);
 
   // 検索結果の表示元: 検索履歴クリックなど「外部からクエリが指定された」場合は親の initialPapers を使用
   // React Best Practice: 表示用は render 内で派生。effect で searchResultPapers をクリアしない（rerender-derived-state-no-effect）
-  const isExternalSearch = externalQuery !== null && searchQuery === externalQuery;
+  const isExternalSearch = externalQuery !== null && searchQuery?.trim() === externalQuery;
   const displayPapers = hasSearched
     ? isExternalSearch
       ? initialPapers
@@ -131,25 +131,16 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     return { likedCount, bookmarkedCount };
   }, [displayPapers, likedPaperIds, bookmarkedPaperIds]);
 
-  // externalQuery が変更されたら URL の searchQuery を同期（検索履歴からの再検索用）
-  useEffect(() => {
-    if (externalQuery !== null) {
-      setSearchQuery(externalQuery);
-    }
-  }, [externalQuery, setSearchQuery]);
-
+  // URL（q）の更新は onSearch 側（useHomeSearch）が担う。ここで更新すると URL 監視による検索と二重実行になる
   const handleSearch = async (query: string) => {
-    setSearchQuery(query);
-    setIsLoading(true);
+    const generation = ++searchGenerationRef.current;
     setSearchResultPapers([]); // 新規検索開始時は一旦空にし、前回の一覧がフラッシュしないようにする
 
-    try {
-      if (onSearch) {
-        const results = await onSearch(query);
+    if (onSearch) {
+      const results = await onSearch(query);
+      if (generation === searchGenerationRef.current) {
         setSearchResultPapers(results);
       }
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -157,7 +148,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
    * 検索をクリアして初期状態に戻す
    */
   const handleClear = () => {
-    setSearchQuery(null);
+    searchGenerationRef.current += 1;
     setSearchResultPapers([]); // クリア時は空にし、再検索時の表示ブレを防ぐ
     clearAllFilters(); // URLフィルターもクリア
     onClear?.();
@@ -224,7 +215,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         {/* 検索ボックス（モバイルでも1行のまま） */}
         <PaperSearch
           onSearch={handleSearch}
-          isLoading={isLoading}
+          isLoading={isSearchLoading}
           {...(searchInputValue !== undefined && onSearchInputChange !== undefined
             ? { value: searchInputValue, onChange: onSearchInputChange }
             : {})}
@@ -418,14 +409,14 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
       {/* 論文リスト */}
       <PaperList
         papers={filteredPapers}
-        isLoading={isLoading}
+        isLoading={isSearchLoading}
         isSearchLoading={isSearchLoading}
         emptyMessage={
-          hasSearched && !isLoading && !isSearchLoading && filteredPapers.length === 0
+          hasSearched && !isSearchLoading && filteredPapers.length === 0
             ? emptySearchMessage
             : undefined
         }
-        showCount={hasSearched && !isLoading && filteredPapers.length > 0}
+        showCount={hasSearched && !isSearchLoading && filteredPapers.length > 0}
         onPaperClick={onPaperClick}
         whyReadMap={whyReadMap}
         // 検索結果表示中、カテゴリフィルタ中、いいね/ブックマークフィルタ中は追加読み込みを無効化

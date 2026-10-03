@@ -149,7 +149,10 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
  * @throws Error APIエラー時
  */
 export const searchApi = async (request: SearchRequest, options?: ApiOptions) => {
-  const res = await client.api.v1.search.$post({ json: request }, withApiKey(options));
+  const res = await client.api.v1.search.$post(
+    { json: request },
+    { ...withApiKey(options), init: { signal: options?.signal } }
+  );
 
   if (!res.ok) {
     const error = await res.json();
@@ -256,6 +259,20 @@ export class EmbeddingRateLimitError extends Error {
 }
 
 /**
+ * Embedding API が 429 以外のエラーを返したときに投げるエラー。
+ * status で「設定を直す（401/403）」「再試行する（5xx）」などの案内を出し分ける。
+ */
+export class EmbeddingApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "EmbeddingApiError";
+    this.status = status;
+  }
+}
+
+/**
  * 同期API（/api/v1/sync）が 429（Too Many Requests）を返したときに投げるエラー。
  * リトライ上限に達した場合に throw され、UI で「状況」と「どうするか」を表示するために用いる。
  */
@@ -281,7 +298,7 @@ export class SyncRateLimitError extends Error {
  * embeddingApi / embeddingBatchApi の共通後処理として使用する。
  *
  * @throws EmbeddingRateLimitError 429 時
- * @throws Error その他のエラー時
+ * @throws EmbeddingApiError その他のエラー時
  */
 const handleEmbeddingResponse = async <T>(res: Response): Promise<T> => {
   updateRateLimitFromResponse(res);
@@ -292,12 +309,12 @@ const handleEmbeddingResponse = async <T>(res: Response): Promise<T> => {
   }
 
   if (!res.ok) {
-    const error = await res.json();
+    const error = await res.json().catch(() => null);
     const message =
       error && typeof error === "object" && "error" in error
         ? String((error as { error: unknown }).error)
         : "Embeddingの取得に失敗しました";
-    throw new Error(message);
+    throw new EmbeddingApiError(message, res.status);
   }
 
   lastEmbeddingSentAtMs = Date.now();
