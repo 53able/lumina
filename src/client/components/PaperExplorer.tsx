@@ -204,7 +204,14 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const [filterAdjustment, setFilterAdjustment] = useState(0);
   const announcedAdjustmentRef = useRef(0);
   const [filterAnnouncement, setFilterAnnouncement] = useState("");
-  const filterAnnouncementText = `${activeConditionLabels.join("・") || "絞り込みなし"}: ${filteredPapers.length}件を表示`;
+  // 文言はしきい値の通知（SearchThresholdControl）と揃える。通知のきっかけは別（あちらはスライダー操作のみ）
+  const filterAnnouncementText = `${activeConditionLabels.join("・") || "絞り込みなし"}: ${filteredPapers.length}件の論文を表示`;
+  // 別の検索に移ったら、前の検索で出した通知を残さない
+  const [announcementQuery, setAnnouncementQuery] = useState(searchQuery);
+  if (announcementQuery !== searchQuery) {
+    setAnnouncementQuery(searchQuery);
+    setFilterAnnouncement("");
+  }
   useEffect(() => {
     if (filterAdjustment === announcedAdjustmentRef.current) return;
     if (isSearchLoading) {

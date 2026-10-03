@@ -530,7 +530,7 @@ describe("PaperExplorer", () => {
       await user.click(screen.getByRole("button", { name: "cs.LG" }));
       // 連続操作で読み上げを連発しないよう、すぐには更新しない
       expect(announcer).toHaveTextContent("");
-      await waitFor(() => expect(announcer).toHaveTextContent("cs.LG: 1件を表示"));
+      await waitFor(() => expect(announcer).toHaveTextContent("cs.LG: 1件の論文を表示"));
     });
 
     it("同期で論文が追加されて件数が変わっても通知しない", async () => {
@@ -548,14 +548,14 @@ describe("PaperExplorer", () => {
         const user = userEvent.setup({ delay: null });
         await user.click(getFilterDisclosure().toggle);
         await user.click(screen.getByRole("button", { name: "cs.CL" }));
-        await waitFor(() => expect(announcer).toHaveTextContent("cs.CL: 2件を表示"));
+        await waitFor(() => expect(announcer).toHaveTextContent("cs.CL: 2件の論文を表示"));
 
         // 通知後の同期による追加でも再通知しない
         const added: Paper = { ...(mockPapers[1] as Paper), id: "2401.00003", title: "Added" };
         act(() => usePaperStore.setState({ papers: [...mockPapers, added] }));
         await waitForAnnounceDelay();
         expect(screen.getByTestId("filter-result-count")).toHaveTextContent("3件");
-        expect(announcer).toHaveTextContent("cs.CL: 2件を表示");
+        expect(announcer).toHaveTextContent("cs.CL: 2件の論文を表示");
       } finally {
         usePaperStore.setState({ papers: [] });
       }
