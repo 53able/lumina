@@ -47,10 +47,7 @@ describe("PaperSearch", () => {
 
       render(<PaperSearch onSearch={vi.fn()} />);
 
-      expect(screen.getByRole("searchbox", { name: "論文を検索" })).toHaveAttribute(
-        "aria-label",
-        "論文を検索"
-      );
+      expect(screen.getByRole("searchbox", { name: "論文を検索" })).toBeInTheDocument();
     });
   });
 

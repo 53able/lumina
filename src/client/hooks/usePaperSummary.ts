@@ -26,9 +26,9 @@ interface UsePaperSummaryReturn {
   summaryLanguage: "ja" | "en";
   /** 言語を切り替える */
   setSummaryLanguage: (language: "ja" | "en") => void;
-  /** ローディング状態 */
+  /** ローディング状態（表示中の論文・言語の生成のみ） */
   isLoading: boolean;
-  /** 直近の生成エラー（次の生成開始でクリアされる） */
+  /** 直近の生成エラー（表示中の論文・言語のみ。次の生成開始でクリアされる） */
   error: Error | null;
   /**
    * 要約を生成する
@@ -102,6 +102,7 @@ export const usePaperSummary = ({
       language,
       target,
     }: {
+      paperId: string;
       language: "ja" | "en";
       target: GenerateTarget;
     }): Promise<PaperSummary> => {
@@ -141,17 +142,21 @@ export const usePaperSummary = ({
   const generateSummary = useCallback(
     async (languageOverride?: "ja" | "en", target: GenerateTarget = "both") => {
       const language = languageOverride ?? summaryLanguage;
-      await mutation.mutateAsync({ language, target });
+      await mutation.mutateAsync({ paperId, language, target });
     },
-    [summaryLanguage, mutation]
+    [paperId, summaryLanguage, mutation]
   );
+
+  // mutation は論文・言語をまたいで共有されるため、表示中の論文・言語の生成状態だけを返す
+  const isCurrentTarget =
+    mutation.variables?.paperId === paperId && mutation.variables.language === summaryLanguage;
 
   return {
     summary,
     summaryLanguage,
     setSummaryLanguage,
-    isLoading: mutation.isPending,
-    error: mutation.error,
+    isLoading: isCurrentTarget && mutation.isPending,
+    error: isCurrentTarget ? mutation.error : null,
     generateSummary,
   };
 };

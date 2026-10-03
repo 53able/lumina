@@ -161,14 +161,15 @@ describe("PaperSummary", () => {
       expect(screen.getByRole("status")).toBeEmptyDOMElement();
     });
 
-    it("異常系: 生成失敗を理由と再試行方法つきで通知する", () => {
+    it("異常系: 生成失敗を再試行方法つきで通知する（理由はトーストに任せる）", () => {
       const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
 
       rerender(<PaperSummary paperId="2401.00001" error={new Error("APIキーが無効です")} />);
 
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "要約を生成できませんでした（APIキーが無効です）。「要約 + 説明文」ボタンで再試行できます。"
+        "要約を生成できませんでした。「要約 + 説明文」ボタンで再試行できます。"
       );
+      expect(screen.getByRole("alert")).not.toHaveTextContent("APIキーが無効です");
       expect(screen.getByRole("status")).toBeEmptyDOMElement();
       expect(screen.getByRole("button", { name: /要約 \+ 説明文/i })).toBeInTheDocument();
     });
@@ -198,6 +199,37 @@ describe("PaperSummary", () => {
 
       expect(screen.getByRole("alert")).toBeEmptyDOMElement();
       expect(screen.getByRole("status")).toHaveTextContent("要約を生成しています");
+    });
+
+    it("異常系: 生成中に別の論文へ切り替えた場合は元の論文の完了・失敗を通知しない", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(<PaperSummary paperId="2401.00002" />);
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+      rerender(<PaperSummary paperId="2401.00002" error={new Error("timeout")} />);
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    });
+
+    it("異常系: 失敗後に言語を切り替えると失敗の通知を消す", () => {
+      const error = new Error("timeout");
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+      rerender(<PaperSummary paperId="2401.00001" error={error} />);
+      expect(screen.getByRole("alert")).not.toBeEmptyDOMElement();
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          selectedLanguage="en"
+          summary={createSampleSummary({ language: "en" })}
+        />
+      );
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+
+      // 元の言語に戻しても古い失敗を読み直さない
+      rerender(<PaperSummary paperId="2401.00001" error={error} />);
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
     });
 
     it("正常系: 状態通知でフォーカスを移動しない", () => {
