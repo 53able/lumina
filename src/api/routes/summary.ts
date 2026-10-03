@@ -55,6 +55,17 @@ const toStageError = (
   return { code: "upstream", retryable: true };
 };
 
+/** 全体の失敗時に error として返す固定文言（上流のエラー文の代わり） */
+const SUMMARY_FAILED_MESSAGE = "要約の生成に失敗しました";
+
+/** 分類ごとの HTTP ステータス（キー未設定・401/403 → 401、429 → 429、それ以外 → 500） */
+const SUMMARY_ERROR_STATUS = {
+  auth: 401,
+  rate_limit: 429,
+  invalid_output: 500,
+  upstream: 500,
+} as const satisfies Record<ReturnType<typeof toStageError>["code"], number>;
+
 /**
  * スタブ用の要約を生成（abstractがない場合のフォールバック）
  */
@@ -147,8 +158,13 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
         200
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return c.json({ error: message }, 500);
+      // 全体の失敗も工程別の失敗と同じ分類で返し、上流のエラー文（キーの一部を含みうる）は返さない。
+      // error は古いクライアント向けの固定文言。ステータスは Embedding API（#44）に揃える
+      const stageError = toStageError(error);
+      return c.json(
+        { error: SUMMARY_FAILED_MESSAGE, ...stageError },
+        SUMMARY_ERROR_STATUS[stageError.code]
+      );
     }
   }
 );

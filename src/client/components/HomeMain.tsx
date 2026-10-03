@@ -5,12 +5,16 @@ import type {
   PaperSummary,
   SearchHistory as SearchHistoryType,
 } from "../../shared/schemas/index";
+import type { SearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import type { GenerateTarget } from "../lib/api";
 import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTextTerms";
+import type { SummaryVersion } from "../stores/summaryStore";
+import { MobileSearchHistory } from "./MobileSearchHistory";
 import { PaperExplorer } from "./PaperExplorer";
 import { PaperLoadStatus } from "./PaperLoadStatus";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
+import { SearchThresholdControl } from "./SearchThresholdControl";
 import { SyncStatusBar } from "./SyncStatusBar";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet.js";
 
@@ -55,6 +59,8 @@ interface HomeMainProps {
   onSearchWithEditedText?: (searchText: string) => void;
   /** 検索結果 */
   results: Array<{ paper: Paper; score: number }>;
+  /** 表示中の検索にクエリEmbeddingがあるか（ない検索ではしきい値を適用できない） */
+  hasQueryEmbedding?: boolean;
   /** 検索ローディング中かどうか */
   isLoading: boolean;
   /** 検索が保存済み論文の全件準備を待っているか */
@@ -77,18 +83,28 @@ interface HomeMainProps {
   summaryError: Error | null;
   /** 直近に失敗した生成の対象（説明文だけの失敗を区別するため） */
   summaryFailedTarget: GenerateTarget | null;
+  /** 生成中の生成の対象（押した生成ボタンだけに生成中を表示するため） */
+  summaryGeneratingTarget: GenerateTarget | null;
   /** 選択中のサマリー言語 */
   summaryLanguage: "ja" | "en";
   /** サマリー言語変更ハンドラー */
   onSummaryLanguageChange: (language: "ja" | "en") => void;
   /** 自動生成サマリーかどうか */
   autoGenerateSummary: boolean;
+  /** 現在の論文・言語の保存済みの要約の版（古い順） */
+  summaryVersions?: SummaryVersion[];
+  /** 要約の版を採用版にする */
+  onAdoptSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版を破棄する */
+  onDiscardSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版に利用者の訂正文を保存する（空なら訂正を削除する） */
+  onSaveSummaryCorrection?: (id: number, text: string) => Promise<void>;
   /** 検索履歴 */
   recentHistories: SearchHistoryType[];
   /** 再検索ハンドラー */
   onReSearch: (history: SearchHistoryType) => void;
-  /** 履歴削除ハンドラー */
-  onDeleteHistory: (id: string) => void;
+  /** 履歴の削除と取り消し（操作と結果） */
+  historyUndo?: SearchHistoryUndo;
   /** まだ取得可能な論文があるか */
   hasMore?: boolean;
   /** 同期期間の論文をすべて取得する */
@@ -111,7 +127,7 @@ interface HomeMainProps {
  * HomeMain - ホームページのメインコンテンツコンポーネント
  *
  * 責務:
- * - サイドバー（検索履歴）
+ * - サイドバー（検索履歴。モバイルは検索欄の手前の折りたたみ）
  * - メインコンテンツ（PaperExplorer、詳細パネル）
  * - モバイル用Sheet（論文詳細）
  *
@@ -135,6 +151,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   expandedQuery,
   onSearchWithEditedText,
   results,
+  hasQueryEmbedding = false,
   isLoading,
   isWaitingForPapers = false,
   selectedPaper,
@@ -144,12 +161,17 @@ const HomeMainInner: FC<HomeMainProps> = ({
   isSummaryLoading,
   summaryError,
   summaryFailedTarget,
+  summaryGeneratingTarget,
   summaryLanguage,
   onSummaryLanguageChange,
   autoGenerateSummary,
+  summaryVersions,
+  onAdoptSummaryVersion,
+  onDiscardSummaryVersion,
+  onSaveSummaryCorrection,
   recentHistories,
   onReSearch,
-  onDeleteHistory,
+  historyUndo,
   hasMore,
   onSyncAll,
   onRunEmbeddingBackfill,
@@ -177,9 +199,14 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 isSummaryLoading={isSummaryLoading}
                 summaryError={summaryError}
                 summaryFailedTarget={summaryFailedTarget}
+                summaryGeneratingTarget={summaryGeneratingTarget}
                 selectedSummaryLanguage={summaryLanguage}
                 onSummaryLanguageChange={onSummaryLanguageChange}
                 autoGenerateSummary={autoGenerateSummary}
+                summaryVersions={summaryVersions}
+                onAdoptSummaryVersion={onAdoptSummaryVersion}
+                onDiscardSummaryVersion={onDiscardSummaryVersion}
+                onSaveSummaryCorrection={onSaveSummaryCorrection}
               />
             </Suspense>
           ) : null}
@@ -188,39 +215,44 @@ const HomeMainInner: FC<HomeMainProps> = ({
 
       {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
       <div className="flex min-h-0 relative">
-        {/* Sidebar - 検索履歴 */}
-        <aside className="hidden lg:flex w-64 flex-col bg-sidebar/50 relative z-10">
-          {/* 視線誘導の基準線 - サイドバーとメインコンテンツの境界 */}
-          <div
-            className="absolute right-0 top-0 bottom-0 w-[3px] pointer-events-none z-20"
-            style={{
-              background:
-                "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
-              boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
-              filter: "blur(1px)",
-            }}
-          />
-          <div className="px-6 pt-6 pb-4">
-            <h3
-              className="text-sm font-bold uppercase tracking-wider text-primary-light"
-              style={{ opacity: 1 }}
-            >
-              検索履歴
-            </h3>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <Suspense
-              fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
-            >
-              <SearchHistory
-                histories={recentHistories}
-                onReSearch={onReSearch}
-                onDelete={onDeleteHistory}
-                compact
-              />
-            </Suspense>
-          </div>
-        </aside>
+        {/* Sidebar - 検索履歴（デスクトップのみ。モバイルは検索欄の手前の折りたたみ）
+            表示は CSS の lg ではなく isDesktop だけで決める（既定の文字サイズが 16px でない環境で、入口が消えたり二重になったりしないように）。
+            サイドバーと折りたたみは同時にマウントしない（通知・フォーカス先の重複を防ぐ）。
+            画面幅を切り替えると SearchHistory が作り直され、処理中の削除・元に戻すの完了通知とフォーカス移動は行わない（結果は行内の表示に残る） */}
+        {isDesktop ? (
+          <aside className="flex w-64 flex-col bg-sidebar/50 relative z-10">
+            {/* 視線誘導の基準線 - サイドバーとメインコンテンツの境界 */}
+            <div
+              className="absolute right-0 top-0 bottom-0 w-[3px] pointer-events-none z-20"
+              style={{
+                background:
+                  "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
+                boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
+                filter: "blur(1px)",
+              }}
+            />
+            <div className="px-6 pt-6 pb-4">
+              <h3
+                className="text-sm font-bold uppercase tracking-wider text-primary-light"
+                style={{ opacity: 1 }}
+              >
+                検索履歴
+              </h3>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 pb-6">
+              <Suspense
+                fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
+              >
+                <SearchHistory
+                  histories={recentHistories}
+                  onReSearch={onReSearch}
+                  undo={historyUndo}
+                  compact
+                />
+              </Suspense>
+            </div>
+          </aside>
+        ) : null}
 
         {/* Main Content - 論文リスト（モバイルはオブジェクトファーストで一覧を上に） */}
         <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto min-w-0 relative z-10">
@@ -238,6 +270,15 @@ const HomeMainInner: FC<HomeMainProps> = ({
 
             {/* 保存済み論文の読み込み状態（読み込み中の件数・失敗時の再試行） */}
             <PaperLoadStatus />
+
+            {/* モバイル: 検索履歴は検索欄の手前の折りたたみ（一覧を覆わない） */}
+            {!isDesktop && (
+              <MobileSearchHistory
+                histories={recentHistories}
+                onReSearch={onReSearch}
+                undo={historyUndo}
+              />
+            )}
 
             {/* 拡張クエリ情報の表示 - ロジック駆動: 関連要素は近くに */}
             {expandedQuery ? (
@@ -277,8 +318,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 ) : null}
                 {onSearchWithEditedText ? (
                   <SearchTextEditor
-                    // 検索文が変わったら（再検索の完了・別の検索）編集中の内容を表示中の検索文に戻す
-                    key={expandedQuery.searchText}
+                    // 検索が変わったら（再検索の完了・同じ検索文の別検索も含む）編集状態を表示中の検索から作り直す
+                    key={`${expandedQuery.original}\n${expandedQuery.english}\n${expandedQuery.searchText}`}
                     expandedQuery={expandedQuery}
                     onSubmit={onSearchWithEditedText}
                     isLoading={isLoading}
@@ -307,6 +348,20 @@ const HomeMainInner: FC<HomeMainProps> = ({
               // インライン展開（デスクトップのみ）
               expandedPaperId={expandedPaperId}
               renderExpandedDetail={renderExpandedDetail}
+              // しきい値は件数の隣で結果を見ながら調整する（検索APIは呼ばず表示中の結果に即時反映）
+              renderSearchResultTools={
+                expandedQuery
+                  ? (displayedCount) => (
+                      <SearchThresholdControl
+                        // 検索が変わったら通知状態をリセットする
+                        key={`${expandedQuery.original}\n${expandedQuery.searchText}`}
+                        displayedCount={displayedCount}
+                        canApply={hasQueryEmbedding}
+                        defaultOpen={isDesktop}
+                      />
+                    )
+                  : undefined
+              }
             />
 
             {/* ローディング中の検索結果表示 */}

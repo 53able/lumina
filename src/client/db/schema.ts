@@ -45,6 +45,11 @@ export class LuminaDB extends Dexie {
       // userInteractions: id（UUID）, paperId（検索用）, type（フィルタ用）
       userInteractions: "id, paperId, type",
     });
+
+    // v2: 同じクエリの履歴の置き換え・復元時の競合判定を全件走査せずに行うため originalQuery を索引する
+    this.version(2).stores({
+      searchHistories: "id, createdAt, originalQuery",
+    });
   }
 
   /**

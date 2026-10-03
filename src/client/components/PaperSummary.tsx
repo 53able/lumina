@@ -1,8 +1,49 @@
-import { BookOpen, Loader2, Sparkles, Target, Users } from "lucide-react";
-import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
-import { getSummaryStageErrorGuidance, PartialSummaryError } from "../lib/summaryErrors";
+import { format } from "date-fns";
+import {
+  BookOpen,
+  History,
+  Loader2,
+  PencilLine,
+  RefreshCw,
+  Sparkles,
+  Target,
+  Trash2,
+  Users,
+} from "lucide-react";
+import {
+  type FC,
+  type FormEvent,
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
+import {
+  type PaperSummary as PaperSummaryType,
+  SUMMARY_CORRECTION_MAX_LENGTH,
+} from "../../shared/schemas/index";
+import { ApiDisabledError, getApiResumeHint } from "../lib/api";
+import {
+  getSummaryStageErrorGuidance,
+  PartialSummaryError,
+  SummaryApiError,
+} from "../lib/summaryErrorTypes";
+import { cn } from "../lib/utils";
+import { useSettingsStore } from "../stores/settingsStore";
+import { getAdoptedSummaries, type SummaryVersion } from "../stores/summaryStore";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Label } from "./ui/label";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
 /**
@@ -18,6 +59,25 @@ type ContentMode = "summary" | "explanation";
  * - both: 要約と説明文の両方
  */
 export type GenerateTarget = "explanation" | "both";
+
+/**
+ * 再試行で解決しない失敗の対処方法。トーストと同じ案内文を使う（再試行できる失敗は null）
+ * - API利用OFF: 再開方法（表示時点のキー有無で案内を分ける）
+ * - auth など retryable: false: 分類の案内文
+ */
+const getNonRetryableGuidance = (error: Error | null, hasApiKey: boolean): string | null => {
+  if (error instanceof ApiDisabledError) return getApiResumeHint(hasApiKey);
+  if (
+    (error instanceof PartialSummaryError || error instanceof SummaryApiError) &&
+    !error.retryable
+  ) {
+    return getSummaryStageErrorGuidance(error.code);
+  }
+  return null;
+};
+
+/** 版がない場合の既定値（描画ごとに新しい配列を作らない） */
+const NO_VERSIONS: SummaryVersion[] = [];
 
 /**
  * PaperSummary コンポーネントのProps
@@ -38,6 +98,8 @@ interface PaperSummaryProps {
   error?: Error | null;
   /** 直近に失敗した生成の対象（"explanation" なら説明文だけの生成が失敗した） */
   failedTarget?: GenerateTarget | null;
+  /** 生成中の生成の対象（押した生成ボタンだけに生成中を表示する。不明なら null） */
+  generatingTarget?: GenerateTarget | null;
   /** 要約生成時のコールバック */
   onGenerate?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
   /** 言語切替時のコールバック */
@@ -50,6 +112,14 @@ interface PaperSummaryProps {
   pdfUrl?: string;
   /** arXivページのURL */
   arxivUrl?: string;
+  /** 表示中の論文・言語の保存済みの版（古い順。usePaperSummary の versions） */
+  versions?: SummaryVersion[];
+  /** 版を採用版にする（渡されない場合は採用ボタンを出さない） */
+  onAdoptVersion?: (id: number) => Promise<void>;
+  /** 版を破棄する（渡されない場合は破棄ボタンを出さない） */
+  onDiscardVersion?: (id: number) => Promise<void>;
+  /** 版に利用者の訂正文を保存する（空なら訂正を削除する。渡されない場合は訂正の入力を出さない） */
+  onSaveCorrection?: (id: number, text: string) => Promise<void>;
 }
 
 /**
@@ -61,6 +131,7 @@ interface PaperSummaryProps {
  * - キーポイント表示
  * - 要約/説明文生成ボタン
  * - 日本語/英語の切り替え
+ * - 再生成・破棄と、保存済みの版の比較・採用
  *
  * Context Engineering + "Why Your Writing Isn't Being Read" の教訓:
  * - 要約だけでは読者の興味を引けない
@@ -73,12 +144,17 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   isLoading = false,
   error = null,
   failedTarget = null,
+  generatingTarget = null,
   onGenerate,
   onLanguageChange,
   autoGenerate = false,
   abstractId,
   pdfUrl,
   arxivUrl,
+  versions = NO_VERSIONS,
+  onAdoptVersion,
+  onDiscardVersion,
+  onSaveCorrection,
 }) => {
   // 原則1「状態の外部化」: language は親（usePaperSummary）で一元管理
   // このコンポーネントは Controlled Component として振る舞う
@@ -92,7 +168,106 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   );
   /** 生成中だった論文・言語（完了・失敗を同じ論文・言語でだけ通知するため） */
   const loadingKeyRef = useRef<string | null>(null);
+  /**
+   * 生成開始時にこのコンポーネント内でフォーカスしていた要素（押した生成ボタン）。
+   * 完了でそのボタンが消えた場合にフォーカスを戻すため。外の要素は記録しない
+   */
+  const focusedAtLoadingRef = useRef<Element | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const generationKey = `${paperId}:${selectedLanguage}`;
+
+  // 保存済みの版（古い順）のうちの採用版
+  const adoptedVersion = getAdoptedSummaries(versions, selectedLanguage).get(paperId);
+  /** 版の番号（古い順に第1版から） */
+  const versionNumberOf = (version: SummaryVersion) =>
+    versions.findIndex((v) => v.id === version.id) + 1;
+
+  // API利用OFF中は再生成を止める（理由を併記する）
+  const apiEnabled = useSettingsStore((s) => s.apiEnabled);
+  // 表示時点のキー有無に追従させるため、関数ではなく値を購読する
+  const hasApiKey = useSettingsStore((s) => s.apiKey.length > 0);
+
+  /** 版の一覧（比較）を開いているか */
+  const [isVersionListOpen, setIsVersionListOpen] = useState(false);
+  /** 破棄の確認中の版 */
+  const [pendingDiscard, setPendingDiscard] = useState<SummaryVersion | null>(null);
+  /**
+   * 版の採用・破棄の結果（支援技術への通知用。次の生成開始・論文や言語の切替で消す）
+   * null は「版の操作なし」（生成の完了通知を出す）、"" は「版の操作中」（何も出さない）
+   */
+  const [versionMessage, setVersionMessage] = useState<string | null>(null);
+  /** 破棄の確認ダイアログを閉じた後のフォーカス先（破棄した版のボタンは消えるため） */
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const hasDiscardedRef = useRef(false);
+  /** 採用した版のカードの見出しへフォーカスを移す（押した「採用」ボタンは消えるため） */
+  const [focusVersionId, setFocusVersionId] = useState<number | null>(null);
+  const versionListId = `summary-versions-${paperId}-${selectedLanguage}`;
+  const versionHeadingId = (id: number) => `${versionListId}-${id}`;
+  const regenerateDisabledReasonId = `summary-regenerate-api-disabled-${paperId}-${selectedLanguage}`;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 採用した版が決まったときだけ移す
+  useEffect(() => {
+    if (focusVersionId === null) return;
+    document.getElementById(versionHeadingId(focusVersionId))?.focus();
+    setFocusVersionId(null);
+  }, [focusVersionId]);
+
+  /** 訂正文を編集中の版と下書き（版の主キーで持ち、編集中に採用版が変わっても同じ版に保存する） */
+  const [editingCorrection, setEditingCorrection] = useState<{
+    versionId: number;
+    draft: string;
+  } | null>(null);
+  const [isSavingCorrection, setIsSavingCorrection] = useState(false);
+  /** 訂正の編集を閉じた後のフォーカス先（保存・取消のボタンは消えるため） */
+  const [correctionFocus, setCorrectionFocus] = useState<"heading" | "toggle" | null>(null);
+  const correctionFormRef = useRef<HTMLFormElement>(null);
+  const correctionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const correctionIdPrefix = `summary-correction-${paperId}-${selectedLanguage}`;
+  const correctionHeadingId = `${correctionIdPrefix}-heading`;
+  const correctionToggleId = `${correctionIdPrefix}-toggle`;
+  const correctionTextareaId = `${correctionIdPrefix}-input`;
+  const correctionHintId = `${correctionIdPrefix}-hint`;
+  /** 編集中の版（破棄されていれば undefined） */
+  const editingVersion = editingCorrection
+    ? versions.find((v) => v.id === editingCorrection.versionId)
+    : undefined;
+  /** 採用版以外で訂正の付いた版（再生成・採用の切替で訂正が引き継がれないことを示すため） */
+  const otherCorrectedVersions = versions.filter(
+    (v) => v.userCorrection && v.id !== adoptedVersion?.id
+  );
+  const editingVersionId = editingCorrection?.versionId;
+
+  // 編集を開いたら入力欄へフォーカスを移す
+  useEffect(() => {
+    if (editingVersionId !== undefined) correctionTextareaRef.current?.focus();
+  }, [editingVersionId]);
+
+  // 編集を閉じたら、訂正の見出し（保存後）または編集ボタン（取消後）へフォーカスを移す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 編集を閉じたときだけ移す
+  useEffect(() => {
+    if (correctionFocus === null) return;
+    setCorrectionFocus(null);
+    const heading = document.getElementById(correctionHeadingId);
+    const toggle = document.getElementById(correctionToggleId);
+    // どちらもなければ（生成中で編集ボタンを出さない場合など）AI要約の見出しへ
+    (
+      (correctionFocus === "heading" ? (heading ?? toggle) : (toggle ?? heading)) ??
+      headingRef.current
+    )?.focus();
+  }, [correctionFocus]);
+
+  // 編集中の版が破棄されたら（別の操作・別のタブを含む）編集を閉じる
+  useEffect(() => {
+    if (editingCorrection && !editingVersion) setEditingCorrection(null);
+  }, [editingCorrection, editingVersion]);
+
+  // 論文・言語を切り替えたら、前の論文の版の通知と一覧の開閉、訂正の編集を持ち越さない
+  // biome-ignore lint/correctness/useExhaustiveDependencies: generationKey の変化だけを契機にする
+  useEffect(() => {
+    setVersionMessage(null);
+    setIsVersionListOpen(false);
+    setEditingCorrection(null);
+  }, [generationKey]);
 
   /** 説明文が存在するか */
   const hasExplanation = Boolean(summary?.explanation);
@@ -109,21 +284,39 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   useEffect(() => {
     if (isLoading) {
       loadingKeyRef.current = generationKey;
+      const active = document.activeElement;
+      focusedAtLoadingRef.current = active && rootRef.current?.contains(active) ? active : null;
       setGenerationResult(null);
+      setVersionMessage(null);
       return;
     }
     const result = error ? (isPartial ? "partial" : "error") : "success";
-    setGenerationResult(loadingKeyRef.current === generationKey ? result : null);
+    const isSameKey = loadingKeyRef.current === generationKey;
+    setGenerationResult(isSameKey ? result : null);
+    // 押した生成ボタンが完了で消えた（要約・説明文ができた）ときだけ、AI要約の見出しへフォーカスを戻す。
+    // 利用者が生成中に別の場所へ移したフォーカスは動かさない
+    const focusedAtLoading = focusedAtLoadingRef.current;
+    if (
+      isSameKey &&
+      focusedAtLoading &&
+      !focusedAtLoading.isConnected &&
+      document.activeElement === document.body
+    ) {
+      headingRef.current?.focus();
+    }
     loadingKeyRef.current = null;
+    focusedAtLoadingRef.current = null;
   }, [isLoading, error, isPartial, generationKey]);
 
   /** 失敗時に再試行で押すボタン（要約があれば説明文のみの生成ボタンが出る） */
   const retryButtonLabel = summary ? "なぜ読むべきかを生成" : "要約 + 説明文";
+  /** 再試行で解決しない失敗の対処方法（部分成功・全体の失敗・説明文のみの生成の失敗に共通） */
+  const nonRetryableGuidance = getNonRetryableGuidance(error, hasApiKey);
+  /** 全体の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
+  const errorGuidance = nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで再試行できます。`;
   /** 説明文工程の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
   const partialGuidance =
-    error instanceof PartialSummaryError && !error.retryable
-      ? getSummaryStageErrorGuidance(error.code)
-      : `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
+    nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
 
   // 自動要約生成: 論文が表示され、要約がなく、自動生成が有効な場合に発火
   useEffect(() => {
@@ -194,14 +387,136 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
    * @param target - 生成対象（explanation: 説明文のみ, both: 要約と説明文の両方）
    */
   const handleGenerate = (target: GenerateTarget) => {
+    // 生成中はボタンを残したまま無効にしている（aria-disabled はクリックを止めないため、ここで止める）
+    if (isLoading) return;
     onGenerate?.(paperId, selectedLanguage, target);
   };
 
+  /** 生成中の表示（押したボタンの隣に出す。読み上げは live region が担う） */
+  const loadingText = <span className="text-xs text-muted-foreground">生成中...</span>;
+  /**
+   * 説明文だけを生成中か。それ以外の生成中は、要約があれば「再生成」で始めたものとして表示する
+   * （generatingTarget が null の生成中＝対象が渡されない場合も、再生成として扱う）
+   */
+  const isGeneratingExplanation = isLoading && generatingTarget === "explanation";
+  const isRegenerating = isLoading && !isGeneratingExplanation;
+  /**
+   * 生成中の生成ボタン。disabled にするとフォーカスが外れるため、
+   * フォーカスを残したまま aria-disabled で無効を伝える
+   */
+  const generateButtonDisabledProps = { "aria-disabled": isLoading || undefined };
+  const busyButtonClassName = "aria-disabled:opacity-50 aria-disabled:pointer-events-none";
+
+  /** 版を採用する */
+  const handleAdopt = async (version: SummaryVersion) => {
+    if (!onAdoptVersion) return;
+    const number = versionNumberOf(version);
+    // 同じ文言が続いても読み上げられるよう、一度空にしてから結果を入れる
+    // （null に戻すと生成の完了通知が再び入り、誤って読み上げられるため "" にする）
+    setVersionMessage("");
+    try {
+      await onAdoptVersion(version.id);
+      setFocusVersionId(version.id);
+      setVersionMessage(`第${number}版を採用しました`);
+    } catch (err) {
+      console.error("Summary adopt error:", err);
+      toast.error("要約の版を採用できませんでした");
+    }
+  };
+
+  /** 確認済みの版を破棄する */
+  const handleConfirmDiscard = async () => {
+    if (!pendingDiscard || !onDiscardVersion) return;
+    const number = versionNumberOf(pendingDiscard);
+    const wasAdopted = pendingDiscard.id === adoptedVersion?.id;
+    const hasRemaining = versions.length > 1;
+    // 最後の版を破棄しても、この表示中は自動生成で作り直さない（APIを使うため利用者の操作を待つ）
+    const previousAutoGenerated = hasAutoGeneratedRef.current;
+    hasAutoGeneratedRef.current = paperId;
+    setVersionMessage("");
+    try {
+      await onDiscardVersion(pendingDiscard.id);
+      hasDiscardedRef.current = true;
+      setVersionMessage(
+        wasAdopted && hasRemaining
+          ? `第${number}版を破棄しました。残りの版のうち最新の版を採用しています`
+          : `第${number}版を破棄しました`
+      );
+    } catch (err) {
+      hasAutoGeneratedRef.current = previousAutoGenerated;
+      console.error("Summary discard error:", err);
+      toast.error("要約の版を破棄できませんでした");
+    } finally {
+      setPendingDiscard(null);
+    }
+  };
+
+  /** 版の表示名（版が1つなら番号を出さない） */
+  const versionLabelOf = (version: SummaryVersion) =>
+    versions.length > 1 ? `第${versionNumberOf(version)}版の` : "";
+
+  /** 訂正の編集を閉じる（フォーカスは編集を開いたボタンへ戻す） */
+  const handleCancelCorrection = () => {
+    // 保存中は取消できない（保存の完了で編集欄が閉じるため、取消と競合させない）
+    if (isSavingCorrection) return;
+    setEditingCorrection(null);
+    setCorrectionFocus("toggle");
+  };
+
+  /**
+   * 編集欄を閉じ、フォーカスを訂正の見出し（なければ編集ボタン）へ移す。
+   * 保存中に利用者が編集欄の外へ移したフォーカスは奪わない（生成中のフォーカスと同じ方針）
+   */
+  const closeCorrectionEditor = () => {
+    const active = document.activeElement;
+    const shouldMoveFocus =
+      active === null ||
+      active === document.body ||
+      Boolean(correctionFormRef.current?.contains(active));
+    setEditingCorrection(null);
+    if (shouldMoveFocus) setCorrectionFocus("heading");
+  };
+
+  /** 訂正文を保存する（空なら訂正を削除する） */
+  const handleSaveCorrection = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingCorrection || !editingVersion || !onSaveCorrection || isSavingCorrection) return;
+    const { versionId, draft } = editingCorrection;
+    const label = versionLabelOf(editingVersion);
+    const isRemoving = draft.trim() === "";
+    setIsSavingCorrection(true);
+    // 同じ文言が続いても読み上げられるよう、一度空にしてから結果を入れる
+    setVersionMessage("");
+    try {
+      await onSaveCorrection(versionId, draft);
+      closeCorrectionEditor();
+      setVersionMessage(isRemoving ? `${label}訂正を削除しました` : `${label}訂正を保存しました`);
+    } catch (err) {
+      console.error("Summary correction save error:", err);
+      // null に戻すと生成の完了通知が再び入り、誤って読み上げられるため "" のままにする
+      if (err instanceof Error && err.message === "Summary not found") {
+        // 別のタブなどで版が破棄されている。下書きを残しても保存先がないため、編集欄を閉じる
+        closeCorrectionEditor();
+        const message = `${versions.length > 1 ? `第${versionNumberOf(editingVersion)}版` : "この版"}は破棄されています。訂正は保存していません`;
+        setVersionMessage(message);
+        toast.error(message);
+      } else {
+        toast.error("訂正を保存できませんでした");
+      }
+    } finally {
+      setIsSavingCorrection(false);
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4">
       {/* セクションタイトルと言語切替 */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-muted-foreground flex items-center gap-2">
+        <h3
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-sm font-bold text-muted-foreground flex items-center gap-2 outline-none"
+        >
           <Sparkles className="h-4 w-4" />
           AI要約
         </h3>
@@ -241,13 +556,12 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {isLoading
           ? "要約を生成しています"
-          : generationResult === "success"
-            ? "要約の生成が完了しました"
-            : null}
+          : (versionMessage ??
+            (generationResult === "success" ? "要約の生成が完了しました" : null))}
       </output>
       <div className="sr-only" role="alert" aria-atomic="true">
         {!isLoading && generationResult === "error"
-          ? `要約を生成できませんでした。「${retryButtonLabel}」ボタンで再試行できます。`
+          ? `要約を生成できませんでした。${errorGuidance}`
           : !isLoading && generationResult === "partial"
             ? `要約は保存済みです。説明文を生成できませんでした。${partialGuidance}`
             : null}
@@ -258,25 +572,29 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         <p className="text-xs text-destructive">
           {isPartial
             ? `要約は保存済みです。説明文は生成できませんでした。${partialGuidance}`
-            : `生成できませんでした。「${retryButtonLabel}」で再試行できます。`}
+            : `生成できませんでした。${errorGuidance}`}
         </p>
       )}
 
-      {/* ローディング状態 */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-8 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" />
-          <span>生成中...</span>
-        </div>
-      )}
-
-      {/* 要約なしの状態 */}
-      {!isLoading && !summary && (
-        <div className="flex flex-col items-center justify-center py-6 gap-3">
-          <Button onClick={() => handleGenerate("both")} disabled={isLoading} className="gap-2">
-            <Sparkles className="h-4 w-4" />
+      {/* 要約なしの状態（生成中もボタンを残し、フォーカスを失わせない） */}
+      {!summary && (
+        <div
+          className="flex flex-col items-center justify-center py-6 gap-3"
+          aria-busy={isLoading || undefined}
+        >
+          <Button
+            onClick={() => handleGenerate("both")}
+            {...generateButtonDisabledProps}
+            className={cn("gap-2", busyButtonClassName)}
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
             要約 + 説明文
           </Button>
+          {isLoading && loadingText}
           <p className="text-xs text-muted-foreground text-center">
             要約: Abstractの記述を簡潔にまとめます
             <br />
@@ -285,9 +603,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         </div>
       )}
 
-      {/* 要約ありの状態 */}
-      {!isLoading && summary && (
-        <div className="space-y-4">
+      {/* 要約ありの状態（生成中も要約と生成ボタンを残し、ブロックを更新中として伝える） */}
+      {summary && (
+        <div className="space-y-4" aria-busy={isLoading || undefined}>
           {/* コンテンツモード切り替え（説明文がある場合のみ表示） */}
           {hasExplanation && (
             <Tabs value={contentMode} onValueChange={handleContentModeChange}>
@@ -307,35 +625,46 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
           {/* 要約モード */}
           {contentMode === "summary" && (
             <div className="space-y-4">
-              <p className="text-sm leading-relaxed">{summary.summary}</p>
+              {/* 再生成中は、置き換わる前の採用版であることを薄く表示して示す */}
+              <div className={cn("space-y-4 transition-opacity", isRegenerating && "opacity-50")}>
+                <p className="text-sm leading-relaxed">{summary.summary}</p>
 
-              {summary.keyPoints.length > 0 ? (
-                <div>
-                  <h4 className="text-xs text-muted-foreground mb-2">キーポイント</h4>
-                  <ul className="space-y-1">
-                    {summary.keyPoints.map((point) => (
-                      <li key={point} className="text-sm flex items-start gap-2">
-                        <span className="text-primary">•</span>
-                        <span>{point}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+                {summary.keyPoints.length > 0 ? (
+                  <div>
+                    <h4 className="text-xs text-muted-foreground mb-2">キーポイント</h4>
+                    <ul className="space-y-1">
+                      {summary.keyPoints.map((point) => (
+                        <li key={point} className="text-sm flex items-start gap-2">
+                          <span className="text-primary">•</span>
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
 
               {/* 説明文がない場合、説明文のみ生成を促す */}
               {!hasExplanation && (
-                <div className="pt-2 border-t">
+                <div className="flex items-center gap-2 pt-2 border-t">
                   <Button
                     onClick={() => handleGenerate("explanation")}
-                    disabled={isLoading}
+                    {...generateButtonDisabledProps}
                     variant="ghost"
                     size="sm"
-                    className="gap-2 text-muted-foreground hover:text-foreground"
+                    className={cn(
+                      "gap-2 text-muted-foreground hover:text-foreground",
+                      busyButtonClassName
+                    )}
                   >
-                    <Target className="h-4 w-4" />
+                    {isGeneratingExplanation ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Target className="h-4 w-4" />
+                    )}
                     なぜ読むべきかを生成
                   </Button>
+                  {isGeneratingExplanation && loadingText}
                 </div>
               )}
             </div>
@@ -343,7 +672,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
           {/* 説明文モード */}
           {contentMode === "explanation" && hasExplanation && (
-            <div className="space-y-4">
+            <div className={cn("space-y-4 transition-opacity", isRegenerating && "opacity-50")}>
               {/* 論文中の事実と区別するための注記 */}
               <p className="text-xs text-muted-foreground">
                 以下はAbstractをもとにしたAIの推奨です。論文中の記述ではありません。
@@ -375,8 +704,283 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
               )}
             </div>
           )}
+
+          {/*
+            利用者の訂正: AI生成文は書き換えず、見出し・ラベル・枠線でAI生成文と区別する（色だけに頼らない）。
+            「なぜ読むべきか」タブでも訂正の存在に気づけるようタブの外に置き、対象が要約本文であることを見出しで示す
+          */}
+          {adoptedVersion?.userCorrection && (
+            <section
+              aria-labelledby={correctionHeadingId}
+              className="space-y-2 rounded-lg border-2 border-dashed p-3"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <PencilLine className="h-4 w-4" aria-hidden="true" />
+                <h4
+                  id={correctionHeadingId}
+                  tabIndex={-1}
+                  className="text-xs font-bold outline-none"
+                >
+                  利用者の訂正（要約本文への訂正）
+                </h4>
+                <Badge variant="outline">AI生成ではありません</Badge>
+              </div>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                {adoptedVersion.userCorrection.text}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {`${format(adoptedVersion.userCorrection.updatedAt, "yyyy-MM-dd HH:mm")} に保存。`}
+                AIの要約は変更していません。訂正は{versionLabelOf(adoptedVersion) || "この版の"}
+                要約にだけ付き、再生成した新しい版には引き継がれません。
+              </p>
+            </section>
+          )}
+          {otherCorrectedVersions.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {otherCorrectedVersions.map((v) => `第${versionNumberOf(v)}版`).join("・")}
+              に利用者の訂正があります。訂正は版ごとに保存され、表示中の版には引き継がれません。
+            </p>
+          )}
+
+          {/* 訂正の入力（編集中に採用版が変わっても、開いたときの版に保存する） */}
+          {editingCorrection && editingVersion && onSaveCorrection && (
+            <form
+              ref={correctionFormRef}
+              onSubmit={handleSaveCorrection}
+              className="space-y-2 rounded-lg border p-3"
+              aria-busy={isSavingCorrection || undefined}
+            >
+              <Label htmlFor={correctionTextareaId} className="text-xs font-bold">
+                {versionLabelOf(editingVersion)}要約への訂正
+              </Label>
+              <textarea
+                ref={correctionTextareaRef}
+                id={correctionTextareaId}
+                value={editingCorrection.draft}
+                onChange={(e) =>
+                  setEditingCorrection({
+                    versionId: editingCorrection.versionId,
+                    draft: e.target.value,
+                  })
+                }
+                maxLength={SUMMARY_CORRECTION_MAX_LENGTH}
+                rows={4}
+                aria-describedby={correctionHintId}
+                readOnly={isSavingCorrection}
+                className="w-full rounded-md border bg-transparent p-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <p id={correctionHintId} className="text-xs text-muted-foreground">
+                {editingCorrection.draft.trim().length} / {SUMMARY_CORRECTION_MAX_LENGTH}
+                文字。「利用者の訂正」としてAIの要約と分けて表示します。空にして保存すると訂正を削除します。
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  size="sm"
+                  aria-disabled={isSavingCorrection || undefined}
+                  className={cn("gap-2", busyButtonClassName)}
+                >
+                  {isSavingCorrection && <Loader2 className="h-4 w-4 animate-spin" />}
+                  訂正を保存
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancelCorrection}
+                  aria-disabled={isSavingCorrection || undefined}
+                  className={busyButtonClassName}
+                >
+                  取消
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* 版の操作: 再生成（新しい版を追加して採用）・破棄・版の比較 */}
+          <div className="space-y-2 pt-2 border-t">
+            <div className="flex flex-wrap items-center gap-2">
+              {!isLoading && adoptedVersion && versions.length > 1 && (
+                <Badge variant="outline">
+                  採用中: 第{versionNumberOf(adoptedVersion)}版 / 全{versions.length}版
+                </Badge>
+              )}
+              <Button
+                onClick={() => handleGenerate("both")}
+                disabled={!apiEnabled}
+                aria-describedby={apiEnabled ? undefined : regenerateDisabledReasonId}
+                {...generateButtonDisabledProps}
+                variant="outline"
+                size="sm"
+                className={cn("gap-2", busyButtonClassName)}
+              >
+                <RefreshCw className={cn("h-4 w-4", isRegenerating && "animate-spin")} />
+                再生成
+              </Button>
+              {isRegenerating && loadingText}
+              {/* 版の破棄・比較は生成中は出さない（生成で版が増えるため） */}
+              {!isLoading && adoptedVersion && onDiscardVersion && (
+                <Button
+                  onClick={() => setPendingDiscard(adoptedVersion)}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  採用中の版を破棄
+                </Button>
+              )}
+              {!isLoading && adoptedVersion && onSaveCorrection && !editingCorrection && (
+                <Button
+                  id={correctionToggleId}
+                  onClick={() =>
+                    setEditingCorrection({
+                      versionId: adoptedVersion.id,
+                      draft: adoptedVersion.userCorrection?.text ?? "",
+                    })
+                  }
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <PencilLine className="h-4 w-4" />
+                  {adoptedVersion.userCorrection ? "訂正を編集" : "訂正を追加"}
+                </Button>
+              )}
+              {!isLoading && versions.length > 1 && (
+                <Button
+                  onClick={() => setIsVersionListOpen((open) => !open)}
+                  aria-expanded={isVersionListOpen}
+                  aria-controls={versionListId}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <History className="h-4 w-4" />
+                  版を比較（{versions.length}版）
+                </Button>
+              )}
+            </div>
+            {/* aria-describedby の参照先。再生成ボタンと同じ条件で出す */}
+            {!apiEnabled && (
+              <p id={regenerateDisabledReasonId} className="text-xs text-muted-foreground">
+                API利用OFFのため再生成を停止中。{getApiResumeHint(hasApiKey)}
+              </p>
+            )}
+          </div>
+
+          {/* 版の比較: 新しい版から並べ、2列で前の版と並べて見比べられるようにする */}
+          {!isLoading && isVersionListOpen && versions.length > 1 && (
+            <section id={versionListId} aria-label="保存済みの要約の版">
+              <ol className="grid gap-3 sm:grid-cols-2">
+                {[...versions].reverse().map((version) => {
+                  const number = versionNumberOf(version);
+                  const isAdopted = version.id === adoptedVersion?.id;
+                  return (
+                    <li key={version.id} className="space-y-2 rounded-lg border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h4
+                          id={versionHeadingId(version.id)}
+                          tabIndex={-1}
+                          className="text-xs text-muted-foreground outline-none"
+                        >
+                          第{number}版（{format(version.createdAt, "yyyy-MM-dd HH:mm")} 生成）
+                        </h4>
+                        {isAdopted && <Badge>採用中</Badge>}
+                      </div>
+                      <p className="text-sm leading-relaxed">{version.summary}</p>
+                      {version.keyPoints.length > 0 && (
+                        <ul className="space-y-1">
+                          {version.keyPoints.map((point) => (
+                            <li key={point} className="text-xs flex items-start gap-2">
+                              <span className="text-primary">•</span>
+                              <span>{point}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {version.userCorrection && (
+                        <div className="space-y-1 rounded border-2 border-dashed p-2">
+                          <h5 className="text-xs font-bold">
+                            利用者の訂正（要約本文への訂正。AI生成ではありません）
+                          </h5>
+                          <p className="text-xs whitespace-pre-wrap">
+                            {version.userCorrection.text}
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {!isAdopted && onAdoptVersion && (
+                          <Button onClick={() => handleAdopt(version)} variant="outline" size="sm">
+                            第{number}版を採用
+                          </Button>
+                        )}
+                        {onDiscardVersion && (
+                          <Button
+                            onClick={() => setPendingDiscard(version)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            第{number}版を破棄
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          )}
         </div>
       )}
+
+      {/* 破棄の確認 */}
+      <Dialog
+        open={pendingDiscard !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDiscard(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          onCloseAutoFocus={(e) => {
+            // 破棄した版のボタンは消えるため、AI要約の見出しへフォーカスを戻す
+            if (hasDiscardedRef.current) {
+              e.preventDefault();
+              hasDiscardedRef.current = false;
+              headingRef.current?.focus();
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {pendingDiscard ? `第${versionNumberOf(pendingDiscard)}版の要約を破棄しますか？` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              破棄した版は元に戻せません。
+              {pendingDiscard !== null &&
+                pendingDiscard.id === adoptedVersion?.id &&
+                (versions.length > 1
+                  ? "採用中の版のため、残りの版のうち最新の版を採用します。"
+                  : "保存済みの版がなくなります。")}
+              {pendingDiscard?.userCorrection && "この版に付けた利用者の訂正も削除されます。"}
+              {pendingDiscard !== null &&
+                editingCorrection?.versionId === pendingDiscard.id &&
+                editingCorrection.draft !== (pendingDiscard.userCorrection?.text ?? "") &&
+                "編集中の訂正の未保存の下書きも失われます。"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDiscard(null)}>
+              キャンセル
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDiscard}>
+              破棄する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

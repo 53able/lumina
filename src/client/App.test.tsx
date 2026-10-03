@@ -9,6 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { InteractionProvider } from "./contexts/InteractionContext";
+import { useSummaryStore } from "./stores/summaryStore";
 
 /**
  * テスト用のQueryClientラッパー
@@ -273,35 +274,68 @@ describe("App", () => {
       mockRecentHistories = mockSearchHistories;
     });
 
+    // テスト環境の matchMedia はモバイル幅（lg未満）。履歴は検索欄の手前の折りたたみに出る
     it("正常系: 検索履歴セクションが表示される", () => {
       renderWithProviders(<App />);
 
-      expect(screen.getByText("検索履歴")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^検索履歴/ })).toBeInTheDocument();
     });
 
-    it("正常系: 検索履歴が表示される", () => {
+    it("正常系: 検索履歴が表示される", async () => {
+      const user = userEvent.setup();
       renderWithProviders(<App />);
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
-      expect(screen.getByText("強化学習")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^強化学習/ })).toBeVisible();
     });
 
     it("正常系: 検索履歴の削除ボタンをクリックするとdeleteHistoryが呼ばれる", async () => {
       const user = userEvent.setup();
       renderWithProviders(<App />);
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
       // 削除ボタンをクリック
-      const deleteButton = screen.getByRole("button", { name: "削除" });
+      const deleteButton = screen.getByRole("button", { name: "「強化学習」を削除" });
       await user.click(deleteButton);
 
       expect(mockDeleteHistory).toHaveBeenCalledWith("history-1");
     });
 
-    it("正常系: 検索履歴がない場合は空状態メッセージを表示する", () => {
+    it("正常系: 検索履歴がない場合は空状態メッセージを表示する", async () => {
+      const user = userEvent.setup();
       mockRecentHistories = [];
 
       renderWithProviders(<App />);
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
-      expect(screen.getByText("検索履歴がありません")).toBeInTheDocument();
+      expect(screen.getByText("検索履歴がありません")).toBeVisible();
+    });
+  });
+
+  describe("一覧の読む理由", () => {
+    afterEach(() => {
+      useSummaryStore.setState({ summaries: [] });
+    });
+
+    it("正常系: 同じ論文に複数の版がある場合は、最新の版ではなく採用版の読む理由を表示する", async () => {
+      const base = {
+        paperId: "2401.00001",
+        summary: "要約",
+        keyPoints: [],
+        language: "ja" as const,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+      };
+      useSummaryStore.setState({
+        summaries: [
+          { ...base, id: 1, whyRead: "採用版の読む理由", adopted: true },
+          { ...base, id: 2, whyRead: "新しい版の読む理由", adopted: false },
+        ],
+      });
+
+      renderWithProviders(<App />);
+
+      expect(await screen.findByText("採用版の読む理由")).toBeInTheDocument();
+      expect(screen.queryByText("新しい版の読む理由")).not.toBeInTheDocument();
     });
   });
 });

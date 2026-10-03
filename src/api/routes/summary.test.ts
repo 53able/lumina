@@ -245,12 +245,88 @@ describe("要約API", () => {
 
         expect(response.status).toBe(500);
         const body = await response.json();
-        expect(body.error).toBe("upstream timeout");
+        expect(body).toEqual({
+          error: "要約の生成に失敗しました",
+          code: "upstream",
+          retryable: true,
+        });
         expect(generateSummary).not.toHaveBeenCalled();
       });
     });
 
-    it("異常系: abstractありでAPIキーがない場合は500エラー", async () => {
+    describe("全体の失敗（上流のエラー文を返さない）", () => {
+      const upstreamMessage = "Incorrect API key provided: sk-proj-abcd...wxyz";
+
+      const postSummary = (generateTarget: "both" | "explanation") =>
+        app.request(
+          new Request("http://localhost/api/v1/summary/2401.12345", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-OpenAI-API-Key": openAIKeyHeader,
+            },
+            body: JSON.stringify({
+              language: "ja",
+              abstract: "This paper presents a new deep learning method...",
+              generateTarget,
+            }),
+          })
+        );
+
+      it.each([
+        [401, 401, "auth", false],
+        [403, 401, "auth", false],
+        [429, 429, "rate_limit", true],
+        [500, 500, "upstream", true],
+      ] as const)("異常系: 要約の工程が上流 %s で失敗した場合は %s・安全な分類だけを返す", async (upstreamStatus, status, code, retryable) => {
+        vi.mocked(generateSummary).mockRejectedValueOnce(
+          Object.assign(new Error(upstreamMessage), { statusCode: upstreamStatus })
+        );
+
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(status);
+        const body = await response.json();
+        expect(body).toEqual({ error: "要約の生成に失敗しました", code, retryable });
+        expect(JSON.stringify(body)).not.toContain("sk-");
+        expect(JSON.stringify(body)).not.toContain("Incorrect API key");
+      });
+
+      it("異常系: RetryError に包まれた429も rate_limit として429で返す", async () => {
+        vi.mocked(generateSummary).mockRejectedValueOnce(
+          new RetryError({
+            message: `Failed after 3 attempts. Last error: ${upstreamMessage}`,
+            reason: "maxRetriesExceeded",
+            errors: [Object.assign(new Error(upstreamMessage), { statusCode: 429 })],
+          })
+        );
+
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(429);
+        const body = await response.json();
+        expect(body).toEqual({
+          error: "要約の生成に失敗しました",
+          code: "rate_limit",
+          retryable: true,
+        });
+      });
+
+      it("異常系: 説明文のみの生成が上流の認証エラーで失敗しても上流の文言を返さない", async () => {
+        vi.mocked(generateExplanation).mockRejectedValueOnce(
+          Object.assign(new Error(upstreamMessage), { statusCode: 401 })
+        );
+
+        const response = await postSummary("explanation");
+
+        expect(response.status).toBe(401);
+        const body = await response.json();
+        expect(body).toEqual({ error: "要約の生成に失敗しました", code: "auth", retryable: false });
+        expect(JSON.stringify(body)).not.toContain("sk-");
+      });
+    });
+
+    it("異常系: abstractありでAPIキーがない場合は401（auth）を返す", async () => {
       // Arrange
       const paperId = "2401.12345";
       const request = new Request(`http://localhost/api/v1/summary/${paperId}`, {
@@ -269,9 +345,9 @@ describe("要約API", () => {
       const response = await app.request(request);
 
       // Assert
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(401);
       const body = await response.json();
-      expect(body.error).toContain("API key");
+      expect(body).toEqual({ error: "要約の生成に失敗しました", code: "auth", retryable: false });
     });
   });
 });

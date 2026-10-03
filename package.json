@@ -75,6 +75,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.5",
     "@typescript/native-preview": "^7.0.0-dev.20250604.1",
+    "@vercel/routing-utils": "^6.6.0",
     "@vitejs/plugin-react": "^4.5.2",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^27.4.0",

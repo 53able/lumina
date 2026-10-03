@@ -1,13 +1,14 @@
 import { type FC, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
-import type { Paper, PaperSummary } from "../shared/schemas/index";
+import type { Paper } from "../shared/schemas/index";
 import { HomeFooter } from "./components/HomeFooter";
 import { HomeHeader } from "./components/HomeHeader";
 import { HomeMain } from "./components/HomeMain";
 import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
+import { useSearchHistoryUndo } from "./hooks/useSearchHistoryUndo";
 import { useSyncPapers } from "./hooks/useSyncPapers";
 import { SyncRateLimitError } from "./lib/api";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
@@ -15,7 +16,7 @@ import { showSummaryErrorToast } from "./lib/summaryErrors";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
-import { useSummaryStore } from "./stores/summaryStore";
+import { getAdoptedSummaries, useSummaryStore } from "./stores/summaryStore";
 
 // 動的インポート（バンドルサイズ最適化）
 const PaperDetail = lazy(() =>
@@ -114,7 +115,9 @@ const HomePage: FC = () => {
   // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
   const autoGenerateSummary = autoGenerateSummarySetting && apiEnabled;
   // 検索履歴（searchHistoryStore経由で永続化）
-  const { histories, addHistory, getRecentHistories, deleteHistory } = useSearchHistoryStore();
+  const { histories, addHistory, getRecentHistories } = useSearchHistoryStore();
+  // 個別削除と取り消し（削除の実行と結果の表示を同じ出どころから渡す）
+  const historyUndo = useSearchHistoryUndo();
   const recentHistories = getRecentHistories(10);
   const findSavedHistory = useCallback(
     (query: string) => histories.find((h) => h.originalQuery === query),
@@ -169,11 +172,16 @@ const HomePage: FC = () => {
   // サマリー管理（カスタムフックに責務を委譲）
   const {
     summary: currentSummary,
+    versions: summaryVersions,
+    adoptVersion: adoptSummaryVersion,
+    discardVersion: discardSummaryVersion,
+    saveCorrection: saveSummaryCorrection,
     summaryLanguage,
     setSummaryLanguage,
     isLoading: isSummaryLoading,
     error: summaryError,
     failedTarget: summaryFailedTarget,
+    generatingTarget: summaryGeneratingTarget,
     generateSummary,
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
@@ -186,23 +194,25 @@ const HomePage: FC = () => {
   });
 
   // サマリーストア（whyReadMap生成用、展開中の論文のサマリー取得用）
-  const { summaries, getSummaryByPaperIdAndLanguage } = useSummaryStore();
+  const { summaries } = useSummaryStore();
+
+  // 論文ID → 採用版のマップ（summaryLanguage の版から1回だけ作り、一覧と展開中の詳細で引く）
+  // 同じ論文に複数の版がある場合は採用版を使う
+  const adoptedSummaries = useMemo(
+    () => getAdoptedSummaries(summaries, summaryLanguage),
+    [summaries, summaryLanguage]
+  );
 
   // whyReadMap を生成（論文ID → whyRead のマップ）
-  // summaryLanguage に合わせた言語の whyRead を取得
+  // 利用者の訂正文は要約本文への訂正のため反映しない（一覧の「読む理由」はAIの推奨のまま）
   // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
-  // 同じ論文に複数の版がある場合は最新の版（最後に追加されたもの）の whyRead を使う
   const whyReadMap = useMemo(() => {
-    const latestByPaperId = new Map<string, PaperSummary>();
-    for (const s of summaries) {
-      if (s.language === summaryLanguage) latestByPaperId.set(s.paperId, s);
-    }
     const map = new Map<string, string>();
-    for (const [paperId, s] of latestByPaperId) {
+    for (const [paperId, s] of adoptedSummaries) {
       if (s.whyRead) map.set(paperId, s.whyRead);
     }
     return map;
-  }, [summaries, summaryLanguage]);
+  }, [adoptedSummaries]);
 
   // 論文クリックハンドラー（インライン展開のトグル）
   const handlePaperClick = useCallback((paper: Paper) => {
@@ -319,14 +329,6 @@ const HomePage: FC = () => {
   // 論文0件で自動同期を始める直前（effect 実行前の描画）に「論文がありません」を出さない
   const isAutoSyncPending = !hasAutoSyncedRef.current && arePapersReady && papers.length === 0;
 
-  // 検索履歴を削除
-  const handleDeleteHistory = useCallback(
-    (id: string) => {
-      deleteHistory(id);
-    },
-    [deleteHistory]
-  );
-
   // 検索結果の論文リスト（関連度順）。results.paper は useSemanticSearch 内で papers から解決されるためストア由来
   const searchResultPapers = results.map((r) => r.paper);
 
@@ -337,6 +339,10 @@ const HomePage: FC = () => {
     searchError,
     queryEmbedding,
     isLoading,
+    {
+      scoreThreshold: searchScoreThreshold,
+      hasSearchablePapers: papers.length > papersExcludedFromSearch.length,
+    },
     resultsReady
   );
 
@@ -384,14 +390,20 @@ const HomePage: FC = () => {
                 <Suspense fallback={<div className="p-6">読み込み中...</div>}>
                   <PaperDetail
                     paper={paper}
-                    summary={getSummaryByPaperIdAndLanguage(paper.id, summaryLanguage)}
+                    summary={adoptedSummaries.get(paper.id)}
                     onGenerateSummary={handleGenerateSummary}
                     isSummaryLoading={isSummaryLoading}
                     summaryError={summaryError}
                     summaryFailedTarget={summaryFailedTarget}
+                    summaryGeneratingTarget={summaryGeneratingTarget}
                     selectedSummaryLanguage={summaryLanguage}
                     onSummaryLanguageChange={handleSummaryLanguageChange}
                     autoGenerateSummary={autoGenerateSummary}
+                    // 展開中の論文は選択中の論文（usePaperSummary の対象）と同じ
+                    summaryVersions={summaryVersions}
+                    onAdoptSummaryVersion={adoptSummaryVersion}
+                    onDiscardSummaryVersion={discardSummaryVersion}
+                    onSaveSummaryCorrection={saveSummaryCorrection}
                   />
                 </Suspense>
               )
@@ -400,6 +412,7 @@ const HomePage: FC = () => {
         expandedQuery={displayExpandedQuery}
         onSearchWithEditedText={handleSearchWithEditedText}
         results={results}
+        hasQueryEmbedding={queryEmbedding !== null}
         isLoading={isLoading}
         isWaitingForPapers={isWaitingForPapers}
         selectedPaper={selectedPaper}
@@ -409,12 +422,17 @@ const HomePage: FC = () => {
         isSummaryLoading={isSummaryLoading}
         summaryError={summaryError}
         summaryFailedTarget={summaryFailedTarget}
+        summaryGeneratingTarget={summaryGeneratingTarget}
         summaryLanguage={summaryLanguage}
         onSummaryLanguageChange={handleSummaryLanguageChange}
         autoGenerateSummary={autoGenerateSummary}
+        summaryVersions={summaryVersions}
+        onAdoptSummaryVersion={adoptSummaryVersion}
+        onDiscardSummaryVersion={discardSummaryVersion}
+        onSaveSummaryCorrection={saveSummaryCorrection}
         recentHistories={recentHistories}
         onReSearch={handleReSearch}
-        onDeleteHistory={handleDeleteHistory}
+        historyUndo={historyUndo}
         hasMore={hasMorePapers}
         onSyncAll={syncAll}
         onRunEmbeddingBackfill={runEmbeddingBackfill}

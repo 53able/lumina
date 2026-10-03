@@ -3,6 +3,7 @@ import { Bookmark, ExternalLink, FileText, Heart } from "lucide-react";
 import type { FC } from "react";
 import type { Paper, PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { useInteraction } from "../contexts/InteractionContext";
+import type { SummaryVersion } from "../stores/summaryStore";
 import { type GenerateTarget, PaperSummary } from "./PaperSummary";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -23,12 +24,22 @@ interface PaperDetailProps {
   summaryError?: Error | null;
   /** 直近に失敗した生成の対象（説明文だけの失敗を区別するため） */
   summaryFailedTarget?: GenerateTarget | null;
+  /** 生成中の生成の対象（押した生成ボタンだけに生成中を表示するため） */
+  summaryGeneratingTarget?: GenerateTarget | null;
   /** 選択中の言語 */
   selectedSummaryLanguage?: "ja" | "en";
   /** 言語切替時のコールバック */
   onSummaryLanguageChange?: (language: "ja" | "en") => void;
   /** 自動要約生成が有効か */
   autoGenerateSummary?: boolean;
+  /** 表示中の言語の保存済みの要約の版（古い順） */
+  summaryVersions?: SummaryVersion[];
+  /** 要約の版を採用版にする */
+  onAdoptSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版を破棄する */
+  onDiscardSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版に利用者の訂正文を保存する（空なら訂正を削除する） */
+  onSaveSummaryCorrection?: (id: number, text: string) => Promise<void>;
 }
 
 /**
@@ -48,9 +59,14 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   isSummaryLoading = false,
   summaryError = null,
   summaryFailedTarget = null,
+  summaryGeneratingTarget = null,
   selectedSummaryLanguage = "ja",
   onSummaryLanguageChange,
   autoGenerateSummary = false,
+  summaryVersions,
+  onAdoptSummaryVersion,
+  onDiscardSummaryVersion,
+  onSaveSummaryCorrection,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
@@ -105,12 +121,17 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             isLoading={isSummaryLoading}
             error={summaryError}
             failedTarget={summaryFailedTarget}
+            generatingTarget={summaryGeneratingTarget}
             onGenerate={onGenerateSummary}
             onLanguageChange={onSummaryLanguageChange}
             autoGenerate={autoGenerateSummary}
             abstractId={abstractId}
             pdfUrl={paper.pdfUrl}
             arxivUrl={paper.arxivUrl}
+            versions={summaryVersions}
+            onAdoptVersion={onAdoptSummaryVersion}
+            onDiscardVersion={onDiscardSummaryVersion}
+            onSaveCorrection={onSaveSummaryCorrection}
           />
         </div>
 

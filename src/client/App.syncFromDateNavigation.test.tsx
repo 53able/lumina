@@ -151,6 +151,7 @@ vi.mock("./hooks/useMediaQuery", () => ({
 }));
 
 vi.mock("./stores/summaryStore", () => ({
+  getAdoptedSummaries: () => new Map(),
   useSummaryStore: () => ({
     summaries: [],
     getSummaryByPaperIdAndLanguage: vi.fn(),

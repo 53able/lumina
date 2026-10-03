@@ -90,6 +90,7 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
           variant="ghost"
           size="sm"
           onClick={onClear}
+          aria-label="絞り込みをすべて解除"
           className="h-5 px-1.5 text-muted-foreground hover:text-foreground ml-1"
         >
           <X className="h-3 w-3" />

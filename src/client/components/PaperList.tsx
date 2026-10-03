@@ -41,6 +41,8 @@ interface PaperListProps {
   emptyMessage?: ReactNode;
   /** 論文数を表示するか */
   showCount?: boolean;
+  /** 件数の隣に置く操作（検索結果のしきい値など）。表示件数を受け取り、0件でも表示する */
+  renderCountAccessory?: (displayedCount: number) => ReactNode;
   /** カードクリック時のコールバック */
   onPaperClick?: (paper: Paper) => void;
   /** 論文ID → whyRead のマップ */
@@ -170,6 +172,7 @@ export const PaperList: FC<PaperListProps> = ({
   isSearchLoading = false,
   emptyMessage: emptyMessageProp,
   showCount = false,
+  renderCountAccessory,
   onPaperClick,
   whyReadMap = new Map(),
   onRequestSync,
@@ -259,13 +262,18 @@ export const PaperList: FC<PaperListProps> = ({
 
   return (
     <div className="space-y-4">
-      {showCount && (
-        <p className="text-sm text-muted-foreground/70">
-          {/* 読み込み中は全件の件数と誤解させない */}
-          {paperLoadStatus === "loading" && "読み込み済みの論文のうち "}
-          <span className="font-bold text-foreground">{papers.length}</span>件の論文
-        </p>
-      )}
+      {showCount || renderCountAccessory ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {showCount ? (
+            <p className="text-sm text-muted-foreground/70">
+              {/* 読み込み中は全件の件数と誤解させない */}
+              {paperLoadStatus === "loading" && "読み込み済みの論文のうち "}
+              <span className="font-bold text-foreground">{papers.length}</span>件の論文
+            </p>
+          ) : null}
+          {renderCountAccessory?.(papers.length)}
+        </div>
+      ) : null}
 
       {/* 仮想スクロールコンテナ（0件でも常にマウントし、検索0件→一覧復帰でグリッドがアンマウントされないようにする） */}
       <div

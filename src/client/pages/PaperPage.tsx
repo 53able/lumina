@@ -1,10 +1,11 @@
-import { FileQuestion, Loader2 } from "lucide-react";
+import { ExternalLink, FileQuestion, FileText, Loader2 } from "lucide-react";
 import { type FC, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BackToListLink } from "../components/BackToListLink";
 import { PaperDetail } from "../components/PaperDetail";
 import { Button } from "../components/ui/button";
 import { usePaperSummary } from "../hooks/usePaperSummary";
+import { ARXIV_ID_PATTERN } from "../lib/arxivId";
 import { type PaperListItem, toPaperListItem } from "../lib/paperIndex/core";
 import { showSummaryErrorToast } from "../lib/summaryErrors";
 import { usePaperStore } from "../stores/paperStore";
@@ -24,11 +25,16 @@ type StoredPaperLookup =
  * オブジェクト指向UIの「シングルビュー」パターン。
  *
  * 一覧（paperStore）にまだ読み込まれていない論文は IndexedDB から1件だけ読む
- * （保存済み論文の全件読み込みを待たず、未読み込みを「論文が見つかりません」と誤判定しない）。
+ * （保存済み論文の全件読み込みを待たず、未読み込みを「保存されていない」と誤判定しない）。
+ * DB にも無い場合は、無効IDと未保存IDを区別して表示する（Issue #67）。
  */
 export const PaperPage: FC = () => {
   const { id } = useParams<{ id: string }>();
-  const storePaper = usePaperStore((s) => (id ? s.papers.find((p) => p.id === id) : undefined));
+  // 保存時に版番号 vN を除いているため、検索時だけ除く（arXiv へのリンクは元の id を使う）
+  const storedId = id?.replace(/v\d+$/, "");
+  const storePaper = usePaperStore((s) =>
+    storedId ? s.papers.find((p) => p.id === storedId) : undefined
+  );
   const db = usePaperStore((s) => s._db);
   // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
   const autoGenerateSummary = useSettingsStore((s) => s.autoGenerateSummary && s.apiEnabled);
@@ -36,27 +42,27 @@ export const PaperPage: FC = () => {
   const [lookup, setLookup] = useState<StoredPaperLookup | null>(null);
   /** IndexedDB からの読み直し回数（失敗時の再試行用） */
   const [lookupAttempt, setLookupAttempt] = useState(0);
-  const needsLookup = id !== undefined && storePaper === undefined;
+  const needsLookup = storedId !== undefined && storePaper === undefined;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: lookupAttempt は再試行で読み直すための依存
   useEffect(() => {
     if (!needsLookup || !db) return;
     let cancelled = false;
-    setLookup({ id, status: "loading" });
+    setLookup({ id: storedId, status: "loading" });
     db.papers
-      .get(id)
+      .get(storedId)
       .then((stored) => {
         if (cancelled) return;
         setLookup(
           stored
-            ? { id, status: "found", paper: toPaperListItem(stored) }
-            : { id, status: "not-found" }
+            ? { id: storedId, status: "found", paper: toPaperListItem(stored) }
+            : { id: storedId, status: "not-found" }
         );
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         setLookup({
-          id,
+          id: storedId,
           status: "error",
           error: err instanceof Error ? err : new Error(String(err)),
         });
@@ -64,10 +70,10 @@ export const PaperPage: FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [needsLookup, db, id, lookupAttempt]);
+  }, [needsLookup, db, storedId, lookupAttempt]);
 
   // 現在の ID に対する読み込み結果だけを使う
-  const currentLookup = lookup !== null && lookup.id === id ? lookup : null;
+  const currentLookup = lookup !== null && lookup.id === storedId ? lookup : null;
   const paper: PaperListItem | undefined =
     storePaper ?? (currentLookup?.status === "found" ? currentLookup.paper : undefined);
   // DB 未初期化・読み込み中は「見つからない」と判定しない
@@ -79,11 +85,16 @@ export const PaperPage: FC = () => {
   // サマリー管理（カスタムフックに責務を委譲）
   const {
     summary,
+    versions,
+    adoptVersion,
+    discardVersion,
+    saveCorrection,
     summaryLanguage,
     setSummaryLanguage,
     isLoading,
     error,
     failedTarget,
+    generatingTarget,
     generateSummary,
   } = usePaperSummary({
     paperId: paper?.id ?? "",
@@ -137,31 +148,63 @@ export const PaperPage: FC = () => {
     );
   }
 
-  // 論文が見つからない場合
+  // 論文がこのデバイスに無い場合（無効IDと未保存IDを区別する）
   if (!paper) {
+    const isValidId = id !== undefined && ARXIV_ID_PATTERN.test(id);
     return (
       <div className="min-h-dvh bg-background bg-gradient-lumina">
         <div className="mx-auto max-w-3xl px-4 py-8">
           {/* 戻るリンク */}
           <BackToListLink className="mb-8" />
 
-          {/* 404メッセージ */}
           <div className="flex flex-col items-center justify-center gap-6 py-16">
             <div className="rounded-full bg-muted/50 p-6">
               <FileQuestion className="h-12 w-12 text-muted-foreground" />
             </div>
             <div className="text-center space-y-2">
-              <h1 className="text-2xl font-bold">論文が見つかりません</h1>
+              <h1 className="text-2xl font-bold">
+                {isValidId
+                  ? "この論文はこのデバイスに保存されていません"
+                  : "論文IDの形式が正しくありません"}
+              </h1>
               <p className="text-muted-foreground">
                 ID: <code className="text-xs bg-muted px-2 py-1 rounded">{id}</code>
               </p>
               <p className="text-sm text-muted-foreground mt-4">
-                この論文はキャッシュに存在しないか、削除された可能性があります。
+                {isValidId
+                  ? "Lumina は論文をこのブラウザ内に保存します。別の端末やブラウザで開いた場合や、キャッシュを削除した場合は表示できません。原文は arXiv で読めます。"
+                  : "arXiv の論文ID（例: 2512.18131）を含むURLを指定してください。"}
               </p>
             </div>
-            <Button asChild>
-              <Link to="/">論文一覧を見る</Link>
-            </Button>
+            <div className="flex flex-wrap justify-center gap-3">
+              {isValidId && (
+                <>
+                  <Button asChild variant="outline">
+                    <a
+                      href={`https://arxiv.org/abs/${id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      arXiv で開く
+                    </a>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <a
+                      href={`https://arxiv.org/pdf/${id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <FileText className="h-4 w-4" />
+                      PDF を開く
+                    </a>
+                  </Button>
+                </>
+              )}
+              <Button asChild>
+                <Link to="/">論文一覧を見る</Link>
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -183,9 +226,14 @@ export const PaperPage: FC = () => {
             isSummaryLoading={isLoading}
             summaryError={error}
             summaryFailedTarget={failedTarget}
+            summaryGeneratingTarget={generatingTarget}
             selectedSummaryLanguage={summaryLanguage}
             onSummaryLanguageChange={setSummaryLanguage}
             autoGenerateSummary={autoGenerateSummary}
+            summaryVersions={versions}
+            onAdoptSummaryVersion={adoptVersion}
+            onDiscardSummaryVersion={discardVersion}
+            onSaveSummaryCorrection={saveCorrection}
           />
         </div>
       </div>

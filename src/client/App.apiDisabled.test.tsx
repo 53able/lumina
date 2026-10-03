@@ -216,13 +216,13 @@ describe("App: API利用OFF", () => {
   });
 });
 
-describe("App: 検索文の確認・編集（#31）", () => {
+describe("App: 検索文の確認・編集（#31, #72）", () => {
   const searchBody = (searchText: string) => ({
     results: [],
     expandedQuery: {
       original: "transformer",
       english: "transformer",
-      synonyms: ["attention mechanism"],
+      synonyms: ["attention mechanism", "self-attention"],
       searchText,
     },
     queryEmbedding: [0.1, 0.2],
@@ -237,7 +237,8 @@ describe("App: 検索文の確認・編集（#31）", () => {
       if (url.includes("/api/v1/search")) {
         const request = JSON.parse(String(init?.body ?? "{}")) as { embeddingText?: string };
         return new Response(
-          JSON.stringify(searchBody(request.embeddingText ?? "transformer attention mechanism")),
+          // クエリ拡張（AI）の検索文は関連語を言い換えて含む（関連語と完全一致しない）
+          JSON.stringify(searchBody(request.embeddingText ?? "transformer attention models")),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -261,8 +262,11 @@ describe("App: 検索文の確認・編集（#31）", () => {
     const user = userEvent.setup();
     renderApp();
     await user.type(await screen.findByRole("searchbox"), "transformer{Enter}");
-    await user.click(await screen.findByText("Embeddingに使った検索文を確認・編集"));
-    const textarea = screen.getByRole("textbox", { name: /検索文/ }) as HTMLTextAreaElement;
+    await user.click(await screen.findByText("AIが検索に使った言葉を確認・調整"));
+    await user.click(screen.getByText("検索文を直接編集する"));
+    const textarea = screen.getByRole("textbox", {
+      name: /検索文を直接編集/,
+    }) as HTMLTextAreaElement;
     return { user, textarea };
   };
 
@@ -274,22 +278,55 @@ describe("App: 検索文の確認・編集（#31）", () => {
       )
       .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")));
 
-  it("検索後に Embedding に使った検索文を表示し、編集して再検索すると embeddingText が送られる", async () => {
+  it("関連語のチェックを外して再検索すると、表示した「検索に使う文」が embeddingText として送られる", async () => {
     const { user, textarea } = await searchAndOpenEditor();
-    expect(textarea.value).toBe("transformer attention mechanism");
+    expect(textarea.value).toBe("transformer attention models");
 
     await user.click(screen.getByRole("checkbox", { name: "attention mechanism" }));
+    const finalText = screen.getByRole("status", { name: /^検索に使う文/ }).textContent;
+    expect(finalText).toBe("transformer self-attention");
     await user.click(screen.getByRole("button", { name: "この検索文で再検索" }));
 
     await waitFor(() => expect(screen.getByText("検索文を編集済み")).toBeInTheDocument());
     expect(searchRequestBodies()).toEqual([
       { query: "transformer", limit: 20 },
-      { query: "transformer", limit: 20, embeddingText: "transformer" },
+      { query: "transformer", limit: 20, embeddingText: finalText },
     ]);
-    // 除外した関連語を見出しで区別する
-    expect(screen.getByText("（除外）", { exact: false })).toBeInTheDocument();
+    // 選択を外した関連語だけを見出しで除外と示す
+    expect(
+      screen.getByText("attention mechanism", { selector: ".line-through" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("self-attention", { selector: ".line-through" })
+    ).not.toBeInTheDocument();
+    // 再検索後も同じ選択を復元する（外した語を再追加しない）
+    expect(screen.getByRole("checkbox", { name: "attention mechanism" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "self-attention" })).toBeChecked();
     // 元の入力は保持する
     expect(screen.getByRole("searchbox")).toHaveValue("transformer");
+  });
+
+  it("自由編集した文で再検索すると、その文が embeddingText として送られ、関連語を除外と表示しない", async () => {
+    const { user, textarea } = await searchAndOpenEditor();
+
+    await user.clear(textarea);
+    await user.type(textarea, "transformer attention");
+    expect(screen.getByText(/自由編集中（関連語の選択は無効）/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "この検索文で再検索" }));
+
+    await waitFor(() => expect(screen.getByText("検索文を編集済み")).toBeInTheDocument());
+    expect(searchRequestBodies()[1]).toEqual({
+      query: "transformer",
+      limit: 20,
+      embeddingText: "transformer attention",
+    });
+    // "attention mechanism" と完全一致しなくても削除済みのように表示しない
+    expect(screen.queryByText("（除外）", { exact: false })).not.toBeInTheDocument();
+    // 手動修正を保ったまま自由編集中として開く
+    expect(screen.getByText(/自由編集中（関連語の選択は無効）/)).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /^検索に使う文/ })).toHaveTextContent(
+      "transformer attention"
+    );
   });
 
   it("API利用OFFにすると編集文で再検索できず、fetch は増えない", async () => {
