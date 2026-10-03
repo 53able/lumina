@@ -11,6 +11,7 @@ import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTe
 import type { SummaryVersion } from "../stores/summaryStore";
 import { MobileSearchHistory } from "./MobileSearchHistory";
 import { PaperExplorer } from "./PaperExplorer";
+import { PaperLoadStatus } from "./PaperLoadStatus";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
 import { SearchThresholdControl } from "./SearchThresholdControl";
@@ -62,6 +63,8 @@ interface HomeMainProps {
   hasQueryEmbedding?: boolean;
   /** 検索ローディング中かどうか */
   isLoading: boolean;
+  /** 検索が保存済み論文の全件準備を待っているか */
+  isWaitingForPapers?: boolean;
   /** 選択中の論文 */
   selectedPaper: Paper | null;
   /** 詳細を閉じる */
@@ -150,6 +153,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   results,
   hasQueryEmbedding = false,
   isLoading,
+  isWaitingForPapers = false,
   selectedPaper,
   onCloseDetail,
   currentSummary,
@@ -264,6 +268,9 @@ const HomeMainInner: FC<HomeMainProps> = ({
               />
             )}
 
+            {/* 保存済み論文の読み込み状態（読み込み中の件数・失敗時の再試行） */}
+            <PaperLoadStatus />
+
             {/* モバイル: 検索履歴は検索欄の手前の折りたたみ（一覧を覆わない） */}
             {!isDesktop && (
               <MobileSearchHistory
@@ -362,7 +369,11 @@ const HomeMainInner: FC<HomeMainProps> = ({
               <div className="mt-12 grid place-items-center">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-12 w-12 animate-loading-bold rounded-full border-4 border-primary border-t-transparent" />
-                  <p className="text-sm text-muted-foreground font-bold">検索中...</p>
+                  <p className="text-sm text-muted-foreground font-bold">
+                    {isWaitingForPapers
+                      ? "保存済みの論文を読み込み中です。完了後に検索結果を表示します"
+                      : "検索中..."}
+                  </p>
                 </div>
               </div>
             ) : null}

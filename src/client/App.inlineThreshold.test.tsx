@@ -13,7 +13,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Paper } from "../shared/schemas/index";
 import { App } from "./App";
 import { InteractionProvider } from "./contexts/InteractionContext";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -50,15 +51,34 @@ const NO_EMBEDDING = createPaper("2401.00004", "NoEmbedding Paper", null);
 
 const paperState = vi.hoisted(() => ({ papers: [] as unknown[] }));
 
-vi.mock("@/client/stores/paperStore", () => ({
-  usePaperStore: Object.assign(
-    vi.fn((selector?: (s: unknown) => unknown) => {
-      const state = { papers: paperState.papers, isLoading: false, addPapers: vi.fn() };
-      return selector ? selector(state) : state;
-    }),
-    { getState: () => ({ papers: paperState.papers }) }
-  ),
-}));
+vi.mock("@/client/stores/paperStore", async () => {
+  const { createPaperEmbeddingIndex } = await import("./lib/paperIndex/core");
+  return {
+    usePaperStore: Object.assign(
+      vi.fn((selector?: (s: unknown) => unknown) => {
+        const state = {
+          papers: paperState.papers,
+          isLoading: false,
+          loadStatus: "ready",
+          addPapers: vi.fn(),
+        };
+        return selector ? selector(state) : state;
+      }),
+      { getState: () => ({ papers: paperState.papers, loadStatus: "ready" }) }
+    ),
+    whenPapersReady: () => Promise.resolve(),
+    // 保存済み論文は全件準備済みとして、その時点の paperState.papers を索引で検索する
+    paperStoreSearchSource: {
+      isReady: () => true,
+      whenReady: () => Promise.resolve(),
+      search: async (queryEmbedding: number[], scoreThreshold: number, limit: number) => {
+        const index = createPaperEmbeddingIndex();
+        index.upsert(paperState.papers as Paper[]);
+        return index.search(queryEmbedding, scoreThreshold, limit);
+      },
+    },
+  };
+});
 
 vi.mock("@/client/stores/interactionStore", () => ({
   useInteractionStore: vi.fn((selector?: (s: unknown) => unknown) => {
@@ -169,6 +189,11 @@ const openSlider = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("App: 検索結果の件数の隣でしきい値を調整する（#53）", () => {
+  beforeAll(() => {
+    // jsdom は Element#scrollTo を実装していない（0件から一覧に戻るときに呼ばれる）
+    Element.prototype.scrollTo ??= () => {};
+  });
+
   beforeEach(() => {
     paperState.papers = [NEAR, MID, FAR, NO_EMBEDDING];
     fetchMock.mockReset();
@@ -222,14 +247,15 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     expect(countSearchRequests()).toBe(1);
     const historyCalls = addHistory.mock.calls.length;
 
+    // 結果は保存済み論文の索引（Web Worker）で再計算するため、反映は非同期（検索APIは呼ばない）
     fireEvent.change(slider, { target: { value: "0.8" } });
-    expect(screen.queryByText("Mid Paper")).not.toBeInTheDocument();
-    expect(screen.getByText("Near Paper")).toBeInTheDocument();
     expect(getToggle()).toHaveTextContent("しきい値 0.80");
+    await waitFor(() => expect(screen.queryByText("Mid Paper")).not.toBeInTheDocument());
+    expect(screen.getByText("Near Paper")).toBeInTheDocument();
 
     // 値を戻すと同じ結果に戻る
     fireEvent.change(slider, { target: { value: "0.3" } });
-    expect(screen.getByText("Mid Paper")).toBeInTheDocument();
+    expect(await screen.findByText("Mid Paper")).toBeInTheDocument();
 
     expect(countSearchRequests()).toBe(1);
     expect(addHistory.mock.calls.length).toBe(historyCalls);
@@ -243,8 +269,8 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     expect(announcer).toHaveTextContent("");
 
     fireEvent.change(slider, { target: { value: "0.8" } });
-    // 画面の件数は検索結果（Near）と検索対象外（NoEmbedding）を合わせた2件
-    expect(getDisplayedCount()).toBe("2");
+    // 画面の件数は検索結果（Near）と検索対象外（NoEmbedding）を合わせた2件（索引での再計算は非同期）
+    await waitFor(() => expect(getDisplayedCount()).toBe("2"));
     // ドラッグ中に読み上げを連発しないよう、すぐには更新しない
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -285,7 +311,7 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     fireEvent.change(dialogSlider, { target: { value: "0" } });
     expect(useSettingsStore.getState().searchScoreThreshold).toBe(0);
     expect(slider).toHaveValue("0");
-    expect(screen.getByText("Far Paper")).toBeInTheDocument();
+    expect(await screen.findByText("Far Paper")).toBeInTheDocument();
     expect(countSearchRequests()).toBe(1);
   });
 
@@ -356,7 +382,7 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     fireEvent.change(within(dialog).getByRole("slider", { name: "類似度のしきい値" }), {
       target: { value: "0" },
     });
-    expect(screen.getByText("Far Paper")).toBeInTheDocument();
+    expect(await screen.findByText("Far Paper")).toBeInTheDocument();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 600));
     });

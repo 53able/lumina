@@ -8,7 +8,9 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapApp } from "./bootstrap";
 import { LuminaDB } from "./db/db";
+import { usePaperStore } from "./stores/paperStore";
 import { useSettingsStore } from "./stores/settingsStore";
+import { resetPaperStoreForTest } from "./testing/paperStoreTestUtils";
 
 /** LuminaDB より新しい版の DB を先に作っておき、LuminaDB の open を VersionError で失敗させる */
 const createDbThatFailsToOpen = async (name: string): Promise<LuminaDB> => {
@@ -51,6 +53,7 @@ describe("bootstrapApp", () => {
     db = undefined;
     rootElement.remove();
     vi.restoreAllMocks();
+    resetPaperStoreForTest();
   });
 
   it("初期化に成功したらアプリを描画する", async () => {
@@ -61,6 +64,36 @@ describe("bootstrapApp", () => {
     const view = within(rootElement);
     expect(await view.findByRole("banner")).toBeInTheDocument();
     expect(await view.findByRole("main")).toBeInTheDocument();
+    expect(view.queryByRole("heading", ERROR_HEADING)).toBeNull();
+  });
+
+  it("保存済み論文の読み込み完了を待たずにアプリを描画する（Issue #65）", async () => {
+    db = new LuminaDB(uniqueDbName());
+    // 論文の読み込み（読み取りトランザクション）が終わらない状態にする
+    const pendingDb = db;
+    vi.spyOn(pendingDb, "transaction").mockImplementation(
+      (() => new Promise<never>(() => {})) as unknown as typeof pendingDb.transaction
+    );
+
+    root = await bootstrapApp(rootElement, { db, reload: vi.fn() });
+
+    const view = within(rootElement);
+    expect(await view.findByRole("banner")).toBeInTheDocument();
+    expect(view.queryByRole("heading", ERROR_HEADING)).toBeNull();
+    expect(usePaperStore.getState().loadStatus).toBe("loading");
+  });
+
+  it("保存済み論文の読み込みに失敗しても起動エラー画面にせず、読み込み状態で示す（Issue #65）", async () => {
+    db = new LuminaDB(uniqueDbName());
+    const failingDb = db;
+    vi.spyOn(failingDb, "transaction").mockImplementation((() =>
+      Promise.reject(new Error("papers read failed"))) as unknown as typeof failingDb.transaction);
+
+    root = await bootstrapApp(rootElement, { db, reload: vi.fn() });
+
+    const view = within(rootElement);
+    expect(await view.findByRole("banner")).toBeInTheDocument();
+    await vi.waitFor(() => expect(usePaperStore.getState().loadStatus).toBe("error"));
     expect(view.queryByRole("heading", ERROR_HEADING)).toBeNull();
   });
 

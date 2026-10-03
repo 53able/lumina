@@ -20,6 +20,7 @@ import { getDecryptedApiKey } from "./lib/api";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
+import { resetPaperStoreForTest, seedPaperStoreForTest } from "./testing/paperStoreTestUtils";
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
@@ -152,7 +153,8 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
     useSettingsStore.getState().resetAllSettings();
     // 自動同期を走らせない
     useSettingsStore.setState({ lastSyncedAt: new Date().toISOString(), apiEnabled: true });
-    usePaperStore.setState({ papers: mockPapers, isLoading: false });
+    // 保存済み論文は全件準備済みにする（読み込み中は自動同期・検索の確定を待つため）
+    seedPaperStoreForTest(mockPapers);
     // DB を初期化していないため、検索完了時の履歴追加は何もしない関数に置き換える
     useSearchHistoryStore.setState({ histories: [], addHistory: async () => {} });
   });
@@ -160,6 +162,7 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    resetPaperStoreForTest();
   });
 
   const storeUpdates = [

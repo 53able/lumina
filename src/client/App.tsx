@@ -100,7 +100,10 @@ export const App: FC = () => {
  * - いいね/ブックマーク状態管理
  */
 const HomePage: FC = () => {
-  const { papers, isLoading: isPapersLoading } = usePaperStore();
+  const papers = usePaperStore((s) => s.papers);
+  // 保存済み論文の読み込み状態（全件の準備完了まで自動同期・追加同期をしない）
+  const paperLoadStatus = usePaperStore((s) => s.loadStatus);
+  const arePapersReady = paperLoadStatus === "ready";
   const {
     selectedCategories,
     syncPeriodDays,
@@ -126,6 +129,9 @@ const HomePage: FC = () => {
     results,
     papersExcludedFromSearch,
     isLoading,
+    isWaitingForPapers,
+    resultsReady,
+    resultsScoreThreshold,
     expandedQuery,
     queryEmbedding,
     error: searchError,
@@ -310,18 +316,19 @@ const HomePage: FC = () => {
   // - キャッシュ0件の場合
   // - 最終同期から24時間以上経過している場合
   useEffect(() => {
-    // 条件: ローディング完了 & 同期中でない & まだ自動同期していない
-    if (isPapersLoading || isSyncing || hasAutoSyncedRef.current) return;
+    // 条件: 保存済み論文の全件準備完了 & 同期中でない & まだ自動同期していない
+    // 読み込み中・読み込み失敗では同期しない（既存論文を新規とみなして重複取得・上書きしないため）
+    if (!arePapersReady || isSyncing || hasAutoSyncedRef.current) return;
 
     const needsSync = papers.length === 0 || shouldAutoSync();
     if (needsSync) {
       hasAutoSyncedRef.current = true;
       syncPapers();
     }
-  }, [papers.length, isPapersLoading, isSyncing, shouldAutoSync, syncPapers]);
+  }, [papers.length, arePapersReady, isSyncing, shouldAutoSync, syncPapers]);
 
   // 論文0件で自動同期を始める直前（effect 実行前の描画）に「論文がありません」を出さない
-  const isAutoSyncPending = !hasAutoSyncedRef.current && !isPapersLoading && papers.length === 0;
+  const isAutoSyncPending = !hasAutoSyncedRef.current && arePapersReady && papers.length === 0;
 
   // 検索結果の論文リスト（関連度順）。results.paper は useSemanticSearch 内で papers から解決されるためストア由来
   const searchResultPapers = results.map((r) => r.paper);
@@ -334,9 +341,11 @@ const HomePage: FC = () => {
     queryEmbedding,
     isLoading,
     {
-      scoreThreshold: searchScoreThreshold,
+      // 案内文は表示中の結果を計算したしきい値で出す（変更直後の再計算中に新しい値を付けない）
+      scoreThreshold: resultsScoreThreshold ?? searchScoreThreshold,
       hasSearchablePapers: papers.length > papersExcludedFromSearch.length,
-    }
+    },
+    resultsReady
   );
 
   // 初期表示用の論文（検索後は検索結果＋検索対象外を常時可視化、それ以外はストアから）
@@ -372,7 +381,8 @@ const HomePage: FC = () => {
         searchInputValue={searchInputValue}
         onSearchInputChange={setSearchInputValue}
         whyReadMap={whyReadMap}
-        onRequestSync={hasMorePapers ? syncMore : undefined}
+        // 全件の準備完了までは追加同期しない（読み込み途中の件数を既存論文数として使わないため）
+        onRequestSync={hasMorePapers && arePapersReady ? syncMore : undefined}
         emptySearchMessage={emptySearchMessage}
         isSearchLoading={isLoading}
         expandedPaperId={isDesktop ? (selectedPaper?.id ?? null) : null}
@@ -406,6 +416,7 @@ const HomePage: FC = () => {
         results={results}
         hasQueryEmbedding={queryEmbedding !== null}
         isLoading={isLoading}
+        isWaitingForPapers={isWaitingForPapers}
         selectedPaper={selectedPaper}
         onCloseDetail={handleCloseDetail}
         currentSummary={currentSummary}

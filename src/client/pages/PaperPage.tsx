@@ -1,31 +1,86 @@
-import { ExternalLink, FileQuestion, FileText } from "lucide-react";
-import type { FC } from "react";
+import { ExternalLink, FileQuestion, FileText, Loader2 } from "lucide-react";
+import { type FC, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BackToListLink } from "../components/BackToListLink";
 import { PaperDetail } from "../components/PaperDetail";
 import { Button } from "../components/ui/button";
 import { usePaperSummary } from "../hooks/usePaperSummary";
 import { ARXIV_ID_PATTERN } from "../lib/arxivId";
+import { type PaperListItem, toPaperListItem } from "../lib/paperIndex/core";
 import { showSummaryErrorToast } from "../lib/summaryErrors";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
+
+/** IndexedDB から1件を読む状態（一覧にまだ読み込まれていない論文用） */
+type StoredPaperLookup =
+  | { id: string; status: "loading" }
+  | { id: string; status: "found"; paper: PaperListItem }
+  | { id: string; status: "not-found" }
+  | { id: string; status: "error"; error: Error };
 
 /**
  * PaperPage - 論文単一ページ
  *
  * URLパラメータから論文IDを取得し、詳細を表示する。
  * オブジェクト指向UIの「シングルビュー」パターン。
+ *
+ * 一覧（paperStore）にまだ読み込まれていない論文は IndexedDB から1件だけ読む
+ * （保存済み論文の全件読み込みを待たず、未読み込みを「保存されていない」と誤判定しない）。
+ * DB にも無い場合は、無効IDと未保存IDを区別して表示する（Issue #67）。
  */
 export const PaperPage: FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getPaperById } = usePaperStore();
-  // ストア初期化（IndexedDB からのロード）完了前は「見つからない」と判定しない
-  const isPaperStoreReady = usePaperStore((s) => !s.isLoading && s._db !== null);
+  // 保存時に版番号 vN を除いているため、検索時だけ除く（arXiv へのリンクは元の id を使う）
+  const storedId = id?.replace(/v\d+$/, "");
+  const storePaper = usePaperStore((s) =>
+    storedId ? s.papers.find((p) => p.id === storedId) : undefined
+  );
+  const db = usePaperStore((s) => s._db);
   // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
   const autoGenerateSummary = useSettingsStore((s) => s.autoGenerateSummary && s.apiEnabled);
 
-  // 論文を取得（保存時に版番号 vN を除いているため、検索時だけ除く。arXiv へのリンクは元の id を使う）
-  const paper = id ? getPaperById(id.replace(/v\d+$/, "")) : undefined;
+  const [lookup, setLookup] = useState<StoredPaperLookup | null>(null);
+  /** IndexedDB からの読み直し回数（失敗時の再試行用） */
+  const [lookupAttempt, setLookupAttempt] = useState(0);
+  const needsLookup = storedId !== undefined && storePaper === undefined;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: lookupAttempt は再試行で読み直すための依存
+  useEffect(() => {
+    if (!needsLookup || !db) return;
+    let cancelled = false;
+    setLookup({ id: storedId, status: "loading" });
+    db.papers
+      .get(storedId)
+      .then((stored) => {
+        if (cancelled) return;
+        setLookup(
+          stored
+            ? { id: storedId, status: "found", paper: toPaperListItem(stored) }
+            : { id: storedId, status: "not-found" }
+        );
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLookup({
+          id: storedId,
+          status: "error",
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsLookup, db, storedId, lookupAttempt]);
+
+  // 現在の ID に対する読み込み結果だけを使う
+  const currentLookup = lookup !== null && lookup.id === storedId ? lookup : null;
+  const paper: PaperListItem | undefined =
+    storePaper ?? (currentLookup?.status === "found" ? currentLookup.paper : undefined);
+  // DB 未初期化・読み込み中は「見つからない」と判定しない
+  const isLookingUp =
+    paper === undefined &&
+    id !== undefined &&
+    (db === null || currentLookup === null || currentLookup.status === "loading");
 
   // サマリー管理（カスタムフックに責務を委譲）
   const {
@@ -47,19 +102,49 @@ export const PaperPage: FC = () => {
     onError: (err, paperId, target) => {
       console.error("Summary generation error:", err);
       // 生成中に別の論文へ移動している場合があるため、どの論文の失敗かを示す
-      showSummaryErrorToast(err, getPaperById(paperId)?.title, target);
+      const title =
+        usePaperStore.getState().getPaperById(paperId)?.title ??
+        (paper?.id === paperId ? paper.title : undefined);
+      showSummaryErrorToast(err, title, target);
     },
   });
 
-  // ストアのロード中
-  if (!paper && !isPaperStoreReady) {
+  // 一覧に未読み込みの論文を IndexedDB から読んでいる間
+  if (isLookingUp) {
     return (
-      <output className="grid min-h-dvh place-items-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-12 w-12 animate-loading-bold rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground font-bold">論文を読み込み中...</p>
+      <div className="min-h-dvh bg-background bg-gradient-lumina">
+        <div className="mx-auto max-w-3xl px-4 py-8">
+          <BackToListLink className="mb-8" />
+          <output
+            className="flex flex-col items-center justify-center gap-3 py-16"
+            aria-live="polite"
+            data-testid="paper-page-loading"
+          >
+            <Loader2 className="h-10 w-10 animate-spin text-primary" aria-hidden />
+            <span className="text-sm font-bold text-muted-foreground">論文を読み込み中...</span>
+          </output>
         </div>
-      </output>
+      </div>
+    );
+  }
+
+  // IndexedDB から読めなかった場合（見つからないとは区別し、再試行できるようにする）
+  if (!paper && currentLookup?.status === "error") {
+    return (
+      <div className="min-h-dvh bg-background bg-gradient-lumina">
+        <div className="mx-auto max-w-3xl px-4 py-8">
+          <BackToListLink className="mb-8" />
+          <div className="flex flex-col items-center justify-center gap-6 py-16" role="alert">
+            <div className="text-center space-y-2">
+              <h1 className="text-2xl font-bold">論文を読み込めませんでした</h1>
+              <p className="break-all text-sm text-muted-foreground">
+                詳細: {currentLookup.error.message}
+              </p>
+            </div>
+            <Button onClick={() => setLookupAttempt((n) => n + 1)}>再試行</Button>
+          </div>
+        </div>
+      </div>
     );
   }
 

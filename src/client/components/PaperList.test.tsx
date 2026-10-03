@@ -34,7 +34,16 @@ vi.mock("../stores/syncStore", () => ({
 }));
 
 /** 空表示は保存済み論文数で「未同期」と「条件に一致しない」を分ける */
-let mockPaperStoreState = { papers: [] as Paper[], isLoading: false };
+/** 読み込みの再試行（呼び出しを検証しないテスト用） */
+const noopRetryLoad = async () => {};
+let mockPaperStoreState: {
+  papers: Paper[];
+  isLoading: boolean;
+  /** 保存済み論文の読み込み状態（省略時は読み込み済み） */
+  loadStatus?: "idle" | "loading" | "ready" | "error";
+  loadError?: Error | null;
+  retryLoad: () => Promise<void>;
+} = { papers: [], isLoading: false, retryLoad: noopRetryLoad };
 vi.mock("../stores/paperStore", () => ({
   usePaperStore: (selector: (s: typeof mockPaperStoreState) => unknown) =>
     selector(mockPaperStoreState),
@@ -102,7 +111,7 @@ const createSamplePaper = (id: string, title: string): Paper => ({
 describe("PaperList", () => {
   afterEach(() => {
     mockSyncStoreState = { isFetching: false, isLoadingMore: false };
-    mockPaperStoreState = { papers: [], isLoading: false };
+    mockPaperStoreState = { papers: [], isLoading: false, retryLoad: noopRetryLoad };
     mockLastSyncedAt = null;
     cleanup();
     vi.clearAllMocks();
@@ -213,6 +222,7 @@ describe("PaperList", () => {
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
+        retryLoad: noopRetryLoad,
       };
       mockSyncStoreState = { isFetching: true, isLoadingMore: false };
 
@@ -233,6 +243,7 @@ describe("PaperList", () => {
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
+        retryLoad: noopRetryLoad,
       };
       // 以前の同期失敗が残っていても、論文があれば0件の原因は検索条件
       mockSyncStoreState = {
@@ -263,6 +274,7 @@ describe("PaperList", () => {
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
+        retryLoad: noopRetryLoad,
       };
 
       renderWithRouter(
@@ -304,6 +316,81 @@ describe("PaperList", () => {
     });
   });
 
+  describe("保存済み論文の読み込み状態（#65）", () => {
+    it("読み込みに失敗して論文が0件なら、同期ではなく読み込みの再試行を表示する", async () => {
+      const { PaperList } = await import("./PaperList");
+      const retryLoad = vi.fn(async () => {});
+      mockPaperStoreState = {
+        papers: [],
+        isLoading: false,
+        loadStatus: "error",
+        loadError: new Error("保存済みの論文を読み込めませんでした: IndexedDB が開けません"),
+        retryLoad,
+      };
+
+      renderWithRouter(<PaperList papers={[]} onSync={vi.fn()} onOpenSettings={vi.fn()} />);
+
+      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "load-failed");
+      expect(screen.getByText(/IndexedDB が開けません/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "論文を同期" })).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "読み込みを再試行" }));
+      expect(retryLoad).toHaveBeenCalledTimes(1);
+    });
+
+    it("読み込み中に読み込み済みの論文が条件に一致しなければ、残りを読み込み中と示す", async () => {
+      const { PaperList } = await import("./PaperList");
+      mockPaperStoreState = {
+        papers: [createSamplePaper("2401.00001", "Stored Paper")],
+        isLoading: true,
+        loadStatus: "loading",
+        retryLoad: noopRetryLoad,
+      };
+
+      renderWithRouter(<PaperList papers={[]} onClearConditions={vi.fn()} />);
+
+      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "loading-stored");
+      expect(screen.getByRole("button", { name: "検索・絞り込みを解除" })).toBeInTheDocument();
+    });
+
+    it("読み込み中・読み込み失敗時は「すべての論文を表示しました」を出さない", async () => {
+      const { PaperList } = await import("./PaperList");
+      const papers = Array.from({ length: 60 }, (_, i) =>
+        createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i}`)
+      );
+      mockPaperStoreState = {
+        papers,
+        isLoading: true,
+        loadStatus: "loading",
+        retryLoad: noopRetryLoad,
+      };
+
+      renderWithRouter(<PaperList papers={papers} />);
+      expect(screen.queryByText("すべての論文を表示しました")).not.toBeInTheDocument();
+      cleanup();
+
+      // 一部だけ読み込んで失敗した場合も、すべてを表示したとは言わない
+      mockPaperStoreState = {
+        papers,
+        isLoading: false,
+        loadStatus: "error",
+        retryLoad: noopRetryLoad,
+      };
+      renderWithRouter(<PaperList papers={papers} />);
+      expect(screen.queryByText("すべての論文を表示しました")).not.toBeInTheDocument();
+      cleanup();
+
+      mockPaperStoreState = {
+        papers,
+        isLoading: false,
+        loadStatus: "ready",
+        retryLoad: noopRetryLoad,
+      };
+      renderWithRouter(<PaperList papers={papers} />);
+      expect(screen.getByText("すべての論文を表示しました")).toBeInTheDocument();
+    });
+  });
+
   describe("論文数の表示", () => {
     it("正常系: 論文数が表示される", () => {
       const papers = [
@@ -316,6 +403,27 @@ describe("PaperList", () => {
       // 件数と「件の論文」が表示されていることを確認
       expect(screen.getByText("2")).toBeInTheDocument();
       expect(screen.getByText(/件の論文/)).toBeInTheDocument();
+      expect(screen.queryByText(/読み込み済み/)).not.toBeInTheDocument();
+    });
+
+    it("保存済み論文の読み込み中は、読み込み済みの分の件数であることを示す", async () => {
+      const { PaperList } = await import("./PaperList");
+      const papers = [
+        createSamplePaper("2401.00001", "Paper 1"),
+        createSamplePaper("2401.00002", "Paper 2"),
+      ];
+      mockPaperStoreState = {
+        papers,
+        isLoading: true,
+        loadStatus: "loading",
+        retryLoad: noopRetryLoad,
+      };
+
+      renderWithRouter(<PaperList papers={papers} showCount />);
+
+      expect(screen.getByText(/読み込み済みの論文のうち/)).toHaveTextContent(
+        "読み込み済みの論文のうち 2件の論文"
+      );
     });
   });
 

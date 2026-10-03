@@ -18,6 +18,7 @@ import {
 import type { Paper } from "../../shared/schemas/index";
 import { useHomeSearch } from "../hooks/useHomeSearch";
 import { usePaperStore } from "../stores/paperStore";
+import { createTestSearchSource } from "../testing/paperStoreTestUtils";
 import { PaperExplorer } from "./PaperExplorer";
 
 const {
@@ -161,7 +162,11 @@ const renderExplorer = (props: ComponentProps<typeof PaperExplorer> = {}, initia
  * （App.tsx での displayPapers の組み立ては簡略化している）
  */
 const HomeSearchHarness = () => {
-  const home = useHomeSearch({ papers: mockPapers, addHistory: async () => {} });
+  const home = useHomeSearch({
+    papers: mockPapers,
+    addHistory: async () => {},
+    searchSource: createTestSearchSource(mockPapers),
+  });
   const displayPapers =
     home.completedQuery !== null ? home.results.map((result) => result.paper) : mockPapers;
 

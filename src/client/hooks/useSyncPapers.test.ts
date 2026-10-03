@@ -39,6 +39,9 @@ const mockAddPapers = vi.fn();
 const mockAddPaper = vi.fn();
 const mockSetLastSyncedAt = vi.fn();
 
+/** 保存済み論文の全件準備完了を待つ関数のモック（既定は準備済み） */
+const mockWhenPapersReady = vi.fn((..._args: unknown[]) => Promise.resolve());
+
 /** runEmbeddingBackfill 用: getState().papers で返すストアの論文（addPapers で更新される） */
 const papersRef = {
   current: [] as Array<{ id: string; title?: string; abstract?: string; embedding?: number[] }>,
@@ -66,6 +69,8 @@ vi.mock("../stores/paperStore", () => ({
       }),
     }
   ),
+  // 保存済み論文は全件準備済みとして扱う（読み込み中・失敗時の待機は個別のテストで差し替える）
+  whenPapersReady: (...args: unknown[]) => mockWhenPapersReady(...args),
 }));
 
 vi.mock("../stores/settingsStore", () => ({
@@ -1103,7 +1108,7 @@ describe("useSyncPapers", () => {
 
     it("初回同期で取得した論文の保存が終わるまで保存中として数え、保存に失敗しても戻す", async () => {
       vi.useRealTimers();
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      const onError = vi.fn();
       let rejectSave: (error: Error) => void = () => {};
       mockAddPapers.mockImplementation(
         () =>
@@ -1112,9 +1117,10 @@ describe("useSyncPapers", () => {
           })
       );
       mockSyncApi.mockResolvedValueOnce(createMockResponse(0, 2));
-      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
-        wrapper,
-      });
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onError }),
+        { wrapper }
+      );
 
       await act(async () => {
         result.current.sync();
@@ -1125,8 +1131,39 @@ describe("useSyncPapers", () => {
         rejectSave(new Error("DB write failed"));
       });
       expect(useSyncStore.getState().savingSyncedPapersCount).toBe(0);
-      expect(consoleError).toHaveBeenCalled();
-      consoleError.mockRestore();
+      // 保存に失敗した範囲は取得済みとして記録せず、同期エラーとして残す
+      expect(useSyncStore.getState().lastSyncError?.message).toBe("DB write failed");
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "initial" });
+      expect(useSyncStore.getState().requestedRanges).toEqual([]);
+      expect(useSyncStore.getState().totalResults).toBeNull();
+      expect(mockSetLastSyncedAt).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledTimes(1);
+    });
+
+    it("追加取得で取得した論文の保存に失敗すると、範囲を取得済みにせず more のエラーとして残す", async () => {
+      vi.useRealTimers();
+      papersRef.current = Array.from({ length: 50 }, (_, i) => ({ id: `paper-${i}` }));
+      useSyncStore.getState().setRequestedRanges([[0, 50]]);
+      useSyncStore.getState().setTotalResults(125);
+      mockSyncApi.mockResolvedValueOnce(createMockResponse(50, 125));
+      mockAddPapers.mockRejectedValueOnce(new Error("DB write failed"));
+      const onError = vi.fn();
+      const onSuccess = vi.fn();
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onError, onSuccess }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await expect(result.current.syncMore()).rejects.toThrow("DB write failed");
+      });
+
+      expect(useSyncStore.getState().requestedRanges).toEqual([[0, 50]]);
+      expect(useSyncStore.getState().lastSyncError?.message).toBe("DB write failed");
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "more" });
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onSuccess).not.toHaveBeenCalled();
+      expect(useSyncStore.getState().isLoadingMore).toBe(false);
     });
 
     it("保存中の件数は並行する保存がすべて終わるまで0にならない", () => {
@@ -1194,6 +1231,161 @@ describe("useSyncPapers", () => {
       expect(useSyncStore.getState().lastSyncError?.message).toBe("Sync failed: 500");
       expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "all" });
       expect(onError).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("保存済み論文の読み込み中の同期（#65）", () => {
+    /** 全件準備の完了・失敗をテストから制御する */
+    const deferReady = () => {
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+
+    afterEach(() => {
+      mockWhenPapersReady.mockImplementation(() => Promise.resolve());
+    });
+
+    it("同期は全件の準備完了まで API を呼ばず、完了後の全件を既存論文として送る", async () => {
+      const ready = deferReady();
+      mockWhenPapersReady.mockImplementation(() => ready.promise);
+      // 読み込み途中（先頭の1件だけ）
+      papersRef.current = [{ id: "store-paper-1" }];
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 0));
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      act(() => {
+        result.current.sync();
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockSyncApi).not.toHaveBeenCalled();
+
+      papersRef.current = [{ id: "store-paper-1" }, { id: "store-paper-2" }];
+      await act(async () => {
+        ready.resolve();
+      });
+
+      await waitFor(() => expect(mockSyncApi).toHaveBeenCalledTimes(1));
+      const [request] = mockSyncApi.mock.calls[0] as [{ existingPaperIds?: string[] }];
+      expect(request.existingPaperIds).toEqual(["store-paper-1", "store-paper-2"]);
+    });
+
+    it("読み込みに失敗していると同期せず、同期エラーとして残す", async () => {
+      const loadError = new Error("保存済みの論文を読み込めませんでした: IndexedDB が開けません");
+      mockWhenPapersReady.mockImplementation(() => Promise.reject(loadError));
+      const onError = vi.fn();
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onError }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        result.current.sync();
+      });
+
+      await waitFor(() => expect(useSyncStore.getState().lastSyncError).toBe(loadError));
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "initial" });
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(mockSyncApi).not.toHaveBeenCalled();
+      expect(mockAddPapers).not.toHaveBeenCalled();
+    });
+
+    it("同期は待機中に重ねて呼ばれても1回だけ取得する", async () => {
+      const ready = deferReady();
+      mockWhenPapersReady.mockImplementation(() => ready.promise);
+      mockSyncApi.mockResolvedValue(createMockResponse(0, 2));
+      const onSuccess = vi.fn();
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onSuccess }),
+        { wrapper }
+      );
+
+      act(() => {
+        result.current.sync();
+        result.current.sync();
+        result.current.sync();
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockSyncApi).not.toHaveBeenCalled();
+
+      await act(async () => {
+        ready.resolve();
+      });
+
+      await waitFor(() => expect(useSyncStore.getState().totalResults).toBe(2));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockSyncApi).toHaveBeenCalledTimes(1);
+      expect(mockAddPapers).toHaveBeenCalledTimes(1);
+      expect(onSuccess).toHaveBeenCalledTimes(1);
+      expect(mockSetLastSyncedAt).toHaveBeenCalledTimes(1);
+    });
+
+    it("追加同期は待機中に重ねて呼ばれても1回だけ取得する", async () => {
+      const ready = deferReady();
+      mockWhenPapersReady.mockImplementation(() => ready.promise);
+      papersRef.current = Array.from({ length: 50 }, (_, i) => ({ id: `paper-${i}` }));
+      useSyncStore.getState().setRequestedRanges([[0, 50]]);
+      useSyncStore.getState().setTotalResults(125);
+      mockSyncApi.mockResolvedValue(createMockResponse(50, 125));
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      let first!: Promise<void>;
+      act(() => {
+        first = result.current.syncMore();
+        void result.current.syncMore();
+        void result.current.syncMore();
+      });
+      expect(mockSyncApi).not.toHaveBeenCalled();
+
+      await act(async () => {
+        ready.resolve();
+        await first;
+      });
+
+      expect(mockSyncApi).toHaveBeenCalledTimes(1);
+      const [request] = mockSyncApi.mock.calls[0] as [{ start?: number }];
+      expect(request.start).toBe(50);
+    });
+
+    it("Embedding 補完は全件の準備完了後に対象を抽出する", async () => {
+      const ready = deferReady();
+      mockWhenPapersReady.mockImplementation(() => ready.promise);
+      papersRef.current = [{ id: "loaded-early", title: "T", abstract: "A" }];
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+
+      let running!: Promise<void>;
+      act(() => {
+        running = result.current.runEmbeddingBackfill();
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mockRunBackfillEmbeddings).not.toHaveBeenCalled();
+
+      papersRef.current = [
+        { id: "loaded-early", title: "T", abstract: "A" },
+        { id: "loaded-late", title: "T2", abstract: "A2" },
+      ];
+      await act(async () => {
+        ready.resolve();
+        await running;
+      });
+
+      expect(mockRunBackfillEmbeddings).toHaveBeenCalledTimes(1);
+      const [targets] = mockRunBackfillEmbeddings.mock.calls[0] as [Array<{ id: string }>];
+      expect(targets.map((p) => p.id)).toEqual(["loaded-early", "loaded-late"]);
     });
   });
 });

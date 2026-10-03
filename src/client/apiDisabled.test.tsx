@@ -17,10 +17,10 @@ import { useSemanticSearch } from "./hooks/useSemanticSearch";
 import { useSyncPapers } from "./hooks/useSyncPapers";
 import { ApiDisabledError } from "./lib/api";
 import { PaperPage } from "./pages/PaperPage";
-import { usePaperStore } from "./stores/paperStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useSummaryStore } from "./stores/summaryStore";
 import { useSyncStore } from "./stores/syncStore";
+import { resetPaperStoreForTest, seedPaperStoreForTest } from "./testing/paperStoreTestUtils";
 
 const toastError = vi.hoisted(() => vi.fn());
 vi.mock("sonner", () => ({
@@ -88,7 +88,7 @@ describe("API利用OFF時の外部AI呼び出し停止", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     useSettingsStore.getState().resetAllSettings();
-    usePaperStore.setState({ papers: [paper], isLoading: false });
+    seedPaperStoreForTest([paper]);
     // IndexedDB を使わずに保存できるようにする（前提確認テストで要約が返るため）
     useSummaryStore.setState({ summaries: [], addSummary: vi.fn(async () => {}) });
   });
@@ -96,6 +96,7 @@ describe("API利用OFF時の外部AI呼び出し停止", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    resetPaperStoreForTest();
   });
 
   it("前提: 自動要約ON・API利用ONなら未要約論文を開くと summary リクエストが発生する", async () => {

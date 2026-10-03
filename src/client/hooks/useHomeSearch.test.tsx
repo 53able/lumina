@@ -10,6 +10,8 @@ import type { ReactNode } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExpandedQuery, Paper, SearchHistory } from "../../shared/schemas/index";
+import type { PaperSearchSource } from "../lib/paperIndex/core";
+import { createTestSearchSource } from "../testing/paperStoreTestUtils";
 import { useHomeSearch } from "./useHomeSearch";
 import { usePaperFilter } from "./usePaperFilter";
 
@@ -62,10 +64,13 @@ const renderHomeSearch = ({
   initialUrl = "/",
   initialPapers = papers,
   savedHistories = [],
+  searchSource,
 }: {
   initialUrl?: string;
   initialPapers?: Paper[];
   savedHistories?: SearchHistory[];
+  /** 検索の実行元（省略時は渡した論文を全件準備済みとして検索する） */
+  searchSource?: PaperSearchSource;
 } = {}) => {
   const findSavedHistory = (query: string) => savedHistories.find((h) => h.originalQuery === query);
   const addHistory = vi.fn(async (_history: SearchHistory) => {});
@@ -74,7 +79,12 @@ const renderHomeSearch = ({
   };
   const view = renderHook(
     ({ papers: currentPapers }: { papers: Paper[] }) => ({
-      home: useHomeSearch({ papers: currentPapers, addHistory, findSavedHistory }),
+      home: useHomeSearch({
+        papers: currentPapers,
+        addHistory,
+        findSavedHistory,
+        searchSource: searchSource ?? createTestSearchSource(currentPapers),
+      }),
       filter: usePaperFilter(),
       location: useLocation(),
     }),
@@ -161,7 +171,9 @@ describe("useHomeSearch", () => {
       expect(result.current.home.papersExcludedFromSearch.map((p) => p.id)).toEqual(["2401.00002"]);
 
       const addedPaper: Paper = { ...(papers[0] as Paper), id: "2401.00003" };
-      rerender({ papers: [...papers, { ...pendingPaper, embedding }, addedPaper] });
+      await act(async () => {
+        rerender({ papers: [...papers, { ...pendingPaper, embedding }, addedPaper] });
+      });
 
       expect(result.current.home.papersExcludedFromSearch).toEqual([]);
       expect(result.current.home.results.map((r) => r.paper.id)).toEqual(
@@ -186,7 +198,9 @@ describe("useHomeSearch", () => {
         result.current.home.handleReSearch(history);
       });
 
-      await waitFor(() => expect(result.current.home.expandedQuery?.original).toBe("履歴の語"));
+      // 結果の確定（索引での計算）は非同期のため、完了クエリが揃うまで待つ
+      await waitFor(() => expect(result.current.home.completedQuery).toBe("履歴の語"));
+      expect(result.current.home.expandedQuery?.original).toBe("履歴の語");
       expect(result.current.location.search).toBe(`?q=${encodeURIComponent("履歴の語")}`);
       expect(result.current.home.results).toHaveLength(1);
       expect(mockSearchApi).not.toHaveBeenCalled();
@@ -736,6 +750,158 @@ describe("useHomeSearch", () => {
       });
 
       expect(mockSearchApi).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("保存済み論文の読み込み中の検索（#65）", () => {
+    /** 全件（読み込み完了後）の論文。読み込み中の一覧には先頭の1件だけがある */
+    const allPapers: Paper[] = [
+      papers[0] as Paper,
+      { ...(papers[0] as Paper), id: "2401.00002" },
+      { ...(papers[0] as Paper), id: "2401.00003" },
+    ];
+
+    /** 全件準備の完了をテストから制御できる検索の実行元（索引には全件が入る） */
+    const createLoadingSource = () => {
+      let ready = false;
+      let resolveReady!: () => void;
+      const readyPromise = new Promise<void>((resolve) => {
+        resolveReady = () => {
+          ready = true;
+          resolve();
+        };
+      });
+      const source: PaperSearchSource = {
+        isReady: () => ready,
+        whenReady: () => readyPromise,
+        search: createTestSearchSource(allPapers).search,
+      };
+      return { source, resolveReady };
+    };
+
+    /** 読み込み中の状態で検索の入口を操作し、完了前後の結果・履歴を確かめる */
+    const expectSettledAfterLoad = async (
+      view: ReturnType<typeof renderHomeSearch>,
+      loading: ReturnType<typeof createLoadingSource>,
+      query: string
+    ) => {
+      await waitFor(() => expect(view.result.current.home.isWaitingForPapers).toBe(true));
+      // 読み込み途中の部分集合を確定結果にしない
+      expect(view.result.current.home.resultsReady).toBe(false);
+      expect(view.result.current.home.results).toEqual([]);
+      expect(view.result.current.home.completedQuery).toBeNull();
+      expect(view.addHistory).not.toHaveBeenCalled();
+
+      await act(async () => {
+        view.rerender({ papers: allPapers });
+        loading.resolveReady();
+      });
+
+      await waitFor(() => expect(view.result.current.home.completedQuery).toBe(query));
+      expect(view.result.current.home.results.map((r) => r.paper.id)).toEqual([
+        "2401.00001",
+        "2401.00002",
+        "2401.00003",
+      ]);
+      // 履歴には全件に対する件数を1回だけ保存する
+      await waitFor(() => expect(view.addHistory).toHaveBeenCalledTimes(1));
+      expect(view.addHistory.mock.calls[0]?.[0]).toMatchObject({
+        originalQuery: query,
+        resultCount: 3,
+      });
+    };
+
+    it("入力からの検索は全件の準備完了後に確定し、全件の件数で履歴に保存する", async () => {
+      mockSearchApi.mockResolvedValue(response("transformer"));
+      const loading = createLoadingSource();
+      const view = renderHomeSearch({
+        initialPapers: [allPapers[0] as Paper],
+        searchSource: loading.source,
+      });
+
+      act(() => {
+        void view.result.current.home.handleSearch("transformer");
+      });
+
+      await expectSettledAfterLoad(view, loading, "transformer");
+      expect(mockSearchApi).toHaveBeenCalledTimes(1);
+    });
+
+    it("URL からの検索は全件の準備完了後に確定し、全件の件数で履歴に保存する", async () => {
+      mockSearchApi.mockResolvedValue(response("transformer"));
+      const loading = createLoadingSource();
+      const view = renderHomeSearch({
+        initialUrl: "/?q=transformer",
+        initialPapers: [allPapers[0] as Paper],
+        searchSource: loading.source,
+      });
+
+      await expectSettledAfterLoad(view, loading, "transformer");
+      expect(mockSearchApi).toHaveBeenCalledTimes(1);
+    });
+
+    it("履歴からの再検索は全件の準備完了後に確定し、全件の件数で履歴を更新する", async () => {
+      const loading = createLoadingSource();
+      const view = renderHomeSearch({
+        initialPapers: [allPapers[0] as Paper],
+        searchSource: loading.source,
+      });
+      const history: SearchHistory = {
+        id: "h1",
+        originalQuery: "履歴の語",
+        expandedQuery: expanded("履歴の語"),
+        queryEmbedding: embedding,
+        resultCount: 1,
+        createdAt: new Date(),
+      };
+
+      act(() => {
+        view.result.current.home.handleReSearch(history);
+      });
+
+      await expectSettledAfterLoad(view, loading, "履歴の語");
+      expect(mockSearchApi).not.toHaveBeenCalled();
+    });
+
+    it("編集した検索文での再検索も、読み込み中は全件の準備完了まで確定しない", async () => {
+      mockSearchApi.mockResolvedValue(response("transformer"));
+      let ready = true;
+      let gate = Promise.resolve();
+      let openGate!: () => void;
+      const source: PaperSearchSource = {
+        isReady: () => ready,
+        whenReady: () => gate,
+        search: createTestSearchSource(allPapers).search,
+      };
+      const view = renderHomeSearch({ initialPapers: allPapers, searchSource: source });
+      await act(async () => {
+        await view.result.current.home.handleSearch("transformer");
+      });
+      await waitFor(() => expect(view.addHistory).toHaveBeenCalledTimes(1));
+
+      // 読み込みの再試行中を再現する
+      ready = false;
+      gate = new Promise<void>((resolve) => {
+        openGate = () => {
+          ready = true;
+          resolve();
+        };
+      });
+      act(() => {
+        view.result.current.home.handleSearchWithEditedText("transformer attention");
+      });
+      await waitFor(() => expect(view.result.current.home.isWaitingForPapers).toBe(true));
+      expect(view.result.current.home.resultsReady).toBe(false);
+      expect(view.addHistory).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        openGate();
+      });
+      await waitFor(() => expect(view.addHistory).toHaveBeenCalledTimes(2));
+      expect(view.addHistory.mock.calls[1]?.[0]).toMatchObject({
+        originalQuery: "transformer",
+        resultCount: 3,
+      });
     });
   });
 });

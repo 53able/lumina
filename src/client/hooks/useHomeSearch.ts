@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExpandedQuery, Paper, SearchHistory } from "../../shared/schemas/index";
+import type { PaperSearchSource } from "../lib/paperIndex/core";
 import { usePaperFilter } from "./usePaperFilter";
 import { useSearchFromUrl } from "./useSearchFromUrl";
 import { useSearchHistorySync } from "./useSearchHistorySync";
@@ -14,6 +15,8 @@ interface UseHomeSearchOptions {
   addHistory: (history: SearchHistory) => Promise<void>;
   /** クエリに一致する保存済み履歴を返す（URL 起点でも保存済み Embedding を使い API を省くため） */
   findSavedHistory?: (query: string) => SearchHistory | undefined;
+  /** 検索の実行元（既定は paperStore の索引。テストで差し替える） */
+  searchSource?: PaperSearchSource;
 }
 
 /** 保存済み Embedding を持つ履歴か */
@@ -44,10 +47,18 @@ export const useHomeSearch = ({
   scoreThreshold,
   addHistory,
   findSavedHistory,
+  searchSource,
 }: UseHomeSearchOptions) => {
-  const semanticSearch = useSemanticSearch({ papers, scoreThreshold });
-  const { search, searchWithSavedData, reset, expandedQuery, queryEmbedding, totalMatchCount } =
-    semanticSearch;
+  const semanticSearch = useSemanticSearch({ papers, scoreThreshold, searchSource });
+  const {
+    search,
+    searchWithSavedData,
+    reset,
+    expandedQuery,
+    queryEmbedding,
+    totalMatchCount,
+    resultsReady,
+  } = semanticSearch;
 
   const { searchQuery, setSearchQuery } = usePaperFilter();
   const urlQuery = searchQuery ?? "";
@@ -68,6 +79,7 @@ export const useHomeSearch = ({
     expandedQuery,
     queryEmbedding,
     totalMatchCount,
+    resultsReady,
     lastSearchQueryRef,
     addHistory
   );
@@ -173,8 +185,14 @@ export const useHomeSearch = ({
 
   return {
     ...semanticSearch,
-    /** 結果が揃った検索のクエリ（検索中・クリア後は null） */
-    completedQuery: expandedQuery !== null ? activeQuery : null,
+    /**
+     * 結果が揃った検索のクエリ（検索中・保存済み論文の全件準備待ち・クリア後は null）。
+     * 失敗した検索（キー復号失敗など）は理由を表示するため、拡張クエリがあればクエリを返す
+     */
+    completedQuery:
+      expandedQuery !== null && (resultsReady || semanticSearch.error !== null)
+        ? activeQuery
+        : null,
     /** API利用OFFで止まった検索の確定クエリ（入力欄の編集では変わらない。それ以外は null） */
     stoppedQuery:
       semanticSearch.error?.name === "ApiDisabledError" ? (activeQuery?.trim() ?? null) : null,

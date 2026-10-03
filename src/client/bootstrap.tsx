@@ -40,6 +40,9 @@ interface BootstrapOptions {
  *
  * ストアの初期化（IndexedDB の open を含む）に失敗したら、白い画面のまま止めずにエラー画面を描画する（Issue #87）。
  * 設定ストアの API key 暗号化移行の失敗はエラー画面にせず、起動を続ける。
+ *
+ * 保存済み論文は Web Worker で段階的に読み込み、全件の完了を待たずに描画する（Issue #65）。
+ * 論文の読み込み失敗はエラー画面にせず、画面内の読み込み状態（再試行）で示す。
  */
 export const bootstrapApp = async (
   rootElement: HTMLElement,
@@ -48,9 +51,11 @@ export const bootstrapApp = async (
   // アプリ起動前に Web Crypto を先にウォームアップしてから IndexedDB 初期化（リロード直後の検索で復号失敗しないよう）
   await warmupCrypto().catch(() => {});
 
+  // 待たない（失敗しても reject せず paperStore の loadStatus に残る）
+  void initializePaperStore(db);
+
   try {
     await Promise.all([
-      initializePaperStore(db),
       initializeSummaryStore(db),
       initializeInteractionStore(db),
       initializeSearchHistoryStore(db),
