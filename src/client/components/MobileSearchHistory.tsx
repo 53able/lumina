@@ -40,14 +40,6 @@ export const MobileSearchHistory: FC<MobileSearchHistoryProps> = ({
 
   const undoableCount = undo?.deletedHistories.length ?? 0;
   const failureCount = Object.keys(undo?.historyErrors ?? {}).length;
-  // 見た目の件数表示を区切って読み上げる（表示テキストを含めた名前にする）
-  const toggleLabel = [
-    `検索履歴 ${histories.length}件`,
-    undoableCount > 0 ? `元に戻せる${undoableCount}件` : null,
-    failureCount > 0 ? `失敗${failureCount}件` : null,
-  ]
-    .filter(Boolean)
-    .join("、");
 
   const close = () => {
     setIsOpen(false);
@@ -71,20 +63,28 @@ export const MobileSearchHistory: FC<MobileSearchHistoryProps> = ({
         className="h-8 gap-1.5 px-3 text-sm"
         aria-expanded={isOpen}
         aria-controls={panelId}
-        aria-label={toggleLabel}
       >
         <History className="h-4 w-4" aria-hidden />
         検索履歴
-        <span className="text-xs text-muted-foreground">{histories.length}件</span>
+        {/* 件数は表示中の履歴（直近の上限まで）の数。各行の件数（検索結果の数）とは別。
+            読み上げ名は表示テキストから作り、区切りだけ sr-only で補う */}
+        <span className="sr-only">、</span>
+        <span className="text-xs text-muted-foreground">直近{histories.length}件</span>
         {undoableCount > 0 ? (
-          <span className="rounded-full bg-primary/20 px-1.5 text-xs text-primary">
-            元に戻せる{undoableCount}件
-          </span>
+          <>
+            <span className="sr-only">、</span>
+            <span className="rounded-full bg-primary/20 px-1.5 text-xs text-primary">
+              元に戻せる{undoableCount}件
+            </span>
+          </>
         ) : null}
         {failureCount > 0 ? (
-          <span className="rounded-full bg-destructive/15 px-1.5 text-xs text-destructive">
-            失敗{failureCount}件
-          </span>
+          <>
+            <span className="sr-only">、</span>
+            <span className="rounded-full bg-destructive/15 px-1.5 text-xs text-destructive">
+              失敗{failureCount}件
+            </span>
+          </>
         ) : null}
         <ChevronDown
           className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")}

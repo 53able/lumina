@@ -277,7 +277,9 @@ describe("SearchHistory", () => {
 
       await waitFor(() => expect(screen.getByRole("button", { name: /^B検索/ })).toHaveFocus());
       expect(screen.queryByRole("button", { name: "「B検索」を元に戻す" })).not.toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent("「B検索」を元に戻しました");
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「B検索」を元に戻しました")
+      );
       const rows = within(screen.getAllByRole("list").at(-1) as HTMLElement).getAllByRole(
         "listitem"
       );

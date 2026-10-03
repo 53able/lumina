@@ -235,12 +235,12 @@ describe("HomeMain の検索履歴", () => {
       expect(screen.getAllByRole("button", { name: /^A検索/, hidden: true })).toHaveLength(1);
     });
 
-    it("開閉ボタンに履歴の件数を出す（0件でも分かる）", async () => {
+    it("開閉ボタンに表示中の履歴の件数を「直近N件」として出す（0件でも分かる）", async () => {
       await seed([]);
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
 
       expect(screen.getByRole("button", { name: /^検索履歴/ })).toHaveAccessibleName(
-        "検索履歴 0件"
+        "検索履歴、直近0件"
       );
     });
 
@@ -280,7 +280,7 @@ describe("HomeMain の検索履歴", () => {
       await waitFor(() =>
         expect(screen.getByRole("status")).toHaveTextContent("「A検索」を削除しました")
       );
-      expect(toggle).toHaveAccessibleName("検索履歴 1件、元に戻せる1件");
+      expect(toggle).toHaveAccessibleName("検索履歴、直近1件、元に戻せる1件");
       // 折りたたみ中はフォーカスを奪わない
       expect(toggle).toHaveFocus();
     });
@@ -308,12 +308,41 @@ describe("HomeMain の検索履歴", () => {
           "「A検索」を削除できませんでした。検索履歴を開いて再試行できます。"
         )
       );
-      expect(toggle).toHaveAccessibleName("検索履歴 1件、失敗1件");
+      expect(toggle).toHaveAccessibleName("検索履歴、直近1件、失敗1件");
 
       // 開くと行内のエラーと再試行がある
       await user.click(toggle);
       expect(screen.getByRole("alert")).toHaveTextContent("削除できませんでした: DB書き込み失敗");
       expect(screen.getByRole("button", { name: "「A検索」の削除を再試行" })).toBeVisible();
+    });
+
+    it("折りたたんだ後に失敗した元に戻すは、パネル外で通知する", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索"]);
+      render(<ConnectedHomeMain onReSearch={vi.fn()} />);
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      await user.click(toggle);
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      const undoButton = await screen.findByRole("button", { name: "「A検索」を元に戻す" });
+
+      let rejectRestore: () => void = () => {};
+      vi.spyOn(db.searchHistories, "add").mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRestore = () => reject(new Error("DB closed"));
+          })
+      );
+      await user.click(undoButton);
+      await user.keyboard("{Escape}");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      rejectRestore();
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "「A検索」を元に戻せませんでした。検索履歴を開いて再試行できます。"
+        )
+      );
+      expect(toggle).toHaveAccessibleName("検索履歴、直近0件、元に戻せる1件、失敗1件");
     });
 
     it("開いている間の失敗は行内の alert だけで伝え、live region では重ねて通知しない", async () => {
