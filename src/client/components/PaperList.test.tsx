@@ -39,9 +39,12 @@ vi.mock("../stores/paperStore", () => ({
 
 /** 同期に成功したことがあるか（最終同期日時）で「未同期」と「同期済み・該当なし」を分ける */
 let mockLastSyncedAt: string | null = null;
+/** API 利用 OFF（#29）。arXiv からの同期は OFF でも行えるため、空表示の操作は変えない */
+let mockApiEnabled = true;
 vi.mock("../stores/settingsStore", () => ({
-  useSettingsStore: (selector: (s: { lastSyncedAt: string | null }) => unknown) =>
-    selector({ lastSyncedAt: mockLastSyncedAt }),
+  useSettingsStore: (
+    selector: (s: { lastSyncedAt: string | null; apiEnabled: boolean }) => unknown
+  ) => selector({ lastSyncedAt: mockLastSyncedAt, apiEnabled: mockApiEnabled }),
 }));
 
 vi.mock("../hooks/useGridVirtualizer", () => ({
@@ -101,6 +104,7 @@ describe("PaperList", () => {
     mockSyncStoreState = { isFetching: false, isLoadingMore: false };
     mockPaperStoreState = { papers: [], isLoading: false };
     mockLastSyncedAt = null;
+    mockApiEnabled = true;
     cleanup();
     vi.clearAllMocks();
   });
@@ -161,6 +165,18 @@ describe("PaperList", () => {
       await userEvent.click(screen.getByRole("button", { name: "同期を再試行" }));
       expect(onRetrySync).toHaveBeenCalledTimes(1);
       expect(onSync).not.toHaveBeenCalled();
+    });
+
+    it("正常系: API 利用 OFF でも論文が未取得なら「論文を同期」を出す（arXiv 取得は AI を使わない）", async () => {
+      const { PaperList } = await import("./PaperList");
+      mockApiEnabled = false;
+      const onSync = vi.fn();
+
+      renderWithRouter(<PaperList papers={[]} onSync={onSync} onOpenSettings={vi.fn()} />);
+
+      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "not-synced");
+      await userEvent.click(screen.getByRole("button", { name: "論文を同期" }));
+      expect(onSync).toHaveBeenCalledTimes(1);
     });
 
     it("正常系: 同期に成功して論文が0件の場合は同期期間・カテゴリの見直しを案内する", async () => {
