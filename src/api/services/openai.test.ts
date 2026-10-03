@@ -310,6 +310,64 @@ describe("OpenAIサービス", () => {
       expect(callArgs.system).toContain("Japanese");
       expect(callArgs.prompt).toContain("test abstract");
     });
+
+    it("Abstractを文番号付きで渡し、根拠の文番号をAbstractに実在する文へ解決する", async () => {
+      // Arrange
+      const abstract = "We propose X. X improves accuracy by 5 points. Code is released.";
+      vi.mocked(generateText).mockResolvedValue({
+        text: JSON.stringify({
+          summary: "要約",
+          keyPoints: ["Xを提案", "精度が向上"],
+          evidence: [[0], [1]],
+        }),
+      } as Awaited<ReturnType<typeof generateText>>);
+
+      // Act
+      const result = await generateSummary(abstract, "ja", mockConfig);
+
+      // Assert
+      const callArgs = vi.mocked(generateText).mock.calls[0][0];
+      expect(callArgs.prompt).toContain(
+        "[0] We propose X.\n[1] X improves accuracy by 5 points.\n[2] Code is released."
+      );
+      expect(result.keyPointEvidence).toEqual([
+        [{ index: 0, text: "We propose X." }],
+        [{ index: 1, text: "X improves accuracy by 5 points." }],
+      ]);
+    });
+
+    it("Abstractに実在しない文番号（捏造された引用）は返さず、対応箇所未確認（空配列）にする", async () => {
+      // Arrange
+      vi.mocked(generateText).mockResolvedValue({
+        text: JSON.stringify({
+          summary: "要約",
+          keyPoints: ["Xを提案", "精度が向上", "コードを公開"],
+          evidence: [[7], [-1, 1.5], [2, 42]],
+        }),
+      } as Awaited<ReturnType<typeof generateText>>);
+
+      // Act
+      const result = await generateSummary("First. Second. Third.", "ja", mockConfig);
+
+      // Assert
+      expect(result.keyPointEvidence).toEqual([[], [], [{ index: 2, text: "Third." }]]);
+    });
+
+    it("根拠がない・形式が不正な場合も要約は失敗させず、全キーポイントを対応箇所未確認にする", async () => {
+      for (const evidence of [undefined, "0,1", [["0"], [1]]]) {
+        // Arrange
+        vi.mocked(generateText).mockResolvedValueOnce({
+          text: JSON.stringify({ summary: "要約", keyPoints: ["A", "B"], evidence }),
+        } as Awaited<ReturnType<typeof generateText>>);
+
+        // Act
+        const result = await generateSummary("First. Second.", "ja", mockConfig);
+
+        // Assert
+        expect(result.summary).toBe("要約");
+        expect(result.keyPointEvidence).toEqual([[], []]);
+      }
+    });
   });
 
   describe("generateExplanation", () => {

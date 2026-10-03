@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import {
+  findConfirmedEvidenceIndices,
+  resolveKeyPointEvidence,
+  splitAbstractSentences,
+} from "./abstractSentences";
+
+describe("splitAbstractSentences", () => {
+  it("正常系: 文末の「. 」で区切り、改行や連続する空白は1つの空白にする", () => {
+    expect(
+      splitAbstractSentences("We propose X.  It works\nwell! Does it scale? Yes, to 10B params.")
+    ).toEqual(["We propose X.", "It works well!", "Does it scale?", "Yes, to 10B params."]);
+  });
+
+  it("正常系: 小数点・略語・小文字で続く文では区切らない", () => {
+    expect(
+      splitAbstractSentences(
+        "Accuracy rises from 3.5 to 4.2 points, e.g. on GLUE. Smith et al. Showed it. Results vs. baselines hold."
+      )
+    ).toEqual([
+      "Accuracy rises from 3.5 to 4.2 points, e.g. on GLUE.",
+      "Smith et al. Showed it.",
+      "Results vs. baselines hold.",
+    ]);
+  });
+
+  it("正常系: 全角の終止符で区切る", () => {
+    expect(splitAbstractSentences("手法を提案する。精度が向上した！")).toEqual([
+      "手法を提案する。",
+      "精度が向上した！",
+    ]);
+  });
+
+  it("正常系: 同じ入力には常に同じ結果を返し、空の Abstract は空配列", () => {
+    const abstract = "First. Second.";
+    expect(splitAbstractSentences(abstract)).toEqual(splitAbstractSentences(abstract));
+    expect(splitAbstractSentences("   ")).toEqual([]);
+  });
+});
+
+describe("resolveKeyPointEvidence", () => {
+  const sentences = ["First.", "Second.", "Third."];
+
+  it("正常系: 文番号を Abstract の文に解決し、キーポイントと同じ長さ・順序で返す", () => {
+    expect(resolveKeyPointEvidence(sentences, 3, [[0], [1, 2], []])).toEqual([
+      [{ index: 0, text: "First." }],
+      [
+        { index: 1, text: "Second." },
+        { index: 2, text: "Third." },
+      ],
+      [],
+    ]);
+  });
+
+  it("異常系: 実在しない番号（範囲外・負数・小数・重複・数値以外）は捨て、残らなければ未確認（空配列）", () => {
+    expect(resolveKeyPointEvidence(sentences, 3, [[3, -1, 0.5], [1, 1, "2"], [99]])).toEqual([
+      [],
+      [{ index: 1, text: "Second." }],
+      [],
+    ]);
+  });
+
+  it("異常系: 根拠が返らない・キーポイントより少ない場合は、足りない分を未確認（空配列）にする", () => {
+    expect(resolveKeyPointEvidence(sentences, 2, undefined)).toEqual([[], []]);
+    expect(resolveKeyPointEvidence(sentences, 2, [[0]])).toEqual([
+      [{ index: 0, text: "First." }],
+      [],
+    ]);
+  });
+});
+
+describe("findConfirmedEvidenceIndices", () => {
+  const sentences = ["First.", "Second."];
+
+  it("正常系: 表示中の Abstract の同じ番号に同じ文がある根拠だけを返す", () => {
+    expect(
+      findConfirmedEvidenceIndices(sentences, [
+        { index: 1, text: "Second." },
+        { index: 0, text: "Changed." },
+        { index: 5, text: "First." },
+      ])
+    ).toEqual([1]);
+  });
+
+  it("正常系: 根拠のない古い要約は空配列（未確認）", () => {
+    expect(findConfirmedEvidenceIndices(sentences, undefined)).toEqual([]);
+  });
+});

@@ -3,6 +3,11 @@ import { embed, embedMany, generateText } from "ai";
 import type { Context } from "hono";
 import { env } from "hono/adapter";
 import { z } from "zod";
+import {
+  type EvidenceSentence,
+  resolveKeyPointEvidence,
+  splitAbstractSentences,
+} from "../../shared/utils/abstractSentences";
 import type { Env } from "../types/env";
 
 /**
@@ -88,6 +93,11 @@ export interface SummaryResult {
   summary: string;
   /** キーポイント */
   keyPoints: string[];
+  /**
+   * キーポイントごとの根拠（keyPoints と同じ順序）
+   * サーバーで Abstract に実在すると確かめた文だけを含み、対応できなかったキーポイントは空配列
+   */
+  keyPointEvidence: EvidenceSentence[][];
 }
 
 /**
@@ -348,6 +358,13 @@ const SummaryResultSchema = z.object({
 });
 
 /**
+ * キーポイントごとの根拠の文番号のスキーマ（keyPoints と同じ順序）
+ * 要約本体とは別に検証し、形が不正でも要約は失敗させずに全キーポイントを「対応箇所未確認」にする。
+ * 番号が整数で Abstract の範囲内かは resolveKeyPointEvidence が番号ごとに確かめる
+ */
+const KeyPointEvidenceIndicesSchema = z.array(z.array(z.number()));
+
+/**
  * 認知負荷最適化説明文のスキーマ
  */
 const ExplanationResultSchema = z.object({
@@ -388,10 +405,14 @@ Academic abstracts typically follow IMRaD structure:
 3. **Capture** the key results or contributions
 4. **Synthesize** into a coherent summary
 
+# Input Format
+The abstract is given as numbered sentences: "[0] ...", "[1] ...".
+
 # Output Schema (JSON)
 {
   "summary": "<2-3 sentence synthesis covering problem→method→contribution>",
-  "keyPoints": ["<specific, actionable insight 1>", "<insight 2>", ...]
+  "keyPoints": ["<specific, actionable insight 1>", "<insight 2>", ...],
+  "evidence": [[<sentence numbers supporting keyPoints[0]>], [<numbers for keyPoints[1]>], ...]
 }
 
 # Quality Criteria
@@ -401,6 +422,10 @@ Academic abstracts typically follow IMRaD structure:
   - Each point should be self-contained and specific
   - Include quantitative results when available (e.g., "Achieves 95% accuracy")
   - Highlight novel contributions over standard methodology
+- **evidence**:
+  - One array per key point, in the same order as keyPoints
+  - List only the numbers of sentences that directly state the key point (usually 1-2)
+  - Use an empty array if no single sentence directly states it. Never guess a number
 
 # Constraints
 - NEVER hallucinate claims not present in the abstract
@@ -432,9 +457,11 @@ Respond entirely in English.
  */
 const SUMMARY_EXAMPLE_JA = `
 <example>
-Abstract: "We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs. While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks."
+Abstract:
+[0] We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.
+[1] While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.
 
-Output: {"summary":"本論文はGPT-4を紹介する。GPT-4は画像とテキストを入力として受け付け、テキストを出力するマルチモーダルモデルである。実世界のシナリオでは人間に及ばない点もあるが、様々な専門的・学術的ベンチマークで人間レベルの性能を達成した。","keyPoints":["画像・テキスト入力に対応したマルチモーダル大規模言語モデル","専門的・学術的ベンチマークで人間レベルの性能を実証","実世界タスクでは人間との性能差が依然として存在"]}
+Output: {"summary":"本論文はGPT-4を紹介する。GPT-4は画像とテキストを入力として受け付け、テキストを出力するマルチモーダルモデルである。実世界のシナリオでは人間に及ばない点もあるが、様々な専門的・学術的ベンチマークで人間レベルの性能を達成した。","keyPoints":["画像・テキスト入力に対応したマルチモーダル大規模言語モデル","専門的・学術的ベンチマークで人間レベルの性能を実証","実世界タスクでは人間との性能差が依然として存在"],"evidence":[[0],[1],[1]]}
 </example>`;
 
 /**
@@ -442,9 +469,11 @@ Output: {"summary":"本論文はGPT-4を紹介する。GPT-4は画像とテキ�
  */
 const SUMMARY_EXAMPLE_EN = `
 <example>
-Abstract: "We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs. While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks."
+Abstract:
+[0] We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.
+[1] While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.
 
-Output: {"summary":"This paper introduces GPT-4, a large-scale multimodal model capable of processing both image and text inputs to generate text outputs. The model achieves human-level performance on professional and academic benchmarks, though gaps remain in real-world scenarios.","keyPoints":["Multimodal architecture accepting both image and text inputs","Human-level performance demonstrated on professional/academic benchmarks","Performance gap identified in real-world application scenarios"]}
+Output: {"summary":"This paper introduces GPT-4, a large-scale multimodal model capable of processing both image and text inputs to generate text outputs. The model achieves human-level performance on professional and academic benchmarks, though gaps remain in real-world scenarios.","keyPoints":["Multimodal architecture accepting both image and text inputs","Human-level performance demonstrated on professional/academic benchmarks","Performance gap identified in real-world application scenarios"],"evidence":[[0],[1],[1]]}
 </example>`;
 
 /**
@@ -456,6 +485,8 @@ Output: {"summary":"This paper introduces GPT-4, a large-scale multimodal model 
  * 2. 学術論文構造（IMRaD）への認識を付与
  * 3. Few-shot example で出力品質を担保
  * 4. 言語別の指示を分離して明確化
+ * 5. Abstract を決定的に文分割して番号を付け、キーポイントごとの根拠の文番号を返させる。
+ *    返された番号は Abstract に実在する文だけを残す（実在しない番号は「対応箇所未確認」にする）
  */
 export const generateSummary = async (
   abstract: string,
@@ -466,6 +497,9 @@ export const generateSummary = async (
   const langInstruction = language === "ja" ? SUMMARY_INSTRUCTION_JA : SUMMARY_INSTRUCTION_EN;
   const example = language === "ja" ? SUMMARY_EXAMPLE_JA : SUMMARY_EXAMPLE_EN;
 
+  const sentences = splitAbstractSentences(abstract);
+  const numberedAbstract = sentences.map((sentence, i) => `[${i}] ${sentence}`).join("\n");
+
   const modelId = getModel(config, "summary");
   const { text } = await generateText({
     model: provider(modelId),
@@ -473,15 +507,27 @@ export const generateSummary = async (
     prompt: `${example}
 
 <abstract>
-${abstract}
+${numberedAbstract}
 </abstract>
 
 Respond with valid JSON only.`,
     ...samplingSettings(modelId, 0.3),
   });
 
-  const parsed = SummaryResultSchema.parse(JSON.parse(text));
-  return parsed;
+  const json: unknown = JSON.parse(text);
+  const { summary, keyPoints } = SummaryResultSchema.parse(json);
+  const rawEvidence = KeyPointEvidenceIndicesSchema.safeParse(
+    json && typeof json === "object" ? (json as { evidence?: unknown }).evidence : undefined
+  );
+  return {
+    summary,
+    keyPoints,
+    keyPointEvidence: resolveKeyPointEvidence(
+      sentences,
+      keyPoints.length,
+      rawEvidence.success ? rawEvidence.data : undefined
+    ),
+  };
 };
 
 /**

@@ -145,6 +145,8 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
           // 要約がない場合は空文字列を返す（説明文のみ生成の場合）
           summary: summaryResult?.summary ?? "",
           keyPoints: summaryResult?.keyPoints ?? [],
+          // キーポイントごとの根拠（Abstract に実在すると確かめた文だけ。要約を生成した場合のみ）
+          ...(summaryResult && { keyPointEvidence: summaryResult.keyPointEvidence }),
           ...(explanationResult && {
             explanation: explanationResult.explanation,
             targetAudience: explanationResult.targetAudience,
