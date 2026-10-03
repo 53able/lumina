@@ -2,6 +2,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Clock, Search, X } from "lucide-react";
 import { type FC, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
 import type { SearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import { Button } from "./ui/button";
@@ -18,6 +19,16 @@ interface SearchHistoryProps {
   undo?: SearchHistoryUndo;
   /** コンパクト表示モード（サイドバー用） */
   compact?: boolean;
+  /**
+   * 通知の live region を置く要素（未指定なら履歴欄の中）。
+   * 履歴欄を折りたたんで隠す場合に、隠れない場所で読み上げるために使う
+   */
+  liveRegionContainer?: HTMLElement | null;
+  /**
+   * 削除・元に戻すの失敗も live region で通知するか。
+   * 失敗は行内の alert で伝わるが、履歴欄が隠れている間は読まれないため
+   */
+  announceFailures?: boolean;
 }
 
 /** 操作を始めたときの情報（完了後の通知・フォーカス移動に使う） */
@@ -49,6 +60,8 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
   onReSearch,
   undo,
   compact = false,
+  liveRegionContainer,
+  announceFailures = false,
 }) => {
   const deletedHistories = undo?.deletedHistories ?? EMPTY_HISTORIES;
   const historyErrors = undo?.historyErrors ?? EMPTY_ERRORS;
@@ -86,8 +99,15 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
     for (const [id, operation] of deletingRef.current) {
       if (pendingHistoryIds.includes(id)) continue;
       deletingRef.current.delete(id);
-      // 失敗は行内の alert で伝わる。退避に入っていれば削除の成功
-      if (!deletedHistories.some((h) => h.id === id)) continue;
+      // 失敗は行内の alert で伝わる（隠れている間は通知もする）。退避に入っていれば削除の成功
+      if (!deletedHistories.some((h) => h.id === id)) {
+        if (announceFailures && historyErrors[id]) {
+          messages.push(
+            `「${operation.query}」を削除できませんでした。検索履歴を開いて再試行できます。`
+          );
+        }
+        continue;
+      }
       messages.push(`「${operation.query}」を削除しました。再読み込みするまで元に戻せます。`);
       const next = histories[operation.index] ?? histories[operation.index - 1];
       moveFocus(
@@ -99,7 +119,14 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
     for (const [id, operation] of restoringRef.current) {
       if (pendingHistoryIds.includes(id)) continue;
       restoringRef.current.delete(id);
-      if (historyErrors[id]) continue;
+      if (historyErrors[id]) {
+        if (announceFailures) {
+          messages.push(
+            `「${operation.query}」を元に戻せませんでした。検索履歴を開いて再試行できます。`
+          );
+        }
+        continue;
+      }
       if (deletedHistories.some((h) => h.id === id)) {
         // 退避に残っている: 同じクエリの新しい履歴と競合して中止した
         if (restoreConflictIds.includes(id)) {
@@ -160,13 +187,17 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
 
   const textSize = compact ? "text-xs" : "text-sm";
 
+  const liveRegion = (
+    <output aria-live="polite" className="sr-only">
+      {announcements.map((a) => (
+        <span key={a.key}>{a.text} </span>
+      ))}
+    </output>
+  );
+
   return (
     <div ref={rootRef} className={compact ? "space-y-2" : "space-y-3"}>
-      <output aria-live="polite" className="sr-only">
-        {announcements.map((a) => (
-          <span key={a.key}>{a.text} </span>
-        ))}
-      </output>
+      {liveRegionContainer ? createPortal(liveRegion, liveRegionContainer) : liveRegion}
 
       {deletedHistories.length > 0 && (
         <section aria-label="削除した検索履歴" className="space-y-1">
@@ -300,14 +331,14 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                     </div>
                   </button>
 
-                  {/* 右側: 削除ボタン（コンパクト時はホバーかキーボードフォーカスで表示。失敗中は常に表示） */}
+                  {/* 右側: 削除ボタン（コンパクト時はホバーかキーボードフォーカスで表示。タッチ端末と失敗中は常に表示） */}
                   {undo && (
                     <Button
                       variant="ghost"
                       size="icon"
                       className={`flex-shrink-0 ${
                         compact
-                          ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"}`
+                          ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"}`
                           : "h-8 w-8"
                       }`}
                       aria-disabled={isPending}
