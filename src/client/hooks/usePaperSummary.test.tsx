@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PartialSummaryError } from "../lib/summaryErrors";
+import { PartialSummaryError } from "../lib/summaryErrorTypes";
 import { usePaperSummary } from "./usePaperSummary";
 
 const mockSummaryApi = vi.fn();

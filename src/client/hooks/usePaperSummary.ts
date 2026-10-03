@@ -7,7 +7,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
-import { PartialSummaryError, toSummaryStageErrorCode } from "../lib/summaryErrors";
+import { PartialSummaryError, toSummaryStageErrorCode } from "../lib/summaryErrorTypes";
 import { getSummaryVersions, type SummaryVersion, useSummaryStore } from "../stores/summaryStore";
 
 /**

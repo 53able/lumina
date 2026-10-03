@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { createLuminaDb, type LuminaDB } from "../db/db";
 import { usePaperSummary } from "../hooks/usePaperSummary";
-import { PartialSummaryError } from "../lib/summaryErrors";
+import { ApiDisabledError } from "../lib/api";
+import { PartialSummaryError, SummaryApiError } from "../lib/summaryErrorTypes";
 import { useSettingsStore } from "../stores/settingsStore";
 import {
   getAdoptedSummaries,
@@ -496,6 +497,75 @@ describe("PaperSummary", () => {
         screen.getByText(
           "要約は保存済みです。説明文は生成できませんでした。APIキーの設定を確認してください。"
         )
+      ).toBeInTheDocument();
+    });
+
+    it("異常系: 再試行で解決しない全体の失敗（auth）は再試行ではなく設定の確認を案内する", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(<PaperSummary paperId="2401.00001" error={new SummaryApiError("auth", false)} />);
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約を生成できませんでした。APIキーの設定を確認してください。"
+      );
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
+      expect(
+        screen.getByText("生成できませんでした。APIキーの設定を確認してください。")
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/再試行できます/)).not.toBeInTheDocument();
+    });
+
+    it("異常系: 説明文のみの生成が auth で失敗した場合も、再試行ではなく設定の確認を案内する", () => {
+      const summary = createSampleSummary();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" summary={summary} isLoading />
+      );
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          error={new SummaryApiError("auth", false)}
+          failedTarget="explanation"
+        />
+      );
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約は保存済みです。説明文を生成できませんでした。APIキーの設定を確認してください。"
+      );
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
+      expect(
+        screen.getByText(
+          "要約は保存済みです。説明文は生成できませんでした。APIキーの設定を確認してください。"
+        )
+      ).toBeInTheDocument();
+    });
+
+    it("異常系: 再試行できる全体の失敗（rate_limit）は従来どおり再試行を案内する", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(
+        <PaperSummary paperId="2401.00001" error={new SummaryApiError("rate_limit", true)} />
+      );
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約を生成できませんでした。「要約 + 説明文」ボタンで再試行できます。"
+      );
+      expect(
+        screen.getByText("生成できませんでした。「要約 + 説明文」で再試行できます。")
+      ).toBeInTheDocument();
+    });
+
+    it("異常系: API利用OFFによる失敗は従来の文言のまま（停止中の理由はトーストで伝える）", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(<PaperSummary paperId="2401.00001" error={new ApiDisabledError()} />);
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約を生成できませんでした。「要約 + 説明文」ボタンで再試行できます。"
+      );
+      expect(
+        screen.getByText("生成できませんでした。「要約 + 説明文」で再試行できます。")
       ).toBeInTheDocument();
     });
 

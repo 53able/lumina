@@ -2,15 +2,6 @@ import { toast } from "sonner";
 import { ApiDisabledError, type GenerateTarget } from "./api";
 import { PartialSummaryError } from "./summaryErrorTypes";
 
-// 既存の import 元（PaperSummary.tsx など）との互換のため再エクスポートする（移行後に削除: #77）
-export {
-  getSummaryStageErrorGuidance,
-  PartialSummaryError,
-  SummaryApiError,
-  type SummaryStageErrorCode,
-  toSummaryStageErrorCode,
-} from "./summaryErrorTypes";
-
 /**
  * 要約生成の失敗をトーストで知らせる
  * - API利用OFFは停止中であることを見出しで示す（最優先）

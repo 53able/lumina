@@ -13,7 +13,11 @@ import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "
 import { toast } from "sonner";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { getApiResumeHint } from "../lib/api";
-import { getSummaryStageErrorGuidance, PartialSummaryError } from "../lib/summaryErrors";
+import {
+  getSummaryStageErrorGuidance,
+  PartialSummaryError,
+  SummaryApiError,
+} from "../lib/summaryErrorTypes";
 import { cn } from "../lib/utils";
 import { useSettingsStore } from "../stores/settingsStore";
 import { getAdoptedSummaries, type SummaryVersion } from "../stores/summaryStore";
@@ -223,11 +227,17 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 失敗時に再試行で押すボタン（要約があれば説明文のみの生成ボタンが出る） */
   const retryButtonLabel = summary ? "なぜ読むべきかを生成" : "要約 + 説明文";
+  /**
+   * 再試行で解決しない失敗（auth など）の対処方法。トーストと同じ分類の案内文を使う
+   * （部分成功・全体の失敗・説明文のみの生成の失敗のいずれも）
+   */
+  const nonRetryableGuidance =
+    (error instanceof PartialSummaryError || error instanceof SummaryApiError) && !error.retryable
+      ? getSummaryStageErrorGuidance(error.code)
+      : null;
   /** 説明文工程の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
   const partialGuidance =
-    error instanceof PartialSummaryError && !error.retryable
-      ? getSummaryStageErrorGuidance(error.code)
-      : `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
+    nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
 
   // 自動要約生成: 論文が表示され、要約がなく、自動生成が有効な場合に発火
   useEffect(() => {
@@ -415,7 +425,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       </output>
       <div className="sr-only" role="alert" aria-atomic="true">
         {!isLoading && generationResult === "error"
-          ? `要約を生成できませんでした。「${retryButtonLabel}」ボタンで再試行できます。`
+          ? `要約を生成できませんでした。${nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで再試行できます。`}`
           : !isLoading && generationResult === "partial"
             ? `要約は保存済みです。説明文を生成できませんでした。${partialGuidance}`
             : null}
@@ -426,7 +436,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         <p className="text-xs text-destructive">
           {isPartial
             ? `要約は保存済みです。説明文は生成できませんでした。${partialGuidance}`
-            : `生成できませんでした。「${retryButtonLabel}」で再試行できます。`}
+            : `生成できませんでした。${nonRetryableGuidance ?? `「${retryButtonLabel}」で再試行できます。`}`}
         </p>
       )}
 
