@@ -65,7 +65,7 @@ describe("PaperCard", () => {
   });
 
   describe("レンダリング", () => {
-    it("正常系: 論文タイトルが表示される", async () => {
+    it("正常系: 論文タイトルが表示される", () => {
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -73,7 +73,7 @@ describe("PaperCard", () => {
       expect(screen.getByText(/Sample Paper: A Novel Approach/i)).toBeInTheDocument();
     });
 
-    it("正常系: 著者が表示される", async () => {
+    it("正常系: 著者が表示される", () => {
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -81,7 +81,7 @@ describe("PaperCard", () => {
       expect(screen.getByText(/Alice Smith/)).toBeInTheDocument();
     });
 
-    it("正常系: カテゴリバッジが表示される", async () => {
+    it("正常系: カテゴリバッジが表示される", () => {
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -90,7 +90,7 @@ describe("PaperCard", () => {
       expect(screen.getByText("cs.LG")).toBeInTheDocument();
     });
 
-    it("正常系: 公開日が表示される", async () => {
+    it("正常系: 公開日が表示される", () => {
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -141,7 +141,7 @@ describe("PaperCard", () => {
   });
 
   describe("状態表示", () => {
-    it("正常系: いいね済みの状態が表示される", async () => {
+    it("正常系: いいね済みの状態が表示される", () => {
       const paper = createSamplePaper();
       mockLikedPaperIds = new Set([paper.id]);
 
@@ -151,7 +151,7 @@ describe("PaperCard", () => {
       expect(likeButton).toHaveAttribute("data-liked", "true");
     });
 
-    it("正常系: ブックマーク済みの状態が表示される", async () => {
+    it("正常系: ブックマーク済みの状態が表示される", () => {
       const paper = createSamplePaper();
       mockBookmarkedPaperIds = new Set([paper.id]);
 
@@ -163,7 +163,7 @@ describe("PaperCard", () => {
   });
 
   describe("Embedding状態表示", () => {
-    it("embeddingが無い論文の場合、セマンティック検索に未対応のインジケータが表示される", async () => {
+    it("embeddingが無い論文の場合、セマンティック検索に未対応のインジケータが表示される", () => {
       const paper = createSamplePaper();
       // embedding を付けない（undefined）または空配列
       const paperWithoutEmbedding = { ...paper, embedding: undefined };
@@ -173,7 +173,7 @@ describe("PaperCard", () => {
       expect(screen.getByText(/セマンティック検索に未対応/)).toBeInTheDocument();
     });
 
-    it("embeddingが空配列の論文の場合もインジケータが表示される", async () => {
+    it("embeddingが空配列の論文の場合もインジケータが表示される", () => {
       const paper = createSamplePaper({ embedding: [] });
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -181,7 +181,7 @@ describe("PaperCard", () => {
       expect(screen.getByText(/セマンティック検索に未対応/)).toBeInTheDocument();
     });
 
-    it("embeddingがある論文の場合はそのインジケータが表示されない", async () => {
+    it("embeddingがある論文の場合はそのインジケータが表示されない", () => {
       const paper = createSamplePaper({
         embedding: Array(1536).fill(0.1),
       });
@@ -193,7 +193,7 @@ describe("PaperCard", () => {
   });
 
   describe("whyRead表示", () => {
-    it("正常系: whyReadが指定された場合に表示される", async () => {
+    it("正常系: whyReadが指定された場合に表示される", () => {
       const paper = createSamplePaper();
       const whyRead = "機械学習モデルの効率的な学習方法を理解できます";
 
@@ -202,7 +202,7 @@ describe("PaperCard", () => {
       expect(screen.getByText(whyRead)).toBeInTheDocument();
     });
 
-    it("正常系: whyReadにはAIの推奨であることを示すラベルが付く", async () => {
+    it("正常系: whyReadにはAIの推奨であることを示すラベルが付く", () => {
       const paper = createSamplePaper();
       const whyRead = "機械学習モデルの効率的な学習方法を理解できます";
 
@@ -212,13 +212,13 @@ describe("PaperCard", () => {
       expect(whyReadLine).toHaveTextContent(`AIの推奨${whyRead}`);
     });
 
-    it("正常系: whyReadが未指定の場合はAIの推奨ラベルを表示しない", async () => {
+    it("正常系: whyReadが未指定の場合はAIの推奨ラベルを表示しない", () => {
       renderWithRouter(<PaperCard paper={createSamplePaper()} />);
 
       expect(screen.queryByText("AIの推奨")).not.toBeInTheDocument();
     });
 
-    it("正常系: whyReadが未指定の場合は表示されない", async () => {
+    it("正常系: whyReadが未指定の場合は表示されない", () => {
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);

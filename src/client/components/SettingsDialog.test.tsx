@@ -20,20 +20,20 @@ describe("SettingsDialog", () => {
   });
 
   describe("ダイアログ表示", () => {
-    it("開いた状態でダイアログが表示される", async () => {
+    it("開いた状態でダイアログが表示される", () => {
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
 
-    it("タイトルが表示される", async () => {
+    it("タイトルが表示される", () => {
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       // ダイアログのタイトル（heading）を確認
       expect(screen.getByRole("heading", { name: /設定/i })).toBeInTheDocument();
     });
 
-    it("閉じた状態ではダイアログが表示されない", async () => {
+    it("閉じた状態ではダイアログが表示されない", () => {
       render(<SettingsDialog open={false} onOpenChange={() => {}} />);
 
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -41,31 +41,31 @@ describe("SettingsDialog", () => {
   });
 
   describe("タブ構造", () => {
-    it("APIタブが表示される", async () => {
+    it("APIタブが表示される", () => {
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /api/i })).toBeInTheDocument();
     });
 
-    it("カテゴリタブが表示される", async () => {
+    it("カテゴリタブが表示される", () => {
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /カテゴリ/i })).toBeInTheDocument();
     });
 
-    it("同期タブが表示される", async () => {
+    it("同期タブが表示される", () => {
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /同期/i })).toBeInTheDocument();
     });
 
-    it("検索タブが表示される", async () => {
+    it("検索タブが表示される", () => {
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /検索/i })).toBeInTheDocument();
     });
 
-    it("デフォルトでAPIタブが選択されている", async () => {
+    it("デフォルトでAPIタブが選択されている", () => {
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       const apiTab = screen.getByRole("tab", { name: /api/i });

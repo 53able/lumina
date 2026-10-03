@@ -109,7 +109,7 @@ describe("PaperList", () => {
   });
 
   describe("レンダリング", () => {
-    it("正常系: 論文リストが表示される", async () => {
+    it("正常系: 論文リストが表示される", () => {
       const papers = [
         createSamplePaper("2401.00001", "First Paper"),
         createSamplePaper("2401.00002", "Second Paper"),
@@ -192,7 +192,7 @@ describe("PaperList", () => {
       expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
 
-    it("正常系: 自動同期の予定中や取得した論文の保存中は「論文がありません」を出さず取得中にする", async () => {
+    it("正常系: 自動同期の予定中や取得した論文の保存中は「論文がありません」を出さず取得中にする", () => {
       const { rerender } = renderWithRouter(
         <PaperList papers={[]} isSyncPending onSync={vi.fn()} />
       );
@@ -209,7 +209,7 @@ describe("PaperList", () => {
       expect(screen.queryByRole("button", { name: "論文を同期" })).not.toBeInTheDocument();
     });
 
-    it("正常系: 論文が保存済みなら同期中でも検索0件の理由と解除操作を出す", async () => {
+    it("正常系: 論文が保存済みなら同期中でも検索0件の理由と解除操作を出す", () => {
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
@@ -259,7 +259,7 @@ describe("PaperList", () => {
       expect(onClearConditions).toHaveBeenCalledTimes(1);
     });
 
-    it("正常系: 検索0件の理由（emptyMessage）があれば説明はそれを使い、解除操作は残す", async () => {
+    it("正常系: 検索0件の理由（emptyMessage）があれば説明はそれを使い、解除操作は残す", () => {
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
@@ -277,7 +277,7 @@ describe("PaperList", () => {
       expect(screen.getByRole("button", { name: "検索・絞り込みを解除" })).toBeInTheDocument();
     });
 
-    it("正常系: 論文が未取得なら検索0件の理由より未同期の説明を優先する", async () => {
+    it("正常系: 論文が未取得なら検索0件の理由より未同期の説明を優先する", () => {
       renderWithRouter(
         <PaperList papers={[]} emptyMessage={<p>該当する論文がありませんでした</p>} />
       );
@@ -286,7 +286,7 @@ describe("PaperList", () => {
       expect(screen.queryByText("該当する論文がありませんでした")).not.toBeInTheDocument();
     });
 
-    it("正常系: 同期中で空の場合は「取得しています」が表示され検索向けメッセージは出ない", async () => {
+    it("正常系: 同期中で空の場合は「取得しています」が表示され検索向けメッセージは出ない", () => {
       mockSyncStoreState = { isFetching: true, isLoadingMore: false };
 
       renderWithRouter(<PaperList papers={[]} />);
@@ -296,7 +296,7 @@ describe("PaperList", () => {
       expect(screen.queryByText(/このデバイスにはまだ論文がありません/)).not.toBeInTheDocument();
     });
 
-    it("正常系: ローディング中はスケルトンが表示される", async () => {
+    it("正常系: ローディング中はスケルトンが表示される", () => {
       renderWithRouter(<PaperList papers={[]} isLoading />);
 
       // ローディング中のスケルトン要素を確認
@@ -305,7 +305,7 @@ describe("PaperList", () => {
   });
 
   describe("論文数の表示", () => {
-    it("正常系: 論文数が表示される", async () => {
+    it("正常系: 論文数が表示される", () => {
       const papers = [
         createSamplePaper("2401.00001", "Paper 1"),
         createSamplePaper("2401.00002", "Paper 2"),
@@ -320,7 +320,7 @@ describe("PaperList", () => {
   });
 
   describe("whyReadMap伝播", () => {
-    it("正常系: whyReadMapの内容がカードに表示される", async () => {
+    it("正常系: whyReadMapの内容がカードに表示される", () => {
       const papers = [
         createSamplePaper("2401.00001", "Paper 1"),
         createSamplePaper("2401.00002", "Paper 2"),
@@ -336,7 +336,7 @@ describe("PaperList", () => {
       expect(screen.getByText("データ分析の効率化に役立ちます")).toBeInTheDocument();
     });
 
-    it("正常系: whyReadMapが空でもエラーにならない", async () => {
+    it("正常系: whyReadMapが空でもエラーにならない", () => {
       const papers = [createSamplePaper("2401.00001", "Paper 1")];
 
       renderWithRouter(<PaperList papers={papers} whyReadMap={new Map()} />);
@@ -360,7 +360,7 @@ describe("PaperList", () => {
       container.dispatchEvent(new Event("scroll", { bubbles: true }));
     };
 
-    it("正常系: スクロール末尾に到達するとonRequestSyncが呼ばれる", async () => {
+    it("正常系: スクロール末尾に到達するとonRequestSyncが呼ばれる", () => {
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
       );
@@ -380,7 +380,7 @@ describe("PaperList", () => {
       expect(onRequestSync).toHaveBeenCalledTimes(1);
     });
 
-    it("正常系: isSyncingがtrueの場合はonRequestSyncが呼ばれない", async () => {
+    it("正常系: isSyncingがtrueの場合はonRequestSyncが呼ばれない", () => {
       mockSyncStoreState = { isFetching: true, isLoadingMore: false };
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
