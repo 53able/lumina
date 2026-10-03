@@ -4,11 +4,11 @@ import {
   useMutationState,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
 import { PartialSummaryError, toSummaryStageErrorCode } from "../lib/summaryErrors";
-import { useSummaryStore } from "../stores/summaryStore";
+import { getSummaryVersions, type SummaryVersion, useSummaryStore } from "../stores/summaryStore";
 
 /**
  * usePaperSummary のオプション
@@ -52,8 +52,14 @@ const isGenerationFor = (
  * usePaperSummary の戻り値
  */
 interface UsePaperSummaryReturn {
-  /** 現在の要約データ */
-  summary: PaperSummary | undefined;
+  /** 現在の要約データ（表示中の論文・言語の採用版） */
+  summary: SummaryVersion | undefined;
+  /** 表示中の論文・言語の保存済みの版（古い順） */
+  versions: SummaryVersion[];
+  /** 版を採用版にする */
+  adoptVersion: (id: number) => Promise<void>;
+  /** 版を破棄する（採用版を破棄した場合は残りの最新の版が採用版になる） */
+  discardVersion: (id: number) => Promise<void>;
   /** 選択中の言語 */
   summaryLanguage: "ja" | "en";
   /** 言語を切り替える */
@@ -133,10 +139,21 @@ export const usePaperSummary = ({
 }: UsePaperSummaryOptions): UsePaperSummaryReturn => {
   const [summaryLanguage, setSummaryLanguage] = useState<"ja" | "en">("ja");
 
-  const { getSummaryByPaperIdAndLanguage, addSummary, updateSummary } = useSummaryStore();
+  const {
+    summaries,
+    getSummaryByPaperIdAndLanguage,
+    addSummary,
+    updateSummary,
+    adoptSummary,
+    discardSummary,
+  } = useSummaryStore();
 
-  // 現在の論文・言語に対応するサマリーを取得
+  // 現在の論文・言語に対応するサマリー（採用版）と保存済みの版を取得
   const summary = getSummaryByPaperIdAndLanguage(paperId, summaryLanguage);
+  const versions = useMemo(
+    () => getSummaryVersions(summaries, paperId, summaryLanguage),
+    [summaries, paperId, summaryLanguage]
+  );
 
   const queryClient = useQueryClient();
 
@@ -215,6 +232,9 @@ export const usePaperSummary = ({
 
   return {
     summary,
+    versions,
+    adoptVersion: adoptSummary,
+    discardVersion: discardSummary,
     summaryLanguage,
     setSummaryLanguage,
     isLoading: currentGeneration?.status === "pending",

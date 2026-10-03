@@ -27,6 +27,9 @@ export const PaperPage: FC = () => {
   // サマリー管理（カスタムフックに責務を委譲）
   const {
     summary,
+    versions,
+    adoptVersion,
+    discardVersion,
     summaryLanguage,
     setSummaryLanguage,
     isLoading,
@@ -92,6 +95,9 @@ export const PaperPage: FC = () => {
             selectedSummaryLanguage={summaryLanguage}
             onSummaryLanguageChange={setSummaryLanguage}
             autoGenerateSummary={autoGenerateSummary}
+            summaryVersions={versions}
+            onAdoptSummaryVersion={adoptVersion}
+            onDiscardSummaryVersion={discardVersion}
           />
         </div>
       </div>

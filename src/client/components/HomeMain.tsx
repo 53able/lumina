@@ -7,6 +7,7 @@ import type {
 } from "../../shared/schemas/index";
 import type { GenerateTarget } from "../lib/api";
 import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTextTerms";
+import type { SummaryVersion } from "../stores/summaryStore";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
@@ -80,6 +81,12 @@ interface HomeMainProps {
   onSummaryLanguageChange: (language: "ja" | "en") => void;
   /** 自動生成サマリーかどうか */
   autoGenerateSummary: boolean;
+  /** 現在の論文・言語の保存済みの要約の版（古い順） */
+  summaryVersions?: SummaryVersion[];
+  /** 要約の版を採用版にする */
+  onAdoptSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版を破棄する */
+  onDiscardSummaryVersion?: (id: number) => Promise<void>;
   /** 検索履歴 */
   recentHistories: SearchHistoryType[];
   /** 再検索ハンドラー */
@@ -143,6 +150,9 @@ const HomeMainInner: FC<HomeMainProps> = ({
   summaryLanguage,
   onSummaryLanguageChange,
   autoGenerateSummary,
+  summaryVersions,
+  onAdoptSummaryVersion,
+  onDiscardSummaryVersion,
   recentHistories,
   onReSearch,
   onDeleteHistory,
@@ -176,6 +186,9 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 selectedSummaryLanguage={summaryLanguage}
                 onSummaryLanguageChange={onSummaryLanguageChange}
                 autoGenerateSummary={autoGenerateSummary}
+                summaryVersions={summaryVersions}
+                onAdoptSummaryVersion={onAdoptSummaryVersion}
+                onDiscardSummaryVersion={onDiscardSummaryVersion}
               />
             </Suspense>
           ) : null}

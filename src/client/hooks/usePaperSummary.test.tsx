@@ -23,8 +23,10 @@ vi.mock("../lib/api", async (importOriginal) => {
 const mockGetSummaryByPaperIdAndLanguage = vi.fn();
 const mockAddSummary = vi.fn();
 const mockUpdateSummary = vi.fn();
-vi.mock("../stores/summaryStore", () => ({
+vi.mock("../stores/summaryStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../stores/summaryStore")>()),
   useSummaryStore: () => ({
+    summaries: [],
     getSummaryByPaperIdAndLanguage: (...args: unknown[]) =>
       mockGetSummaryByPaperIdAndLanguage(...args),
     addSummary: (...args: unknown[]) => mockAddSummary(...args),

@@ -1,8 +1,31 @@
-import { BookOpen, Loader2, Sparkles, Target, Users } from "lucide-react";
+import { format } from "date-fns";
+import {
+  BookOpen,
+  History,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  Target,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
+import { getApiResumeHint } from "../lib/api";
 import { getSummaryStageErrorGuidance, PartialSummaryError } from "../lib/summaryErrors";
+import { useSettingsStore } from "../stores/settingsStore";
+import { getAdoptedSummaries, type SummaryVersion } from "../stores/summaryStore";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
 /**
@@ -18,6 +41,9 @@ type ContentMode = "summary" | "explanation";
  * - both: 要約と説明文の両方
  */
 export type GenerateTarget = "explanation" | "both";
+
+/** 版がない場合の既定値（描画ごとに新しい配列を作らない） */
+const NO_VERSIONS: SummaryVersion[] = [];
 
 /**
  * PaperSummary コンポーネントのProps
@@ -50,6 +76,12 @@ interface PaperSummaryProps {
   pdfUrl?: string;
   /** arXivページのURL */
   arxivUrl?: string;
+  /** 表示中の論文・言語の保存済みの版（古い順。usePaperSummary の versions） */
+  versions?: SummaryVersion[];
+  /** 版を採用版にする（渡されない場合は採用ボタンを出さない） */
+  onAdoptVersion?: (id: number) => Promise<void>;
+  /** 版を破棄する（渡されない場合は破棄ボタンを出さない） */
+  onDiscardVersion?: (id: number) => Promise<void>;
 }
 
 /**
@@ -61,6 +93,7 @@ interface PaperSummaryProps {
  * - キーポイント表示
  * - 要約/説明文生成ボタン
  * - 日本語/英語の切り替え
+ * - 再生成・破棄と、保存済みの版の比較・採用
  *
  * Context Engineering + "Why Your Writing Isn't Being Read" の教訓:
  * - 要約だけでは読者の興味を引けない
@@ -79,6 +112,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   abstractId,
   pdfUrl,
   arxivUrl,
+  versions = NO_VERSIONS,
+  onAdoptVersion,
+  onDiscardVersion,
 }) => {
   // 原則1「状態の外部化」: language は親（usePaperSummary）で一元管理
   // このコンポーネントは Controlled Component として振る舞う
@@ -93,6 +129,48 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   /** 生成中だった論文・言語（完了・失敗を同じ論文・言語でだけ通知するため） */
   const loadingKeyRef = useRef<string | null>(null);
   const generationKey = `${paperId}:${selectedLanguage}`;
+
+  // 保存済みの版（古い順）のうちの採用版
+  const adoptedVersion = getAdoptedSummaries(versions, selectedLanguage).get(paperId);
+  /** 版の番号（古い順に第1版から） */
+  const versionNumberOf = (version: SummaryVersion) =>
+    versions.findIndex((v) => v.id === version.id) + 1;
+
+  // API利用OFF中は再生成を止める（理由を併記する）
+  const apiEnabled = useSettingsStore((s) => s.apiEnabled);
+  const hasApiKey = useSettingsStore((s) => s.hasApiKey);
+
+  /** 版の一覧（比較）を開いているか */
+  const [isVersionListOpen, setIsVersionListOpen] = useState(false);
+  /** 破棄の確認中の版 */
+  const [pendingDiscard, setPendingDiscard] = useState<SummaryVersion | null>(null);
+  /**
+   * 版の採用・破棄の結果（支援技術への通知用。次の生成開始・論文や言語の切替で消す）
+   * null は「版の操作なし」（生成の完了通知を出す）、"" は「版の操作中」（何も出さない）
+   */
+  const [versionMessage, setVersionMessage] = useState<string | null>(null);
+  /** 破棄の確認ダイアログを閉じた後のフォーカス先（破棄した版のボタンは消えるため） */
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const hasDiscardedRef = useRef(false);
+  /** 採用した版のカードの見出しへフォーカスを移す（押した「採用」ボタンは消えるため） */
+  const [focusVersionId, setFocusVersionId] = useState<number | null>(null);
+  const versionListId = `summary-versions-${paperId}-${selectedLanguage}`;
+  const versionHeadingId = (id: number) => `${versionListId}-${id}`;
+  const regenerateDisabledReasonId = `summary-regenerate-api-disabled-${paperId}-${selectedLanguage}`;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 採用した版が決まったときだけ移す
+  useEffect(() => {
+    if (focusVersionId === null) return;
+    document.getElementById(versionHeadingId(focusVersionId))?.focus();
+    setFocusVersionId(null);
+  }, [focusVersionId]);
+
+  // 論文・言語を切り替えたら、前の論文の版の通知と一覧の開閉を持ち越さない
+  // biome-ignore lint/correctness/useExhaustiveDependencies: generationKey の変化だけを契機にする
+  useEffect(() => {
+    setVersionMessage(null);
+    setIsVersionListOpen(false);
+  }, [generationKey]);
 
   /** 説明文が存在するか */
   const hasExplanation = Boolean(summary?.explanation);
@@ -110,6 +188,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     if (isLoading) {
       loadingKeyRef.current = generationKey;
       setGenerationResult(null);
+      setVersionMessage(null);
       return;
     }
     const result = error ? (isPartial ? "partial" : "error") : "success";
@@ -197,11 +276,59 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     onGenerate?.(paperId, selectedLanguage, target);
   };
 
+  /** 版を採用する */
+  const handleAdopt = async (version: SummaryVersion) => {
+    if (!onAdoptVersion) return;
+    const number = versionNumberOf(version);
+    // 同じ文言が続いても読み上げられるよう、一度空にしてから結果を入れる
+    // （null に戻すと生成の完了通知が再び入り、誤って読み上げられるため "" にする）
+    setVersionMessage("");
+    try {
+      await onAdoptVersion(version.id);
+      setFocusVersionId(version.id);
+      setVersionMessage(`第${number}版を採用しました`);
+    } catch (err) {
+      console.error("Summary adopt error:", err);
+      toast.error("要約の版を採用できませんでした");
+    }
+  };
+
+  /** 確認済みの版を破棄する */
+  const handleConfirmDiscard = async () => {
+    if (!pendingDiscard || !onDiscardVersion) return;
+    const number = versionNumberOf(pendingDiscard);
+    const wasAdopted = pendingDiscard.id === adoptedVersion?.id;
+    const hasRemaining = versions.length > 1;
+    // 最後の版を破棄しても、この表示中は自動生成で作り直さない（APIを使うため利用者の操作を待つ）
+    const previousAutoGenerated = hasAutoGeneratedRef.current;
+    hasAutoGeneratedRef.current = paperId;
+    setVersionMessage("");
+    try {
+      await onDiscardVersion(pendingDiscard.id);
+      hasDiscardedRef.current = true;
+      setVersionMessage(
+        wasAdopted && hasRemaining
+          ? `第${number}版を破棄しました。残りの版のうち最新の版を採用しています`
+          : `第${number}版を破棄しました`
+      );
+    } catch (err) {
+      hasAutoGeneratedRef.current = previousAutoGenerated;
+      console.error("Summary discard error:", err);
+      toast.error("要約の版を破棄できませんでした");
+    } finally {
+      setPendingDiscard(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* セクションタイトルと言語切替 */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-muted-foreground flex items-center gap-2">
+        <h3
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-sm font-bold text-muted-foreground flex items-center gap-2 outline-none"
+        >
           <Sparkles className="h-4 w-4" />
           AI要約
         </h3>
@@ -241,9 +368,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {isLoading
           ? "要約を生成しています"
-          : generationResult === "success"
-            ? "要約の生成が完了しました"
-            : null}
+          : (versionMessage ??
+            (generationResult === "success" ? "要約の生成が完了しました" : null))}
       </output>
       <div className="sr-only" role="alert" aria-atomic="true">
         {!isLoading && generationResult === "error"
@@ -375,8 +501,156 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
               )}
             </div>
           )}
+
+          {/* 版の操作: 再生成（新しい版を追加して採用）・破棄・版の比較 */}
+          <div className="space-y-2 pt-2 border-t">
+            <div className="flex flex-wrap items-center gap-2">
+              {adoptedVersion && versions.length > 1 && (
+                <Badge variant="outline">
+                  採用中: 第{versionNumberOf(adoptedVersion)}版 / 全{versions.length}版
+                </Badge>
+              )}
+              <Button
+                onClick={() => handleGenerate("both")}
+                disabled={!apiEnabled}
+                aria-describedby={apiEnabled ? undefined : regenerateDisabledReasonId}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                再生成
+              </Button>
+              {adoptedVersion && onDiscardVersion && (
+                <Button
+                  onClick={() => setPendingDiscard(adoptedVersion)}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  採用中の版を破棄
+                </Button>
+              )}
+              {versions.length > 1 && (
+                <Button
+                  onClick={() => setIsVersionListOpen((open) => !open)}
+                  aria-expanded={isVersionListOpen}
+                  aria-controls={versionListId}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <History className="h-4 w-4" />
+                  版を比較（{versions.length}版）
+                </Button>
+              )}
+            </div>
+            {/* aria-describedby の参照先。再生成ボタンと同じ条件で出す */}
+            {!apiEnabled && (
+              <p id={regenerateDisabledReasonId} className="text-xs text-muted-foreground">
+                API利用OFFのため再生成を停止中。{getApiResumeHint(hasApiKey())}
+              </p>
+            )}
+          </div>
+
+          {/* 版の比較: 新しい版から並べ、2列で前の版と並べて見比べられるようにする */}
+          {isVersionListOpen && versions.length > 1 && (
+            <section id={versionListId} aria-label="保存済みの要約の版">
+              <ol className="grid gap-3 sm:grid-cols-2">
+                {[...versions].reverse().map((version) => {
+                  const number = versionNumberOf(version);
+                  const isAdopted = version.id === adoptedVersion?.id;
+                  return (
+                    <li key={version.id} className="space-y-2 rounded-lg border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h4
+                          id={versionHeadingId(version.id)}
+                          tabIndex={-1}
+                          className="text-xs text-muted-foreground outline-none"
+                        >
+                          第{number}版（{format(version.createdAt, "yyyy-MM-dd HH:mm")} 生成）
+                        </h4>
+                        {isAdopted && <Badge>採用中</Badge>}
+                      </div>
+                      <p className="text-sm leading-relaxed">{version.summary}</p>
+                      {version.keyPoints.length > 0 && (
+                        <ul className="space-y-1">
+                          {version.keyPoints.map((point) => (
+                            <li key={point} className="text-xs flex items-start gap-2">
+                              <span className="text-primary">•</span>
+                              <span>{point}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {!isAdopted && onAdoptVersion && (
+                          <Button onClick={() => handleAdopt(version)} variant="outline" size="sm">
+                            第{number}版を採用
+                          </Button>
+                        )}
+                        {onDiscardVersion && (
+                          <Button
+                            onClick={() => setPendingDiscard(version)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            第{number}版を破棄
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          )}
         </div>
       )}
+
+      {/* 破棄の確認 */}
+      <Dialog
+        open={pendingDiscard !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDiscard(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          onCloseAutoFocus={(e) => {
+            // 破棄した版のボタンは消えるため、AI要約の見出しへフォーカスを戻す
+            if (hasDiscardedRef.current) {
+              e.preventDefault();
+              hasDiscardedRef.current = false;
+              headingRef.current?.focus();
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {pendingDiscard ? `第${versionNumberOf(pendingDiscard)}版の要約を破棄しますか？` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              破棄した版は元に戻せません。
+              {pendingDiscard !== null &&
+                pendingDiscard.id === adoptedVersion?.id &&
+                (versions.length > 1
+                  ? "採用中の版のため、残りの版のうち最新の版を採用します。"
+                  : "保存済みの版がなくなります。")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDiscard(null)}>
+              キャンセル
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDiscard}>
+              破棄する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

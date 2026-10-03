@@ -9,6 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { InteractionProvider } from "./contexts/InteractionContext";
+import { useSummaryStore } from "./stores/summaryStore";
 
 /**
  * テスト用のQueryClientラッパー
@@ -293,6 +294,33 @@ describe("App", () => {
       renderWithProviders(<App />);
 
       expect(screen.getByText("検索履歴がありません")).toBeInTheDocument();
+    });
+  });
+
+  describe("一覧の読む理由", () => {
+    afterEach(() => {
+      useSummaryStore.setState({ summaries: [] });
+    });
+
+    it("正常系: 同じ論文に複数の版がある場合は、最新の版ではなく採用版の読む理由を表示する", async () => {
+      const base = {
+        paperId: "2401.00001",
+        summary: "要約",
+        keyPoints: [],
+        language: "ja" as const,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+      };
+      useSummaryStore.setState({
+        summaries: [
+          { ...base, id: 1, whyRead: "採用版の読む理由", adopted: true },
+          { ...base, id: 2, whyRead: "新しい版の読む理由", adopted: false },
+        ],
+      });
+
+      renderWithProviders(<App />);
+
+      expect(await screen.findByText("採用版の読む理由")).toBeInTheDocument();
+      expect(screen.queryByText("新しい版の読む理由")).not.toBeInTheDocument();
     });
   });
 });
