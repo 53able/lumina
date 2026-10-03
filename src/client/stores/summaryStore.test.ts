@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { now } from "../../shared/utils/dateTime";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import type { SummaryVersion } from "./summaryStore";
 
 /**
  * summaryStore テスト
@@ -308,6 +309,90 @@ describe("summaryStore", () => {
       const reloaded = await reload();
       expect(reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "en")?.summary).toBe("en版");
       expect(reloaded.getSummaryByPaperIdAndLanguage("other", "ja")?.summary).toBe("別論文");
+    });
+
+    describe("並行操作", () => {
+      /** Store の版（id・本文・採用指定）。DB の再読込結果と比べる */
+      const snapshot = (summaries: SummaryVersion[]) =>
+        summaries
+          .map((s) => [s.id, s.paperId, s.language, s.summary, s.adopted === true] as const)
+          .sort((a, b) => a[0] - b[0]);
+
+      /** Store が DB と一致し、論文・言語ごとの採用指定が1件以下であることを確認する */
+      const expectStoreMatchesDb = async (store: Awaited<ReturnType<typeof addVersions>>) => {
+        const current = store.getState().summaries;
+        const reloaded = await reload();
+        expect(snapshot(current)).toEqual(snapshot(reloaded.summaries));
+        const adoptedCount = new Map<string, number>();
+        for (const s of reloaded.summaries) {
+          if (!s.adopted) continue;
+          const key = `${s.paperId}:${s.language}`;
+          adoptedCount.set(key, (adoptedCount.get(key) ?? 0) + 1);
+        }
+        expect([...adoptedCount.values()].every((count) => count === 1)).toBe(true);
+      };
+
+      it("正常系: 論文1の版の破棄と論文2の追加を同時に行っても、追加した版が Store に残る", async () => {
+        const store = await addVersions(["第1版", "第2版"]);
+        const [, second] = store.getState().summaries;
+
+        await Promise.all([
+          store.getState().discardSummary(second.id),
+          store.getState().addSummary(createSampleSummary({ paperId: "paper2", summary: "論文2" })),
+        ]);
+
+        expect(store.getState().getSummaryByPaperIdAndLanguage("paper2", "ja")?.summary).toBe(
+          "論文2"
+        );
+        expect(store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe(
+          "第1版"
+        );
+        await expectStoreMatchesDb(store);
+      });
+
+      it("正常系: 英語版の採用と日本語版の追加を同時に行っても、両方が反映される", async () => {
+        const store = await addVersions(["ja第1版"]);
+        await store
+          .getState()
+          .addSummary(createSampleSummary({ language: "en", summary: "en第1版" }));
+        await store
+          .getState()
+          .addSummary(createSampleSummary({ language: "en", summary: "en第2版" }));
+        const enFirst = store.getState().summaries.find((s) => s.summary === "en第1版");
+        if (!enFirst) throw new Error("en第1版がない");
+
+        // 追加の書き込み中に採用を始める（採用は追加の完了後に終わる）
+        await Promise.all([
+          store.getState().addSummary(createSampleSummary({ summary: "ja第2版" })),
+          store.getState().adoptSummary(enFirst.id),
+        ]);
+
+        expect(store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "en")?.summary).toBe(
+          "en第1版"
+        );
+        expect(store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe(
+          "ja第2版"
+        );
+        await expectStoreMatchesDb(store);
+      });
+
+      it("正常系: 同じ論文・言語で採用と追加を同時に行っても、採用指定は1件だけになる", async () => {
+        const store = await addVersions(["第1版", "第2版"]);
+        const [first] = store.getState().summaries;
+
+        // 追加の書き込み中に採用を始める（採用は追加の完了後に終わり、採用した第1版が採用版になる）
+        await Promise.all([
+          store.getState().addSummary(createSampleSummary({ summary: "第3版" })),
+          store.getState().adoptSummary(first.id),
+        ]);
+
+        expect(store.getState().summaries.map((s) => s.summary)).toEqual([
+          "第1版",
+          "第2版",
+          "第3版",
+        ]);
+        await expectStoreMatchesDb(store);
+      });
     });
 
     it("正常系: getAdoptedSummaries は論文ごとの採用版を返す（一覧の whyRead 用）", async () => {

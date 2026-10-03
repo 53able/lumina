@@ -1,12 +1,14 @@
 /**
  * @vitest-environment jsdom
  */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { FC } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { usePaperSummary } from "../hooks/usePaperSummary";
 import { PartialSummaryError } from "../lib/summaryErrors";
 import { useSettingsStore } from "../stores/settingsStore";
 import { initializeSummaryStore, useSummaryStore } from "../stores/summaryStore";
@@ -510,14 +512,34 @@ describe("PaperSummary", () => {
     let db: LuminaDB;
     let dbCounter = 0;
 
-    /** App と同じく Store の採用版を summary として渡す */
-    const ConnectedPaperSummary: FC<{
+    /** App・PaperPage と同じく usePaperSummary の採用版・版・採用/破棄を props で渡す */
+    const HookedPaperSummary: FC<{
       onGenerate?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
       autoGenerate?: boolean;
     }> = (props) => {
-      const summary = useSummaryStore((s) => s.getSummaryByPaperIdAndLanguage("2401.00001", "ja"));
-      return <PaperSummary paperId="2401.00001" summary={summary} {...props} />;
+      const { summary, versions, adoptVersion, discardVersion } = usePaperSummary({
+        paperId: "2401.00001",
+        abstract: "Abstract",
+      });
+      return (
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          versions={versions}
+          onAdoptVersion={adoptVersion}
+          onDiscardVersion={discardVersion}
+          {...props}
+        />
+      );
     };
+    const ConnectedPaperSummary: FC<{
+      onGenerate?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
+      autoGenerate?: boolean;
+    }> = (props) => (
+      <QueryClientProvider client={new QueryClient()}>
+        <HookedPaperSummary {...props} />
+      </QueryClientProvider>
+    );
 
     /** 同じ論文・言語の版を古い順に保存する */
     const addVersions = async (texts: string[]) => {
@@ -593,6 +615,10 @@ describe("PaperSummary", () => {
 
       expect(await screen.findByText("採用中: 第1版 / 全2版")).toBeInTheDocument();
       expect(screen.getByRole("status")).toHaveTextContent("第1版を採用しました");
+      // 押した「第1版を採用」ボタンは消えるため、採用した版の見出しへフォーカスを移す
+      await waitFor(() =>
+        expect(document.activeElement).toBe(within(list).getByRole("heading", { name: /^第1版/ }))
+      );
       // 採用は保存され、再読込（Store の再初期化）後も維持される
       useSummaryStore.setState({ summaries: [] });
       await initializeSummaryStore(db);

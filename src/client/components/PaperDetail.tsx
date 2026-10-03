@@ -3,6 +3,7 @@ import { Bookmark, ExternalLink, FileText, Heart } from "lucide-react";
 import type { FC } from "react";
 import type { Paper, PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { useInteraction } from "../contexts/InteractionContext";
+import type { SummaryVersion } from "../stores/summaryStore";
 import { type GenerateTarget, PaperSummary } from "./PaperSummary";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -29,6 +30,12 @@ interface PaperDetailProps {
   onSummaryLanguageChange?: (language: "ja" | "en") => void;
   /** 自動要約生成が有効か */
   autoGenerateSummary?: boolean;
+  /** 表示中の言語の保存済みの要約の版（古い順） */
+  summaryVersions?: SummaryVersion[];
+  /** 要約の版を採用版にする */
+  onAdoptSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版を破棄する */
+  onDiscardSummaryVersion?: (id: number) => Promise<void>;
 }
 
 /**
@@ -51,6 +58,9 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   selectedSummaryLanguage = "ja",
   onSummaryLanguageChange,
   autoGenerateSummary = false,
+  summaryVersions,
+  onAdoptSummaryVersion,
+  onDiscardSummaryVersion,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
@@ -111,6 +121,9 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             abstractId={abstractId}
             pdfUrl={paper.pdfUrl}
             arxivUrl={paper.arxivUrl}
+            versions={summaryVersions}
+            onAdoptVersion={onAdoptSummaryVersion}
+            onDiscardVersion={onDiscardSummaryVersion}
           />
         </div>
 

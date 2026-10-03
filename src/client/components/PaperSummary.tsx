@@ -9,18 +9,13 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { type FC, Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { getApiResumeHint } from "../lib/api";
 import { getSummaryStageErrorGuidance, PartialSummaryError } from "../lib/summaryErrors";
 import { useSettingsStore } from "../stores/settingsStore";
-import {
-  getAdoptedSummaries,
-  getSummaryVersions,
-  type SummaryVersion,
-  useSummaryStore,
-} from "../stores/summaryStore";
+import { getAdoptedSummaries, type SummaryVersion } from "../stores/summaryStore";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -46,6 +41,9 @@ type ContentMode = "summary" | "explanation";
  * - both: 要約と説明文の両方
  */
 export type GenerateTarget = "explanation" | "both";
+
+/** 版がない場合の既定値（描画ごとに新しい配列を作らない） */
+const NO_VERSIONS: SummaryVersion[] = [];
 
 /**
  * PaperSummary コンポーネントのProps
@@ -78,6 +76,12 @@ interface PaperSummaryProps {
   pdfUrl?: string;
   /** arXivページのURL */
   arxivUrl?: string;
+  /** 表示中の論文・言語の保存済みの版（古い順。usePaperSummary の versions） */
+  versions?: SummaryVersion[];
+  /** 版を採用版にする */
+  onAdoptVersion?: (id: number) => Promise<void>;
+  /** 版を破棄する */
+  onDiscardVersion?: (id: number) => Promise<void>;
 }
 
 /**
@@ -89,7 +93,7 @@ interface PaperSummaryProps {
  * - キーポイント表示
  * - 要約/説明文生成ボタン
  * - 日本語/英語の切り替え
- * - 再生成・破棄と、保存済みの版の比較・採用（版と採用状態は summaryStore から直接読む）
+ * - 再生成・破棄と、保存済みの版の比較・採用
  *
  * Context Engineering + "Why Your Writing Isn't Being Read" の教訓:
  * - 要約だけでは読者の興味を引けない
@@ -108,6 +112,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   abstractId,
   pdfUrl,
   arxivUrl,
+  versions = NO_VERSIONS,
+  onAdoptVersion,
+  onDiscardVersion,
 }) => {
   // 原則1「状態の外部化」: language は親（usePaperSummary）で一元管理
   // このコンポーネントは Controlled Component として振る舞う
@@ -123,17 +130,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   const loadingKeyRef = useRef<string | null>(null);
   const generationKey = `${paperId}:${selectedLanguage}`;
 
-  // 保存済みの版（古い順）と採用版
-  const allSummaries = useSummaryStore((s) => s.summaries);
-  const adoptSummary = useSummaryStore((s) => s.adoptSummary);
-  const discardSummary = useSummaryStore((s) => s.discardSummary);
-  const versions = useMemo(
-    () => getSummaryVersions(allSummaries, paperId, selectedLanguage),
-    [allSummaries, paperId, selectedLanguage]
-  );
+  // 保存済みの版（古い順）のうちの採用版
   const adoptedVersion = getAdoptedSummaries(versions, selectedLanguage).get(paperId);
   /** 版の番号（古い順に第1版から） */
-  const versionNumberOf = (version: SummaryVersion) => versions.indexOf(version) + 1;
+  const versionNumberOf = (version: SummaryVersion) =>
+    versions.findIndex((v) => v.id === version.id) + 1;
 
   // API利用OFF中は再生成を止める（理由を併記する）
   const apiEnabled = useSettingsStore((s) => s.apiEnabled);
@@ -148,8 +149,17 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   /** 破棄の確認ダイアログを閉じた後のフォーカス先（破棄した版のボタンは消えるため） */
   const headingRef = useRef<HTMLHeadingElement>(null);
   const hasDiscardedRef = useRef(false);
+  /** 採用した版のカードの見出しへフォーカスを移す（押した「採用」ボタンは消えるため） */
+  const [focusVersionId, setFocusVersionId] = useState<number | null>(null);
   const versionListId = `summary-versions-${paperId}-${selectedLanguage}`;
-  const regenerateDisabledReasonId = `summary-regenerate-api-disabled-${paperId}`;
+  const versionHeadingId = (id: number) => `${versionListId}-${id}`;
+  const regenerateDisabledReasonId = `summary-regenerate-api-disabled-${paperId}-${selectedLanguage}`;
+
+  useEffect(() => {
+    if (focusVersionId === null) return;
+    document.getElementById(versionHeadingId(focusVersionId))?.focus();
+    setFocusVersionId(null);
+  });
 
   // 論文・言語を切り替えたら、前の論文の版の通知と一覧の開閉を持ち越さない
   // biome-ignore lint/correctness/useExhaustiveDependencies: generationKey の変化だけを契機にする
@@ -264,9 +274,13 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 版を採用する */
   const handleAdopt = async (version: SummaryVersion) => {
+    if (!onAdoptVersion) return;
     const number = versionNumberOf(version);
+    // 同じ文言が続いても読み上げられるよう、一度空にしてから結果を入れる
+    setVersionMessage(null);
     try {
-      await adoptSummary(version.id);
+      await onAdoptVersion(version.id);
+      setFocusVersionId(version.id);
       setVersionMessage(`第${number}版を採用しました`);
     } catch (err) {
       console.error("Summary adopt error:", err);
@@ -276,14 +290,16 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 確認済みの版を破棄する */
   const handleConfirmDiscard = async () => {
-    if (!pendingDiscard) return;
+    if (!pendingDiscard || !onDiscardVersion) return;
     const number = versionNumberOf(pendingDiscard);
     const wasAdopted = pendingDiscard.id === adoptedVersion?.id;
     const hasRemaining = versions.length > 1;
-    // 最後の版を破棄しても、自動生成で作り直さない（APIを使うため利用者の操作を待つ）
+    // 最後の版を破棄しても、この表示中は自動生成で作り直さない（APIを使うため利用者の操作を待つ）
+    const previousAutoGenerated = hasAutoGeneratedRef.current;
     hasAutoGeneratedRef.current = paperId;
+    setVersionMessage(null);
     try {
-      await discardSummary(pendingDiscard.id);
+      await onDiscardVersion(pendingDiscard.id);
       hasDiscardedRef.current = true;
       setVersionMessage(
         wasAdopted && hasRemaining
@@ -291,6 +307,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
           : `第${number}版を破棄しました`
       );
     } catch (err) {
+      hasAutoGeneratedRef.current = previousAutoGenerated;
       console.error("Summary discard error:", err);
       toast.error("要約の版を破棄できませんでした");
     } finally {
@@ -542,7 +559,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                   return (
                     <li key={version.id} className="space-y-2 rounded-lg border p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <h4 className="text-xs text-muted-foreground">
+                        <h4
+                          id={versionHeadingId(version.id)}
+                          tabIndex={-1}
+                          className="text-xs text-muted-foreground outline-none"
+                        >
                           第{number}版（{format(version.createdAt, "yyyy-MM-dd HH:mm")} 生成）
                         </h4>
                         {isAdopted && <Badge>採用中</Badge>}

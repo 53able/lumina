@@ -164,6 +164,9 @@ const HomePage: FC = () => {
   // サマリー管理（カスタムフックに責務を委譲）
   const {
     summary: currentSummary,
+    versions: summaryVersions,
+    adoptVersion: adoptSummaryVersion,
+    discardVersion: discardSummaryVersion,
     summaryLanguage,
     setSummaryLanguage,
     isLoading: isSummaryLoading,
@@ -181,19 +184,24 @@ const HomePage: FC = () => {
   });
 
   // サマリーストア（whyReadMap生成用、展開中の論文のサマリー取得用）
-  const { summaries, getSummaryByPaperIdAndLanguage } = useSummaryStore();
+  const { summaries } = useSummaryStore();
+
+  // 論文ID → 採用版のマップ（summaryLanguage の版から1回だけ作り、一覧と展開中の詳細で引く）
+  // 同じ論文に複数の版がある場合は採用版を使う
+  const adoptedSummaries = useMemo(
+    () => getAdoptedSummaries(summaries, summaryLanguage),
+    [summaries, summaryLanguage]
+  );
 
   // whyReadMap を生成（論文ID → whyRead のマップ）
-  // summaryLanguage に合わせた言語の whyRead を取得
   // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
-  // 同じ論文に複数の版がある場合は採用版の whyRead を使う
   const whyReadMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const [paperId, s] of getAdoptedSummaries(summaries, summaryLanguage)) {
+    for (const [paperId, s] of adoptedSummaries) {
       if (s.whyRead) map.set(paperId, s.whyRead);
     }
     return map;
-  }, [summaries, summaryLanguage]);
+  }, [adoptedSummaries]);
 
   // 論文クリックハンドラー（インライン展開のトグル）
   const handlePaperClick = useCallback((paper: Paper) => {
@@ -372,7 +380,7 @@ const HomePage: FC = () => {
                 <Suspense fallback={<div className="p-6">読み込み中...</div>}>
                   <PaperDetail
                     paper={paper}
-                    summary={getSummaryByPaperIdAndLanguage(paper.id, summaryLanguage)}
+                    summary={adoptedSummaries.get(paper.id)}
                     onGenerateSummary={handleGenerateSummary}
                     isSummaryLoading={isSummaryLoading}
                     summaryError={summaryError}
@@ -380,6 +388,10 @@ const HomePage: FC = () => {
                     selectedSummaryLanguage={summaryLanguage}
                     onSummaryLanguageChange={handleSummaryLanguageChange}
                     autoGenerateSummary={autoGenerateSummary}
+                    // 展開中の論文は選択中の論文（usePaperSummary の対象）と同じ
+                    summaryVersions={summaryVersions}
+                    onAdoptSummaryVersion={adoptSummaryVersion}
+                    onDiscardSummaryVersion={discardSummaryVersion}
                   />
                 </Suspense>
               )
@@ -399,6 +411,9 @@ const HomePage: FC = () => {
         summaryLanguage={summaryLanguage}
         onSummaryLanguageChange={handleSummaryLanguageChange}
         autoGenerateSummary={autoGenerateSummary}
+        summaryVersions={summaryVersions}
+        onAdoptSummaryVersion={adoptSummaryVersion}
+        onDiscardSummaryVersion={discardSummaryVersion}
         recentHistories={recentHistories}
         onReSearch={handleReSearch}
         onDeleteHistory={handleDeleteHistory}

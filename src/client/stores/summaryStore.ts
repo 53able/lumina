@@ -95,33 +95,68 @@ const findAdopted = (
   getAdoptedSummaries(getSummaryVersions(summaries, paperId, language), language).get(paperId);
 
 /**
- * 同じ論文・言語の版のうち、指定した版だけを採用指定にする（IndexedDB と Store の両方）
+ * IndexedDB から論文・言語の版を主キーつきで読む（保存順）
+ * 呼び出し側のトランザクション内で使い、Store の控えではなく DB の最新状態を基準にする
  */
-const markAdopted = async (
+const readVersions = async (
   db: LuminaDB,
-  summaries: SummaryVersion[],
-  target: SummaryVersion
+  paperId: string,
+  language: "ja" | "en"
 ): Promise<SummaryVersion[]> => {
-  const siblings = getSummaryVersions(summaries, target.paperId, target.language);
-  await db.transaction("rw", db.paperSummaries, async () => {
-    for (const s of siblings) {
-      if (s.id !== target.id && s.adopted) {
-        await db.paperSummaries.where(":id").equals(s.id).modify({ adopted: false });
-      }
+  const versions: SummaryVersion[] = [];
+  // 複合インデックスの同じキーは主キー順に並ぶため、保存順で読める
+  await db.paperSummaries
+    .where("[paperId+language]")
+    .equals([paperId, language])
+    .each((summary, cursor) => {
+      versions.push({ ...summary, id: cursor.primaryKey as unknown as number });
+    });
+  return versions;
+};
+
+/**
+ * IndexedDB 上の論文・言語の版のうち、指定した版だけを採用指定にする
+ * （呼び出し側のトランザクション内で使う。同じ論文・言語で adopted: true は常に1件以下）
+ */
+const markAdoptedInDb = async (
+  db: LuminaDB,
+  versions: SummaryVersion[],
+  adoptedId: number
+): Promise<void> => {
+  for (const v of versions) {
+    const adopted = v.id === adoptedId;
+    if (v.adopted !== adopted) {
+      await db.paperSummaries.where(":id").equals(v.id).modify({ adopted });
     }
-    await db.paperSummaries.where(":id").equals(target.id).modify({ adopted: true });
-  });
-  return summaries.map((s) =>
-    s.paperId === target.paperId && s.language === target.language
-      ? { ...s, adopted: s.id === target.id }
-      : s
+  }
+};
+
+/** Store の論文・言語の版のうち、指定した版だけを採用指定にする（他の論文・言語の版はそのまま） */
+const withAdopted = (
+  summaries: SummaryVersion[],
+  paperId: string,
+  language: "ja" | "en",
+  adoptedId: number
+): SummaryVersion[] =>
+  summaries.map((s) =>
+    s.paperId === paperId && s.language === language ? { ...s, adopted: s.id === adoptedId } : s
   );
+
+/** 版の主キーから対象の版を読む（呼び出し側のトランザクション内で使う） */
+const readVersionById = async (db: LuminaDB, id: number): Promise<PaperSummary> => {
+  const target = await db.paperSummaries.where(":id").equals(id).first();
+  if (!target) throw new Error("Summary not found");
+  return target;
 };
 
 /**
  * summaryStore - 論文要約の管理
  *
  * Zustand + IndexedDB永続化
+ *
+ * 版の追加・採用・破棄は、同じ論文・言語の版をトランザクション内で DB から読み直して書き込み、
+ * Store には差分（追加・削除・採用指定の書き換え）だけを反映する。
+ * await 前の Store の控えで丸ごと置き換えると、並行する他の操作の結果を消してしまうため。
  */
 export const useSummaryStore = create<SummaryStore>()(
   devtools(
@@ -138,14 +173,26 @@ export const useSummaryStore = create<SummaryStore>()(
 
         // 新しい版として保存し、同じトランザクションで採用版にする
         // （主キーは自動採番でスキーマ型に含まれないため number として扱う）
-        const summaries = await db.transaction("rw", db.paperSummaries, async () => {
-          const id = (await db.paperSummaries.add(summary)) as unknown as number;
-          const added = { ...summary, id };
-          return markAdopted(db, [...get().summaries, added], added);
+        const id = await db.transaction("rw", db.paperSummaries, async () => {
+          const addedId = (await db.paperSummaries.add({
+            ...summary,
+            adopted: true,
+          })) as unknown as number;
+          await markAdoptedInDb(
+            db,
+            await readVersions(db, summary.paperId, summary.language),
+            addedId
+          );
+          return addedId;
         });
 
         // Storeを更新
-        set({ summaries });
+        set((state) => ({
+          summaries: [
+            ...withAdopted(state.summaries, summary.paperId, summary.language, id),
+            { ...summary, id, adopted: true },
+          ],
+        }));
       },
 
       updateSummary: async (paperId, language, changes) => {
@@ -153,14 +200,19 @@ export const useSummaryStore = create<SummaryStore>()(
         if (!db) throw new Error("DB not initialized");
 
         // 採用版だけを更新する。他の版は変更しない
-        // （主キーは自動採番でスキーマ型に含まれないため、:id で指定する）
-        const adopted = findAdopted(get().summaries, paperId, language);
-        if (!adopted) throw new Error("Summary not found");
-        await db.paperSummaries.where(":id").equals(adopted.id).modify(changes);
+        const adoptedId = await db.transaction("rw", db.paperSummaries, async () => {
+          const adopted = getAdoptedSummaries(
+            await readVersions(db, paperId, language),
+            language
+          ).get(paperId);
+          if (!adopted) throw new Error("Summary not found");
+          await db.paperSummaries.where(":id").equals(adopted.id).modify(changes);
+          return adopted.id;
+        });
 
         // Storeを更新
         set((state) => ({
-          summaries: state.summaries.map((s) => (s.id === adopted.id ? { ...s, ...changes } : s)),
+          summaries: state.summaries.map((s) => (s.id === adoptedId ? { ...s, ...changes } : s)),
         }));
       },
 
@@ -173,30 +225,47 @@ export const useSummaryStore = create<SummaryStore>()(
         const db = get()._db;
         if (!db) throw new Error("DB not initialized");
 
-        const target = get().summaries.find((s) => s.id === id);
-        if (!target) throw new Error("Summary not found");
-        const summaries = await markAdopted(db, get().summaries, target);
-        set({ summaries });
+        const target = await db.transaction("rw", db.paperSummaries, async () => {
+          const found = await readVersionById(db, id);
+          await markAdoptedInDb(db, await readVersions(db, found.paperId, found.language), id);
+          return found;
+        });
+
+        // Storeを更新
+        set((state) => ({
+          summaries: withAdopted(state.summaries, target.paperId, target.language, id),
+        }));
       },
 
       discardSummary: async (id) => {
         const db = get()._db;
         if (!db) throw new Error("DB not initialized");
 
-        const target = get().summaries.find((s) => s.id === id);
-        if (!target) throw new Error("Summary not found");
-        const wasAdopted =
-          findAdopted(get().summaries, target.paperId, target.language)?.id === target.id;
+        const { target, fallbackId } = await db.transaction("rw", db.paperSummaries, async () => {
+          const found = await readVersionById(db, id);
+          const versions = await readVersions(db, found.paperId, found.language);
+          const wasAdopted =
+            getAdoptedSummaries(versions, found.language).get(found.paperId)?.id === id;
 
-        await db.paperSummaries.where(":id").equals(id).delete();
-        let summaries = get().summaries.filter((s) => s.id !== id);
+          await db.paperSummaries.where(":id").equals(id).delete();
 
-        // 採用版を破棄した場合は、残りの版のうち最新の版を採用版にする（再読込後も同じ版になるよう保存する）
-        const fallback = getSummaryVersions(summaries, target.paperId, target.language).at(-1);
-        if (wasAdopted && fallback) {
-          summaries = await markAdopted(db, summaries, fallback);
-        }
-        set({ summaries });
+          // 採用版を破棄した場合は、残りの版のうち最新の版を採用版にする（再読込後も同じ版になるよう保存する）
+          const remaining = versions.filter((v) => v.id !== id);
+          const fallback = wasAdopted ? remaining.at(-1) : undefined;
+          if (fallback) await markAdoptedInDb(db, remaining, fallback.id);
+          return { target: found, fallbackId: fallback?.id };
+        });
+
+        // Storeを更新
+        set((state) => {
+          const summaries = state.summaries.filter((s) => s.id !== id);
+          return {
+            summaries:
+              fallbackId === undefined
+                ? summaries
+                : withAdopted(summaries, target.paperId, target.language, fallbackId),
+          };
+        });
       },
 
       getSummariesByPaperId: (paperId) => {
