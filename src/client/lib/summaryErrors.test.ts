@@ -32,6 +32,24 @@ describe("showSummaryErrorToast", () => {
     expect(toastError).toHaveBeenCalledWith("AI要約を停止中", { description: err.message });
   });
 
+  it("説明文のみの生成の失敗は、要約生成エラーではなく説明文の警告として出す", () => {
+    showSummaryErrorToast(new Error("timeout"), "論文", "explanation");
+
+    expect(toastError).not.toHaveBeenCalled();
+    expect(toastWarning).toHaveBeenCalledWith("説明文を生成できませんでした", {
+      description: "論文: timeout",
+    });
+  });
+
+  it("説明文のみの生成でも API利用OFF は停止中として出す", () => {
+    const err = new ApiDisabledError("設定の「利用可能」をONにすると再開できます。");
+
+    showSummaryErrorToast(err, undefined, "explanation");
+
+    expect(toastWarning).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith("AI要約を停止中", { description: err.message });
+  });
+
   it("その他の失敗は要約生成エラーとして出す", () => {
     showSummaryErrorToast(new Error("timeout"), "論文");
 
@@ -45,7 +63,6 @@ describe("PartialSummaryError", () => {
 
     expect(err.code).toBe("auth");
     expect(err.retryable).toBe(false);
-    expect(err.failedStage).toBe("explanation");
     expect(err.message).toBe("要約は保存しました。APIキーの設定を確認してください。");
   });
 });

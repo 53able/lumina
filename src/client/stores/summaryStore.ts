@@ -47,6 +47,21 @@ interface SummaryActions {
 type SummaryStore = SummaryState & SummaryActions;
 
 /**
+ * 論文・言語の最新の要約（最後に追加されたもの）の位置を返す。なければ -1
+ * （ES2022 の lib には findLastIndex がないため、後ろから探す）
+ */
+const findLatestIndex = (
+  summaries: PaperSummary[],
+  paperId: string,
+  language: "ja" | "en"
+): number => {
+  for (let i = summaries.length - 1; i >= 0; i--) {
+    if (summaries[i].paperId === paperId && summaries[i].language === language) return i;
+  }
+  return -1;
+};
+
+/**
  * summaryStore - 論文要約の管理
  *
  * Zustand + IndexedDB永続化
@@ -89,20 +104,19 @@ export const useSummaryStore = create<SummaryStore>()(
 
         // Storeを更新
         set((state) => {
-          const latest = state.summaries
-            .filter((s) => s.paperId === paperId && s.language === language)
-            .at(-1);
-          return {
-            summaries: state.summaries.map((s) => (s === latest ? { ...s, ...changes } : s)),
-          };
+          const index = findLatestIndex(state.summaries, paperId, language);
+          if (index === -1) return state;
+          const summaries = [...state.summaries];
+          summaries[index] = { ...summaries[index], ...changes };
+          return { summaries };
         });
       },
 
       getSummaryByPaperIdAndLanguage: (paperId, language) => {
         // 同じ論文・言語に複数の版がある場合は最新（最後に追加された）を返す
-        return get()
-          .summaries.filter((s) => s.paperId === paperId && s.language === language)
-          .at(-1);
+        const { summaries } = get();
+        const index = findLatestIndex(summaries, paperId, language);
+        return index === -1 ? undefined : summaries[index];
       },
 
       getSummariesByPaperId: (paperId) => {

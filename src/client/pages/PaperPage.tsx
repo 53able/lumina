@@ -36,10 +36,10 @@ export const PaperPage: FC = () => {
   } = usePaperSummary({
     paperId: paper?.id ?? "",
     abstract: paper?.abstract ?? "",
-    onError: (err, paperId) => {
+    onError: (err, paperId, target) => {
       console.error("Summary generation error:", err);
       // 生成中に別の論文へ移動している場合があるため、どの論文の失敗かを示す
-      showSummaryErrorToast(err, getPaperById(paperId)?.title);
+      showSummaryErrorToast(err, getPaperById(paperId)?.title, target);
     },
   });
 

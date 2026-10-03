@@ -1,7 +1,7 @@
 import { BookOpen, Loader2, Sparkles, Target, Users } from "lucide-react";
 import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
-import { PartialSummaryError } from "../lib/summaryErrors";
+import { getSummaryStageErrorGuidance, PartialSummaryError } from "../lib/summaryErrors";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
@@ -119,6 +119,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 失敗時に再試行で押すボタン（要約があれば説明文のみの生成ボタンが出る） */
   const retryButtonLabel = summary ? "なぜ読むべきかを生成" : "要約 + 説明文";
+  /** 説明文工程の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
+  const partialGuidance =
+    error instanceof PartialSummaryError && !error.retryable
+      ? getSummaryStageErrorGuidance(error.code)
+      : `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
 
   // 自動要約生成: 論文が表示され、要約がなく、自動生成が有効な場合に発火
   useEffect(() => {
@@ -244,7 +249,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         {!isLoading && generationResult === "error"
           ? `要約を生成できませんでした。「${retryButtonLabel}」ボタンで再試行できます。`
           : !isLoading && generationResult === "partial"
-            ? `要約は保存済みです。説明文を生成できませんでした。「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`
+            ? `要約は保存済みです。説明文を生成できませんでした。${partialGuidance}`
             : null}
       </div>
 
@@ -252,7 +257,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       {!isLoading && error && (
         <p className="text-xs text-destructive">
           {isPartial
-            ? `要約は保存済みです。説明文は生成できませんでした。「${retryButtonLabel}」で説明文だけを再試行できます。`
+            ? `要約は保存済みです。説明文は生成できませんでした。${partialGuidance}`
             : `生成できませんでした。「${retryButtonLabel}」で再試行できます。`}
         </p>
       )}

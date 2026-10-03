@@ -266,6 +266,29 @@ describe("PaperSummary", () => {
       expect(mockOnGenerate).toHaveBeenCalledWith("2401.00001", "ja", "explanation");
     });
 
+    it("異常系: 再試行で解決しない部分成功（auth）は再試行ではなく対処方法を案内する", () => {
+      const summary = createSampleSummary();
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          error={new PartialSummaryError("auth", false)}
+        />
+      );
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約は保存済みです。説明文を生成できませんでした。APIキーの設定を確認してください。"
+      );
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
+      expect(
+        screen.getByText(
+          "要約は保存済みです。説明文は生成できませんでした。APIキーの設定を確認してください。"
+        )
+      ).toBeInTheDocument();
+    });
+
     it("異常系: 全体の失敗は部分成功と異なる文言で表示する", () => {
       const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
 

@@ -1,3 +1,4 @@
+import { RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 
@@ -197,6 +198,16 @@ describe("要約API", () => {
 
       it.each([
         ["429", Object.assign(new Error("rate limited"), { statusCode: 429 }), "rate_limit", true],
+        [
+          "RetryError に包まれた429",
+          new RetryError({
+            message: "Failed after 3 attempts",
+            reason: "maxRetriesExceeded",
+            errors: [Object.assign(new Error("rate limited"), { statusCode: 429 })],
+          }),
+          "rate_limit",
+          true,
+        ],
         ["401", Object.assign(new Error("invalid key"), { statusCode: 401 }), "auth", false],
         ["JSONの解析失敗", new SyntaxError("Unexpected token"), "invalid_output", true],
       ])("正常系: 説明文の失敗（%s）を安全な分類で返す", async (_label, error, code, retryable) => {

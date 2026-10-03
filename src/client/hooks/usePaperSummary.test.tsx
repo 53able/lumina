@@ -230,7 +230,7 @@ describe("usePaperSummary", () => {
     });
 
     await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
-    expect(onError).toHaveBeenCalledWith(expect.any(Error), "paper-a");
+    expect(onError).toHaveBeenCalledWith(expect.any(Error), "paper-a", "both");
     expect(result.current.error).toBeNull();
   });
 
@@ -288,7 +288,7 @@ describe("usePaperSummary", () => {
       );
       expect(result.current.failedTarget).toBe("both");
       expect(result.current.isLoading).toBe(false);
-      expect(onError).toHaveBeenCalledWith(expect.any(PartialSummaryError), "2401.00001");
+      expect(onError).toHaveBeenCalledWith(expect.any(PartialSummaryError), "2401.00001", "both");
     });
 
     it("異常系: 未知の分類は upstream として扱う", async () => {
@@ -355,7 +355,8 @@ describe("usePaperSummary", () => {
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
       });
       mockSummaryApi.mockRejectedValueOnce(new Error("timeout"));
-      const { result } = renderUsePaperSummary();
+      const onError = vi.fn();
+      const { result } = renderUsePaperSummary("2401.00001", onError);
 
       await act(async () => {
         await result.current.generateSummary(undefined, "explanation");
@@ -363,6 +364,8 @@ describe("usePaperSummary", () => {
 
       await waitFor(() => expect(result.current.error?.message).toBe("timeout"));
       expect(result.current.failedTarget).toBe("explanation");
+      // トーストで説明文の失敗として出せるよう、失敗した生成の対象を渡す
+      expect(onError).toHaveBeenCalledWith(expect.any(Error), "2401.00001", "explanation");
       expect(mockAddSummary).not.toHaveBeenCalled();
       expect(mockUpdateSummary).not.toHaveBeenCalled();
     });

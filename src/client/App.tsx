@@ -1,7 +1,7 @@
 import { type FC, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
-import type { Paper } from "../shared/schemas/index";
+import type { Paper, PaperSummary } from "../shared/schemas/index";
 import { HomeFooter } from "./components/HomeFooter";
 import { HomeHeader } from "./components/HomeHeader";
 import { HomeMain } from "./components/HomeMain";
@@ -171,10 +171,10 @@ const HomePage: FC = () => {
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
     abstract: selectedPaper?.abstract ?? "",
-    onError: (err, paperId) => {
+    onError: (err, paperId, target) => {
       console.error("Summary generation error:", err);
       // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
-      showSummaryErrorToast(err, papers.find((p) => p.id === paperId)?.title);
+      showSummaryErrorToast(err, papers.find((p) => p.id === paperId)?.title, target);
     },
   });
 
@@ -184,15 +184,18 @@ const HomePage: FC = () => {
   // whyReadMap を生成（論文ID → whyRead のマップ）
   // summaryLanguage に合わせた言語の whyRead を取得
   // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
-  const whyReadMap = useMemo(
-    () =>
-      new Map(
-        summaries
-          .filter((s) => s.language === summaryLanguage && s.whyRead)
-          .map((s) => [s.paperId, s.whyRead as string])
-      ),
-    [summaries, summaryLanguage]
-  );
+  // 同じ論文に複数の版がある場合は最新の版（最後に追加されたもの）の whyRead を使う
+  const whyReadMap = useMemo(() => {
+    const latestByPaperId = new Map<string, PaperSummary>();
+    for (const s of summaries) {
+      if (s.language === summaryLanguage) latestByPaperId.set(s.paperId, s);
+    }
+    const map = new Map<string, string>();
+    for (const [paperId, s] of latestByPaperId) {
+      if (s.whyRead) map.set(paperId, s.whyRead);
+    }
+    return map;
+  }, [summaries, summaryLanguage]);
 
   // 論文クリックハンドラー（インライン展開のトグル）
   const handlePaperClick = useCallback((paper: Paper) => {

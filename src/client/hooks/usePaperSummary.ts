@@ -18,8 +18,11 @@ interface UsePaperSummaryOptions {
   paperId: string;
   /** 論文のアブストラクト */
   abstract: string;
-  /** エラー時のコールバック（paperId: 失敗した生成の論文ID。表示中の論文とは限らない） */
-  onError?: (error: Error, paperId: string) => void;
+  /**
+   * エラー時のコールバック
+   * paperId: 失敗した生成の論文ID（表示中の論文とは限らない）、target: 失敗した生成の対象
+   */
+  onError?: (error: Error, paperId: string, target: GenerateTarget) => void;
 }
 
 /** 要約生成の mutation 変数 */
@@ -181,7 +184,7 @@ export const usePaperSummary = ({
     },
     onError: (error, variables) => {
       const err = error instanceof Error ? error : new Error("要約の生成に失敗しました");
-      onError?.(err, variables.paperId);
+      onError?.(err, variables.paperId, variables.target);
     },
   });
 
