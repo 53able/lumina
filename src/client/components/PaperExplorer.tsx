@@ -207,6 +207,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 variant="ghost"
                 size="sm"
                 onClick={handleClear}
+                aria-label="検索をクリア"
                 className={cn(
                   "h-7 px-2 text-muted-foreground hover:text-foreground",
                   !isDesktop ? "h-6 px-1.5" : ""

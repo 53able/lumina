@@ -299,7 +299,7 @@ describe("PaperExplorer", () => {
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
       expect(getLocationSearch()).toBe("?q=transformer");
 
-      await user.click(screen.getByRole("button", { name: "クリア" }));
+      await user.click(screen.getByRole("button", { name: "検索をクリア" }));
 
       const searchbox = screen.getByRole("searchbox");
       expect(searchbox).toBeEnabled();
@@ -378,7 +378,7 @@ describe("PaperExplorer", () => {
       );
 
       const user = userEvent.setup({ delay: null });
-      await user.click(screen.getByRole("button", { name: "クリア" }));
+      await user.click(screen.getByRole("button", { name: "検索をクリア" }));
 
       expect(mockClearSearchAndFilters).toHaveBeenCalledTimes(1);
       expect(mockClearAllFilters).not.toHaveBeenCalled();
@@ -393,11 +393,27 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       const categoryGroup = screen.getByRole("group", { name: "カテゴリで絞り込み" });
-      await user.click(within(categoryGroup).getByRole("button", { name: "" }));
+      await user.click(
+        within(categoryGroup).getByRole("button", { name: "カテゴリの絞り込みを解除" })
+      );
 
       expect(mockClearAllFilters).toHaveBeenCalledTimes(1);
       expect(mockClearSearchAndFilters).not.toHaveBeenCalled();
       expect(getLocationSearch()).toBe("?q=transformer");
+    });
+
+    it("モバイルでも見出し横のアイコンだけの「検索をクリア」は名前で操作でき、検索語とフィルターを消す", async () => {
+      mediaState.isDesktop = false;
+      renderExplorer(
+        { initialPapers: mockPapers, externalQuery: "transformer" },
+        "/?q=transformer&cat=cs.CL"
+      );
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("button", { name: "検索をクリア" }));
+
+      expect(mockClearSearchAndFilters).toHaveBeenCalledTimes(1);
+      expect(getLocationSearch()).toBe("");
     });
 
     it("モバイルの「絞り込みをクリア」はフィルターだけを消し、検索語を残す", async () => {
