@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { getApiResumeHint } from "../lib/api";
 import { getSummaryStageErrorGuidance, PartialSummaryError } from "../lib/summaryErrors";
+import { cn } from "../lib/utils";
 import { useSettingsStore } from "../stores/settingsStore";
 import { getAdoptedSummaries, type SummaryVersion } from "../stores/summaryStore";
 import { Badge } from "./ui/badge";
@@ -128,6 +129,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   );
   /** 生成中だった論文・言語（完了・失敗を同じ論文・言語でだけ通知するため） */
   const loadingKeyRef = useRef<string | null>(null);
+  /** 生成開始時にフォーカスしていた要素（完了で押したボタンが消えた場合にフォーカスを戻すため） */
+  const focusedAtLoadingRef = useRef<Element | null>(null);
   const generationKey = `${paperId}:${selectedLanguage}`;
 
   // 保存済みの版（古い順）のうちの採用版
@@ -187,13 +190,27 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   useEffect(() => {
     if (isLoading) {
       loadingKeyRef.current = generationKey;
+      focusedAtLoadingRef.current = document.activeElement;
       setGenerationResult(null);
       setVersionMessage(null);
       return;
     }
     const result = error ? (isPartial ? "partial" : "error") : "success";
-    setGenerationResult(loadingKeyRef.current === generationKey ? result : null);
+    const isSameKey = loadingKeyRef.current === generationKey;
+    setGenerationResult(isSameKey ? result : null);
+    // 押した生成ボタンが完了で消えた（要約・説明文ができた）ときだけ、AI要約の見出しへフォーカスを戻す。
+    // 利用者が生成中に別の場所へ移したフォーカスは動かさない
+    const focusedAtLoading = focusedAtLoadingRef.current;
+    if (
+      isSameKey &&
+      focusedAtLoading &&
+      !focusedAtLoading.isConnected &&
+      document.activeElement === document.body
+    ) {
+      headingRef.current?.focus();
+    }
     loadingKeyRef.current = null;
+    focusedAtLoadingRef.current = null;
   }, [isLoading, error, isPartial, generationKey]);
 
   /** 失敗時に再試行で押すボタン（要約があれば説明文のみの生成ボタンが出る） */
@@ -273,8 +290,24 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
    * @param target - 生成対象（explanation: 説明文のみ, both: 要約と説明文の両方）
    */
   const handleGenerate = (target: GenerateTarget) => {
+    // 生成中はボタンを残したまま無効にしている（aria-disabled はクリックを止めないため、ここで止める）
+    if (isLoading) return;
     onGenerate?.(paperId, selectedLanguage, target);
   };
+
+  /** 生成中の表示（押したボタンの隣に出す。読み上げは live region が担う） */
+  const loadingText = isLoading ? (
+    <span className="text-xs text-muted-foreground">生成中...</span>
+  ) : null;
+  /**
+   * 生成ボタンの生成中の状態。disabled にするとフォーカスが外れるため、
+   * フォーカスを残したまま aria-disabled / aria-busy で無効を伝える
+   */
+  const generateButtonBusyProps = {
+    "aria-disabled": isLoading || undefined,
+    "aria-busy": isLoading || undefined,
+  };
+  const busyButtonClassName = "aria-disabled:opacity-50 aria-disabled:pointer-events-none";
 
   /** 版を採用する */
   const handleAdopt = async (version: SummaryVersion) => {
@@ -388,21 +421,22 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         </p>
       )}
 
-      {/* ローディング状態 */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-8 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" />
-          <span>生成中...</span>
-        </div>
-      )}
-
-      {/* 要約なしの状態 */}
-      {!isLoading && !summary && (
+      {/* 要約なしの状態（生成中もボタンを残し、フォーカスを失わせない） */}
+      {!summary && (
         <div className="flex flex-col items-center justify-center py-6 gap-3">
-          <Button onClick={() => handleGenerate("both")} disabled={isLoading} className="gap-2">
-            <Sparkles className="h-4 w-4" />
+          <Button
+            onClick={() => handleGenerate("both")}
+            {...generateButtonBusyProps}
+            className={cn("gap-2", busyButtonClassName)}
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
             要約 + 説明文
           </Button>
+          {loadingText}
           <p className="text-xs text-muted-foreground text-center">
             要約: Abstractの記述を簡潔にまとめます
             <br />
@@ -411,8 +445,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         </div>
       )}
 
-      {/* 要約ありの状態 */}
-      {!isLoading && summary && (
+      {/* 要約ありの状態（生成中も要約と生成ボタンを残す） */}
+      {summary && (
         <div className="space-y-4">
           {/* コンテンツモード切り替え（説明文がある場合のみ表示） */}
           {hasExplanation && (
@@ -451,17 +485,25 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
               {/* 説明文がない場合、説明文のみ生成を促す */}
               {!hasExplanation && (
-                <div className="pt-2 border-t">
+                <div className="flex items-center gap-2 pt-2 border-t">
                   <Button
                     onClick={() => handleGenerate("explanation")}
-                    disabled={isLoading}
+                    {...generateButtonBusyProps}
                     variant="ghost"
                     size="sm"
-                    className="gap-2 text-muted-foreground hover:text-foreground"
+                    className={cn(
+                      "gap-2 text-muted-foreground hover:text-foreground",
+                      busyButtonClassName
+                    )}
                   >
-                    <Target className="h-4 w-4" />
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Target className="h-4 w-4" />
+                    )}
                     なぜ読むべきかを生成
                   </Button>
+                  {loadingText}
                 </div>
               )}
             </div>
@@ -505,7 +547,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
           {/* 版の操作: 再生成（新しい版を追加して採用）・破棄・版の比較 */}
           <div className="space-y-2 pt-2 border-t">
             <div className="flex flex-wrap items-center gap-2">
-              {adoptedVersion && versions.length > 1 && (
+              {!isLoading && adoptedVersion && versions.length > 1 && (
                 <Badge variant="outline">
                   採用中: 第{versionNumberOf(adoptedVersion)}版 / 全{versions.length}版
                 </Badge>
@@ -514,14 +556,18 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 onClick={() => handleGenerate("both")}
                 disabled={!apiEnabled}
                 aria-describedby={apiEnabled ? undefined : regenerateDisabledReasonId}
+                {...generateButtonBusyProps}
                 variant="outline"
                 size="sm"
-                className="gap-2"
+                className={cn("gap-2", busyButtonClassName)}
               >
-                <RefreshCw className="h-4 w-4" />
+                <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
                 再生成
               </Button>
-              {adoptedVersion && onDiscardVersion && (
+              {/* 説明文のみの生成中は、その生成ボタンの隣に出している */}
+              {hasExplanation && loadingText}
+              {/* 版の破棄・比較は生成中は出さない（生成で版が増えるため） */}
+              {!isLoading && adoptedVersion && onDiscardVersion && (
                 <Button
                   onClick={() => setPendingDiscard(adoptedVersion)}
                   variant="ghost"
@@ -532,7 +578,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                   採用中の版を破棄
                 </Button>
               )}
-              {versions.length > 1 && (
+              {!isLoading && versions.length > 1 && (
                 <Button
                   onClick={() => setIsVersionListOpen((open) => !open)}
                   aria-expanded={isVersionListOpen}
@@ -555,7 +601,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
           </div>
 
           {/* 版の比較: 新しい版から並べ、2列で前の版と並べて見比べられるようにする */}
-          {isVersionListOpen && versions.length > 1 && (
+          {!isLoading && isVersionListOpen && versions.length > 1 && (
             <section id={versionListId} aria-label="保存済みの要約の版">
               <ol className="grid gap-3 sm:grid-cols-2">
                 {[...versions].reverse().map((version) => {
