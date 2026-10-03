@@ -126,6 +126,7 @@ const HomePage: FC = () => {
     queryEmbedding,
     error: searchError,
     completedQuery,
+    stoppedQuery,
     searchInputValue,
     setSearchInputValue,
     handleSearch,
@@ -139,15 +140,14 @@ const HomePage: FC = () => {
   });
 
   // API利用OFFで止まった検索は、保存済み論文の一覧を残したまま停止理由を通知する
-  const isSearchStoppedByApiOff = searchError instanceof ApiDisabledError;
   useEffect(() => {
-    if (searchError instanceof ApiDisabledError) {
-      toast.error("AI検索を停止中", {
+    if (stoppedQuery !== null && searchError) {
+      toast.error("検索停止中: 保存済みの論文を表示しています", {
         id: "api-disabled-search",
         description: searchError.message,
       });
     }
-  }, [searchError]);
+  }, [stoppedQuery, searchError]);
 
   // 設定ダイアログの開閉状態
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -354,8 +354,8 @@ const HomePage: FC = () => {
         onSearch={handleSearch}
         onClearSearch={handleClearSearch}
         onPaperClick={handlePaperClick}
-        // OFFで止まった検索は、URL の q に対して親の一覧（保存済み論文）を表示させる
-        externalQuery={isSearchStoppedByApiOff ? searchInputValue.trim() : completedQuery}
+        // OFFで止まった検索は、確定クエリ（URL の q）に対して親の一覧（保存済み論文）を表示させる
+        externalQuery={stoppedQuery ?? completedQuery}
         searchInputValue={searchInputValue}
         onSearchInputChange={setSearchInputValue}
         whyReadMap={whyReadMap}

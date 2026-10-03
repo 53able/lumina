@@ -72,6 +72,9 @@ vi.mock("@/client/stores/searchHistoryStore", () => ({
 
 const fetchMock = vi.fn();
 
+/** OFF で止まった検索の通知見出し */
+const STOPPED_SEARCH_TITLE = "検索停止中: 保存済みの論文を表示しています";
+
 /** fetch に渡された URL のうち、指定パスを含むものの件数 */
 const countRequests = (path: string): number =>
   fetchMock.mock.calls.filter(([input]) => {
@@ -140,7 +143,9 @@ describe("App: API利用OFF", () => {
     await waitFor(() => expect(countRequests("/api/v1/summary/")).toBe(1));
   });
 
-  it("自動要約ONのままAPI利用をOFFにすると、詳細パネルで未要約論文を開いても summary リクエスト0件・エラー通知なし", async () => {
+  // 自動要約の抑止（&& apiEnabled）は toast.error の有無で検証する。
+  // 抑止がなくても summaryApi の実行境界で fetch は 0 件になるが、発火すれば「AI要約を停止中」のトーストが出る
+  it("自動要約ONのままAPI利用をOFFにすると、詳細パネルで未要約論文を開いても自動要約が発火しない（fetch 0件・トーストなし）", async () => {
     useSettingsStore.setState({ autoGenerateSummary: true, apiEnabled: false });
     renderApp();
 
@@ -162,7 +167,7 @@ describe("App: API利用OFF", () => {
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        "AI検索を停止中",
+        STOPPED_SEARCH_TITLE,
         expect.objectContaining({ description: expect.stringContaining("API利用がOFF") })
       )
     );
@@ -170,12 +175,29 @@ describe("App: API利用OFF", () => {
     expect(screen.getByText("Test Paper Title")).toBeInTheDocument();
   });
 
+  it("OFFで検索が止まった後に検索欄を編集しても、保存済み論文の一覧が残る", async () => {
+    useSettingsStore.setState({ apiEnabled: false });
+    const user = userEvent.setup();
+    renderApp();
+
+    const searchbox = await screen.findByRole("searchbox");
+    await user.type(searchbox, "transformer{Enter}");
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+
+    // 確定していない入力の変更（1文字追加・削除）
+    await user.type(searchbox, "s");
+    expect(screen.getByText("Test Paper Title")).toBeInTheDocument();
+    await user.type(searchbox, "{Backspace}{Backspace}");
+    expect(screen.getByText("Test Paper Title")).toBeInTheDocument();
+    expect(countRequests("/api/v1/search")).toBe(0);
+  });
+
   it("OFF中に ?q= で直接開いても検索APIを呼ばず、保存済み論文の一覧を残して停止理由を通知する", async () => {
     useSettingsStore.setState({ apiEnabled: false });
     renderApp("/?q=transformer");
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("AI検索を停止中", expect.anything())
+      expect(toastError).toHaveBeenCalledWith(STOPPED_SEARCH_TITLE, expect.anything())
     );
     expect(countRequests("/api/v1/search")).toBe(0);
     expect(screen.getByText("Test Paper Title")).toBeInTheDocument();

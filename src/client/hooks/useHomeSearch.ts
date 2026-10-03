@@ -145,6 +145,9 @@ export const useHomeSearch = ({
     ...semanticSearch,
     /** 結果が揃った検索のクエリ（検索中・クリア後は null） */
     completedQuery: expandedQuery !== null ? activeQuery : null,
+    /** API利用OFFで止まった検索の確定クエリ（入力欄の編集では変わらない。それ以外は null） */
+    stoppedQuery:
+      semanticSearch.error?.name === "ApiDisabledError" ? (activeQuery?.trim() ?? null) : null,
     searchInputValue,
     setSearchInputValue,
     handleSearch,

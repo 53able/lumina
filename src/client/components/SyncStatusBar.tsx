@@ -1,7 +1,7 @@
 import { Calendar, FileText, SearchX, StopCircle } from "lucide-react";
 import type { FC } from "react";
 import { useEffect, useState } from "react";
-import { SyncRateLimitError } from "../lib/api";
+import { getApiResumeHint, SyncRateLimitError } from "../lib/api";
 import type { EmbeddingBackfillOutcome } from "../lib/embeddingBackfillOutcome";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -123,7 +123,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   onRunEmbeddingBackfill,
   onStopSync,
 }) => {
-  const { getLastSyncedAt, apiEnabled } = useSettingsStore();
+  const { getLastSyncedAt, apiEnabled, hasApiKey } = useSettingsStore();
   const lastSyncedAt = getLastSyncedAt();
 
   const isFetching = useSyncStore((s) => s.isFetching);
@@ -165,6 +165,11 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   const visibleOutcome = isEmbeddingBackfilling ? null : embeddingBackfillOutcome;
   // 失敗結果の表示中は、結果欄の「未処理分を再試行」に操作を集約する
   const hasBackfillFailure = visibleOutcome?.failure != null;
+  const canShowBackfillButton =
+    onRunEmbeddingBackfill != null &&
+    papersWithoutEmbeddingCount > 0 &&
+    !isEmbeddingBackfilling &&
+    !hasBackfillFailure;
 
   return (
     <div
@@ -358,29 +363,27 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                 ）
               </span>
             )}
-            {onRunEmbeddingBackfill &&
-              papersWithoutEmbeddingCount > 0 &&
-              !isEmbeddingBackfilling &&
-              !hasBackfillFailure && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onRunEmbeddingBackfill}
-                  disabled={!apiEnabled}
-                  aria-label="Embedding未設定の論文を補完"
-                  aria-describedby={apiEnabled ? undefined : "embedding-backfill-api-disabled"}
-                  className={
-                    compact
-                      ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
-                      : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
-                  }
-                >
-                  Embeddingを補完
-                </Button>
-              )}
-            {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !apiEnabled && (
+            {canShowBackfillButton && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRunEmbeddingBackfill}
+                disabled={!apiEnabled}
+                aria-label="Embedding未設定の論文を補完"
+                aria-describedby={apiEnabled ? undefined : "embedding-backfill-api-disabled"}
+                className={
+                  compact
+                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                }
+              >
+                Embeddingを補完
+              </Button>
+            )}
+            {/* aria-describedby の参照先。ボタンと同じ条件で出し、失敗結果の表示とは重ねない */}
+            {canShowBackfillButton && !apiEnabled && (
               <span id="embedding-backfill-api-disabled" className="text-muted-foreground">
-                API利用OFFのため補完を停止中（設定の「利用可能」をONにすると補完できます）
+                API利用OFFのため補完を停止中。{getApiResumeHint(hasApiKey())}
               </span>
             )}
           </div>
