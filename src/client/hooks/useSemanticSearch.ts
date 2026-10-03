@@ -99,20 +99,68 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 /** 類似度スコアのデフォルト閾値 */
 const DEFAULT_SCORE_THRESHOLD = 0.3;
 
-/** 検索結果の内部 state（paper は papers から解決するため id + score のみ保持） */
-interface ResultEntry {
-  paperId: string;
-  score: number;
+/** 検索結果の計算結果 */
+interface ComputedSearchResults {
+  /** 類似度順・limit 適用後の結果 */
+  results: SearchResult[];
+  /** 検索対象外（Embeddingなし）の論文 */
+  excluded: Paper[];
+  /** ヒット総数（limit 適用前） */
+  totalMatchCount: number;
 }
+
+/**
+ * クエリEmbeddingと論文一覧から検索結果を計算する（APIリクエストなし）
+ *
+ * @param papers 検索対象の論文配列
+ * @param queryEmbedding クエリのEmbeddingベクトル（空なら結果は空、対象外のみ算出）
+ * @param scoreThreshold 類似度スコアの閾値
+ * @param limit 取得件数
+ * @returns 検索結果・検索対象外の論文・ヒット総数
+ */
+const computeSearchResults = (
+  papers: Paper[],
+  queryEmbedding: number[],
+  scoreThreshold: number,
+  limit: number
+): ComputedSearchResults => {
+  const excluded: Paper[] = [];
+  const matchedResults: SearchResult[] = [];
+
+  for (const paper of papers) {
+    const embedding = paper.embedding;
+    if (!embedding || embedding.length === 0) {
+      excluded.push(paper);
+      continue;
+    }
+    if (queryEmbedding.length === 0) continue;
+
+    const score = cosineSimilarity(queryEmbedding, embedding);
+    if (score >= scoreThreshold) {
+      matchedResults.push({ paper, score });
+    }
+  }
+
+  matchedResults.sort((a, b) => b.score - a.score);
+
+  return {
+    results: matchedResults.slice(0, limit),
+    excluded,
+    totalMatchCount: matchedResults.length,
+  };
+};
+
+const EMPTY_SEARCH_RESULTS: ComputedSearchResults = {
+  results: [],
+  excluded: [],
+  totalMatchCount: 0,
+};
 
 export const useSemanticSearch = ({
   papers,
   limit = 20,
   scoreThreshold = DEFAULT_SCORE_THRESHOLD,
 }: UseSemanticSearchOptions): UseSemanticSearchReturn => {
-  const [resultEntries, setResultEntries] = useState<ResultEntry[]>([]);
-  const [papersExcludedFromSearch, setPapersExcludedFromSearch] = useState<Paper[]>([]);
-  const [totalMatchCount, setTotalMatchCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [expandedQuery, setExpandedQuery] = useState<ExpandedQuery | null>(null);
@@ -142,64 +190,27 @@ export const useSemanticSearch = ({
     return generationRef.current;
   }, []);
 
-  /** 検索開始時に前回の結果をクリアし、ローディング状態にする */
+  /** 検索開始時に前回のエラーをクリアし、ローディング状態にする */
   const resetSearchState = useCallback(() => {
     setIsLoading(true);
     setError(null);
-    setResultEntries([]);
-    setPapersExcludedFromSearch([]);
-    setTotalMatchCount(0);
   }, []);
 
-  const paperById = useMemo(() => new Map(papers.map((paper) => [paper.id, paper])), [papers]);
-
-  // ストア（papers）から paper を解決し、リアクティブに results を導出
-  const results = useMemo(
-    () =>
-      resultEntries
-        .map((e) => {
-          const paper = paperById.get(e.paperId);
-          return paper ? ({ paper, score: e.score } as SearchResult) : null;
-        })
-        .filter((r): r is SearchResult => r != null),
-    [resultEntries, paperById]
-  );
-
   /**
-   * 共通の検索ロジック: Embeddingベクトルから検索結果を計算する
-   * @param queryEmbedding クエリのEmbeddingベクトル
-   * @returns 検索結果の配列
+   * 検索結果は保存済みの queryEmbedding と現在の papers・閾値から導出する。
+   * 検索表示中の論文追加・Embedding補完にも追従し、再計算に検索APIは使わない。
+   * 検索が完了していない（expandedQuery が null）・失敗した場合は空とする。
    */
-  const computeSearchResults = useCallback(
-    (queryEmbedding: number[]): SearchResult[] => {
-      const excluded: Paper[] = [];
-      const matchedResults: SearchResult[] = [];
-
-      for (const paper of papers) {
-        const embedding = paper.embedding;
-        if (!embedding || embedding.length === 0) {
-          excluded.push(paper);
-          continue;
-        }
-
-        const score = cosineSimilarity(queryEmbedding, embedding);
-        if (score >= scoreThreshold) {
-          matchedResults.push({ paper, score });
-        }
-      }
-
-      setPapersExcludedFromSearch(excluded);
-
-      matchedResults.sort((a, b) => b.score - a.score);
-      const limitedResults = matchedResults.slice(0, limit);
-
-      // ヒット総数（limit適用前）を保存し、結果を保存（id + score のみ）
-      setTotalMatchCount(matchedResults.length);
-      setResultEntries(limitedResults.map((r) => ({ paperId: r.paper.id, score: r.score })));
-
-      return limitedResults;
-    },
-    [papers, limit, scoreThreshold]
+  const {
+    results,
+    excluded: papersExcludedFromSearch,
+    totalMatchCount,
+  } = useMemo(
+    () =>
+      expandedQuery !== null && error === null
+        ? computeSearchResults(papers, queryEmbedding ?? [], scoreThreshold, limit)
+        : EMPTY_SEARCH_RESULTS,
+    [expandedQuery, error, papers, queryEmbedding, scoreThreshold, limit]
   );
 
   const search = useCallback(
@@ -232,26 +243,15 @@ export const useSemanticSearch = ({
         const embedding =
           "queryEmbedding" in data && Array.isArray(data.queryEmbedding) ? data.queryEmbedding : [];
 
-        // queryEmbeddingを状態に保存
+        // queryEmbeddingを状態に保存（結果は queryEmbedding と papers から導出される）
         setQueryEmbedding(embedding.length > 0 ? embedding : null);
 
-        // queryEmbeddingがない場合は結果を空にする
-        if (embedding.length === 0) {
-          setResultEntries([]);
-          setTotalMatchCount(0);
-          const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
-          setPapersExcludedFromSearch(excluded);
-          return [];
-        }
-
-        // 4. 共通ロジックで検索結果を計算
-        return computeSearchResults(embedding);
+        // 4. 呼び出し元へ返す結果を計算（queryEmbeddingがない場合は空）
+        return computeSearchResults(papers, embedding, scoreThreshold, limit).results;
       } catch (e) {
         if (!isCurrent()) return [];
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
-        setResultEntries([]);
-        setTotalMatchCount(0);
         // 復号失敗時も「検索したが0件」として空メッセージを表示するため stub をセット
         if (err.name === "OperationError") {
           setExpandedQuery({
@@ -270,7 +270,7 @@ export const useSemanticSearch = ({
         }
       }
     },
-    [papers, limit, computeSearchResults, resetSearchState, startGeneration]
+    [papers, limit, scoreThreshold, resetSearchState, startGeneration]
   );
 
   /**
@@ -288,40 +288,26 @@ export const useSemanticSearch = ({
       resetSearchState();
 
       try {
-        // 保存済みデータを状態に設定
+        // 保存済みデータを状態に設定（結果は queryEmbedding と papers から導出される）
         setExpandedQuery(savedExpandedQuery);
         setQueryEmbedding(savedQueryEmbedding);
 
-        // queryEmbeddingがない場合は結果を空にする
-        if (savedQueryEmbedding.length === 0) {
-          setResultEntries([]);
-          setTotalMatchCount(0);
-          const excluded = papers.filter((p) => !p.embedding || p.embedding.length === 0);
-          setPapersExcludedFromSearch(excluded);
-          return [];
-        }
-
-        // 共通ロジックで検索結果を計算
-        return computeSearchResults(savedQueryEmbedding);
+        // 呼び出し元へ返す結果を計算（queryEmbeddingがない場合は空）
+        return computeSearchResults(papers, savedQueryEmbedding, scoreThreshold, limit).results;
       } catch (e) {
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
-        setResultEntries([]);
-        setTotalMatchCount(0);
         return [];
       } finally {
         setIsLoading(false);
       }
     },
-    [papers, computeSearchResults, resetSearchState, startGeneration]
+    [papers, limit, scoreThreshold, resetSearchState, startGeneration]
   );
 
   const reset = useCallback(() => {
     startGeneration();
     setIsLoading(false);
-    setResultEntries([]);
-    setPapersExcludedFromSearch([]);
-    setTotalMatchCount(0);
     setExpandedQuery(null);
     setQueryEmbedding(null);
     setError(null);
