@@ -299,7 +299,7 @@ describe("PaperExplorer", () => {
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
       expect(getLocationSearch()).toBe("?q=transformer");
 
-      await user.click(screen.getByRole("button", { name: "検索をクリア" }));
+      await user.click(screen.getByRole("button", { name: "検索と絞り込みをクリア" }));
 
       const searchbox = screen.getByRole("searchbox");
       expect(searchbox).toBeEnabled();
@@ -378,7 +378,7 @@ describe("PaperExplorer", () => {
       );
 
       const user = userEvent.setup({ delay: null });
-      await user.click(screen.getByRole("button", { name: "検索をクリア" }));
+      await user.click(screen.getByRole("button", { name: "検索と絞り込みをクリア" }));
 
       expect(mockClearSearchAndFilters).toHaveBeenCalledTimes(1);
       expect(mockClearAllFilters).not.toHaveBeenCalled();
@@ -393,24 +393,25 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       const categoryGroup = screen.getByRole("group", { name: "カテゴリで絞り込み" });
-      await user.click(
-        within(categoryGroup).getByRole("button", { name: "カテゴリの絞り込みを解除" })
-      );
+      await user.click(within(categoryGroup).getByRole("button", { name: "絞り込みをすべて解除" }));
 
       expect(mockClearAllFilters).toHaveBeenCalledTimes(1);
       expect(mockClearSearchAndFilters).not.toHaveBeenCalled();
       expect(getLocationSearch()).toBe("?q=transformer");
     });
 
-    it("モバイルでも見出し横のアイコンだけの「検索をクリア」は名前で操作でき、検索語とフィルターを消す", async () => {
+    it("モバイルでも見出し横のアイコンだけの「検索と絞り込みをクリア」は名前で操作でき、検索語とフィルターを消す", async () => {
       mediaState.isDesktop = false;
       renderExplorer(
         { initialPapers: mockPapers, externalQuery: "transformer" },
         "/?q=transformer&cat=cs.CL"
       );
 
+      // モバイルでは「クリア」の文字を出さず、アイコンだけになる
+      expect(screen.queryByText("クリア")).not.toBeInTheDocument();
+
       const user = userEvent.setup({ delay: null });
-      await user.click(screen.getByRole("button", { name: "検索をクリア" }));
+      await user.click(screen.getByRole("button", { name: "検索と絞り込みをクリア" }));
 
       expect(mockClearSearchAndFilters).toHaveBeenCalledTimes(1);
       expect(getLocationSearch()).toBe("");
