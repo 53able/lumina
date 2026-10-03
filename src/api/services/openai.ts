@@ -1,8 +1,48 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, embedMany, generateText } from "ai";
 import type { Context } from "hono";
+import { env } from "hono/adapter";
 import { z } from "zod";
 import type { Env } from "../types/env";
+
+/**
+ * 生成タスクごとの使用モデル
+ */
+export interface ModelConfig {
+  /** クエリ拡張（英訳・同義語） */
+  queryExpansion: string;
+  /** 要約生成 */
+  summary: string;
+  /** 説明文生成 */
+  explanation: string;
+}
+
+/**
+ * 生成タスクのデフォルトモデル
+ */
+export const DEFAULT_MODELS: ModelConfig = {
+  queryExpansion: "gpt-6-luna",
+  summary: "gpt-6-luna",
+  explanation: "gpt-6-luna",
+};
+
+/**
+ * Embeddingモデル
+ *
+ * @remarks
+ * クライアントに保存済みの1536次元ベクトルと互換性を保つため、環境変数では変更できない。
+ * 変更する場合は保存済みEmbeddingの再生成が必要。
+ */
+export const EMBEDDING_MODEL = "text-embedding-3-small";
+
+/**
+ * 生成タスクのモデルを上書きする環境変数名
+ */
+const MODEL_ENV_KEYS: Record<keyof ModelConfig, string> = {
+  queryExpansion: "OPENAI_MODEL_QUERY_EXPANSION",
+  summary: "OPENAI_MODEL_SUMMARY",
+  explanation: "OPENAI_MODEL_EXPLANATION",
+};
 
 /**
  * OpenAI API設定
@@ -12,6 +52,8 @@ export interface OpenAIConfig {
   apiKey: string;
   /** ベースURL（オプション） */
   baseUrl?: string;
+  /** タスクごとの使用モデル（未指定のタスクはDEFAULT_MODELSを使う） */
+  models?: Partial<ModelConfig>;
 }
 
 /**
@@ -93,8 +135,41 @@ export const getOpenAIConfig = (c: Context<{ Bindings: Env }>): OpenAIConfig => 
     throw new Error(errorMessage);
   }
 
-  return { apiKey };
+  return { apiKey, models: resolveModels(env(c)) };
 };
+
+/**
+ * 環境変数からタスクごとの使用モデルを解決する
+ *
+ * 未設定・空文字のタスクはDEFAULT_MODELSを使う。
+ */
+export const resolveModels = (vars: Record<string, unknown> | undefined): ModelConfig => {
+  const resolved = { ...DEFAULT_MODELS };
+  for (const task of Object.keys(MODEL_ENV_KEYS) as (keyof ModelConfig)[]) {
+    const value = vars?.[MODEL_ENV_KEYS[task]];
+    if (typeof value === "string" && value.trim() !== "") {
+      resolved[task] = value.trim();
+    }
+  }
+  return resolved;
+};
+
+const getModel = (config: OpenAIConfig, task: keyof ModelConfig): string =>
+  config.models?.[task] ?? DEFAULT_MODELS[task];
+
+/**
+ * モデルに応じたサンプリング設定を返す
+ *
+ * @remarks
+ * gpt-6 系は推論モデルで reasoning effort のデフォルトが medium。
+ * 定型的な短文生成なので "none" にして推論トークン課金とレイテンシを抑える。
+ * temperature は reasoning effort が "none" のときのみ受け付けられる。
+ * @ai-sdk/openai 1.x は gpt-6 系を推論モデルとして認識しないため、ここで指定する。
+ */
+const samplingSettings = (modelId: string, temperature: number) =>
+  /^(ft:)?gpt-6/.test(modelId)
+    ? { temperature, providerOptions: { openai: { reasoningEffort: "none" } } }
+    : { temperature };
 
 /**
  * OpenAIプロバイダーを作成する
@@ -116,7 +191,7 @@ export const createEmbedding = async (
   const provider = createProvider(config);
 
   const { embedding, usage } = await embed({
-    model: provider.embedding("text-embedding-3-small"),
+    model: provider.embedding(EMBEDDING_MODEL),
     value: text,
   });
 
@@ -144,7 +219,7 @@ export const createEmbeddingsBatch = async (
   const provider = createProvider(config);
 
   const { embeddings, usage } = await embedMany({
-    model: provider.embedding("text-embedding-3-small"),
+    model: provider.embedding(EMBEDDING_MODEL),
     values: texts,
   });
 
@@ -235,8 +310,9 @@ Output: {"original":"LLMの推論効率化","english":"LLM inference optimizatio
 export const expandQuery = async (query: string, config: OpenAIConfig): Promise<ExpandedQuery> => {
   const provider = createProvider(config);
 
+  const modelId = getModel(config, "queryExpansion");
   const { text } = await generateText({
-    model: provider("gpt-4.1-nano"),
+    model: provider(modelId),
     system: QUERY_EXPANSION_SYSTEM_PROMPT,
     prompt: `${QUERY_EXPANSION_EXAMPLES}
 
@@ -245,7 +321,7 @@ ${query}
 </input>
 
 Respond with valid JSON only.`,
-    temperature: 0.2, // 低めに設定して一貫性を重視
+    ...samplingSettings(modelId, 0.2), // 低めに設定して一貫性を重視
   });
 
   const parsed = ExpandedQuerySchema.parse(JSON.parse(text));
@@ -380,8 +456,9 @@ export const generateSummary = async (
   const langInstruction = language === "ja" ? SUMMARY_INSTRUCTION_JA : SUMMARY_INSTRUCTION_EN;
   const example = language === "ja" ? SUMMARY_EXAMPLE_JA : SUMMARY_EXAMPLE_EN;
 
+  const modelId = getModel(config, "summary");
   const { text } = await generateText({
-    model: provider("gpt-4.1-nano"),
+    model: provider(modelId),
     system: `${SUMMARY_SYSTEM_PROMPT_BASE}${langInstruction}`,
     prompt: `${example}
 
@@ -390,7 +467,7 @@ ${abstract}
 </abstract>
 
 Respond with valid JSON only.`,
-    temperature: 0.3,
+    ...samplingSettings(modelId, 0.3),
   });
 
   const parsed = SummaryResultSchema.parse(JSON.parse(text));
@@ -508,8 +585,9 @@ export const generateExplanation = async (
     language === "ja" ? EXPLANATION_INSTRUCTION_JA : EXPLANATION_INSTRUCTION_EN;
   const example = language === "ja" ? EXPLANATION_EXAMPLE_JA : EXPLANATION_EXAMPLE_EN;
 
+  const modelId = getModel(config, "explanation");
   const { text } = await generateText({
-    model: provider("gpt-4.1-nano"),
+    model: provider(modelId),
     system: `${EXPLANATION_SYSTEM_PROMPT_BASE}${langInstruction}`,
     prompt: `${example}
 
@@ -518,7 +596,7 @@ ${abstract}
 </abstract>
 
 Respond with valid JSON only.`,
-    temperature: 0.4, // 要約より少し高め（創造性を許容）
+    ...samplingSettings(modelId, 0.4), // 要約より少し高め（創造性を許容）
   });
 
   const parsed = ExplanationResultSchema.parse(JSON.parse(text));

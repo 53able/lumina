@@ -2,7 +2,12 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { EmbeddingBatchRequestSchema, EmbeddingRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
-import { createEmbedding, createEmbeddingsBatch, getOpenAIConfig } from "../services/openai";
+import {
+  createEmbedding,
+  createEmbeddingsBatch,
+  EMBEDDING_MODEL,
+  getOpenAIConfig,
+} from "../services/openai";
 import type { Env } from "../types/env";
 
 /**
@@ -20,7 +25,7 @@ export const embeddingApp = new Hono<{ Bindings: Env }>()
       return c.json(
         {
           embedding: result.embedding,
-          model: "text-embedding-3-small",
+          model: EMBEDDING_MODEL,
           took: measureTime(startTime),
         },
         200
@@ -41,7 +46,7 @@ export const embeddingApp = new Hono<{ Bindings: Env }>()
       return c.json(
         {
           embeddings: result.embeddings,
-          model: "text-embedding-3-small",
+          model: EMBEDDING_MODEL,
           took: measureTime(startTime),
         },
         200
