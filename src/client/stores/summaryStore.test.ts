@@ -350,6 +350,25 @@ describe("summaryStore", () => {
         await expectStoreMatchesDb(store);
       });
 
+      it("正常系: 論文2の追加の書き込み中に論文1の版を破棄しても、追加した版が Store に残る", async () => {
+        const store = await addVersions(["第1版", "第2版"]);
+        const [, second] = store.getState().summaries;
+
+        // 追加を先に始め、その書き込み中に破棄を始める（破棄は追加の完了後に終わる）
+        await Promise.all([
+          store.getState().addSummary(createSampleSummary({ paperId: "paper2", summary: "論文2" })),
+          store.getState().discardSummary(second.id),
+        ]);
+
+        expect(store.getState().getSummaryByPaperIdAndLanguage("paper2", "ja")?.summary).toBe(
+          "論文2"
+        );
+        expect(store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe(
+          "第1版"
+        );
+        await expectStoreMatchesDb(store);
+      });
+
       it("正常系: 英語版の採用と日本語版の追加を同時に行っても、両方が反映される", async () => {
         const store = await addVersions(["ja第1版"]);
         await store

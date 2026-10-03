@@ -4,14 +4,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { FC } from "react";
+import { type FC, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { createLuminaDb, type LuminaDB } from "../db/db";
 import { usePaperSummary } from "../hooks/usePaperSummary";
 import { PartialSummaryError } from "../lib/summaryErrors";
 import { useSettingsStore } from "../stores/settingsStore";
-import { initializeSummaryStore, useSummaryStore } from "../stores/summaryStore";
+import {
+  getAdoptedSummaries,
+  initializeSummaryStore,
+  type SummaryVersion,
+  useSummaryStore,
+} from "../stores/summaryStore";
 import { type GenerateTarget, PaperSummary } from "./PaperSummary";
 
 /**
@@ -672,6 +677,130 @@ describe("PaperSummary", () => {
 
       expect(await screen.findByRole("button", { name: /要約 \+ 説明文/ })).toBeInTheDocument();
       expect(onGenerate).not.toHaveBeenCalled();
+    });
+
+    it("異常系: 破棄に失敗したら自動生成の抑止を戻す", async () => {
+      const user = userEvent.setup();
+      const onGenerate = vi.fn();
+      const version: SummaryVersion = { ...createSampleSummary(), id: 1 };
+      const props = {
+        paperId: "2401.00001",
+        onGenerate,
+        autoGenerate: true,
+        onAdoptVersion: vi.fn(),
+        onDiscardVersion: vi.fn().mockRejectedValue(new Error("DB error")),
+      };
+      const { rerender } = render(
+        <PaperSummary {...props} summary={version} versions={[version]} />
+      );
+
+      await user.click(screen.getByRole("button", { name: "採用中の版を破棄" }));
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", { name: "破棄する" })
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      // 破棄は失敗したので抑止しない（その後に要約がなくなれば、通常どおり自動生成する）
+      rerender(<PaperSummary {...props} summary={undefined} versions={[]} />);
+      expect(onGenerate).toHaveBeenCalledWith("2401.00001", "ja", "both");
+    });
+
+    describe("採用・破棄の通知", () => {
+      /** 版を手元の state で持ち、採用・破棄を反映する（Store を介さず通知の推移だけを見る） */
+      const LocalVersions: FC<{ isLoading: boolean }> = ({ isLoading }) => {
+        const [versions, setVersions] = useState<SummaryVersion[]>(
+          [1, 2, 3].map((id) => ({
+            ...createSampleSummary({ summary: `第${id}版の要約`, adopted: id === 3 }),
+            id,
+          }))
+        );
+        const adopt = async (id: number) => {
+          await Promise.resolve();
+          setVersions((vs) => vs.map((v) => ({ ...v, adopted: v.id === id })));
+        };
+        const discard = async (id: number) => {
+          await Promise.resolve();
+          setVersions((vs) => {
+            const remaining = vs.filter((v) => v.id !== id);
+            const hasAdopted = remaining.some((v) => v.adopted);
+            return remaining.map((v, i) =>
+              hasAdopted ? v : { ...v, adopted: i === remaining.length - 1 }
+            );
+          });
+        };
+        return (
+          <PaperSummary
+            paperId="2401.00001"
+            summary={getAdoptedSummaries(versions, "ja").get("2401.00001")}
+            versions={versions}
+            isLoading={isLoading}
+            onAdoptVersion={adopt}
+            onDiscardVersion={discard}
+          />
+        );
+      };
+
+      /** live region の文言の推移を記録する（空と連続する同じ文言は除く） */
+      const recordStatus = () => {
+        const status = screen.getByRole("status");
+        const texts: string[] = [];
+        const record = () => {
+          const text = status.textContent ?? "";
+          if (text !== "" && texts.at(-1) !== text) texts.push(text);
+        };
+        record();
+        const observer = new MutationObserver(record);
+        observer.observe(status, { childList: true, characterData: true, subtree: true });
+        return { texts, stop: () => observer.disconnect() };
+      };
+
+      it("正常系: 生成完了の後に採用を続けても、完了の通知を再び入れない", async () => {
+        const user = userEvent.setup();
+        const { rerender } = render(<LocalVersions isLoading />);
+        rerender(<LocalVersions isLoading={false} />);
+        const { texts, stop } = recordStatus();
+
+        await user.click(screen.getByRole("button", { name: "版を比較（3版）" }));
+        await user.click(screen.getByRole("button", { name: "第1版を採用" }));
+        await screen.findByText("採用中: 第1版 / 全3版");
+        await user.click(screen.getByRole("button", { name: "第2版を採用" }));
+        await screen.findByText("採用中: 第2版 / 全3版");
+        stop();
+
+        expect(texts).toEqual([
+          "要約の生成が完了しました",
+          "第1版を採用しました",
+          "第2版を採用しました",
+        ]);
+      });
+
+      it("正常系: 生成完了の後に破棄を続けても、完了の通知を再び入れない", async () => {
+        const user = userEvent.setup();
+        const { rerender } = render(<LocalVersions isLoading />);
+        rerender(<LocalVersions isLoading={false} />);
+        const { texts, stop } = recordStatus();
+
+        await user.click(screen.getByRole("button", { name: "採用中の版を破棄" }));
+        await user.click(
+          within(await screen.findByRole("dialog")).getByRole("button", { name: "破棄する" })
+        );
+        await screen.findByText("採用中: 第2版 / 全2版");
+        await user.click(screen.getByRole("button", { name: "版を比較（2版）" }));
+        await user.click(screen.getByRole("button", { name: "第1版を破棄" }));
+        await user.click(
+          within(await screen.findByRole("dialog")).getByRole("button", { name: "破棄する" })
+        );
+        await waitFor(() =>
+          expect(screen.queryByRole("button", { name: /版を比較/ })).not.toBeInTheDocument()
+        );
+        stop();
+
+        expect(texts).toEqual([
+          "要約の生成が完了しました",
+          "第3版を破棄しました。残りの版のうち最新の版を採用しています",
+          "第1版を破棄しました",
+        ]);
+      });
     });
   });
 });

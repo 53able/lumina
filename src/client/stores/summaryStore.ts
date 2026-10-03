@@ -157,6 +157,8 @@ const readVersionById = async (db: LuminaDB, id: number): Promise<PaperSummary> 
  * 版の追加・採用・破棄は、同じ論文・言語の版をトランザクション内で DB から読み直して書き込み、
  * Store には差分（追加・削除・採用指定の書き換え）だけを反映する。
  * await 前の Store の控えで丸ごと置き換えると、並行する他の操作の結果を消してしまうため。
+ * また、同じ IndexedDB を別のタブも書き換えうる（Store は起動時に読んだ控えにすぎない）ため、
+ * 採用版の判定と採用指定の書き換えは、Store ではなく DB の内容を基準に1つのトランザクションで行う。
  */
 export const useSummaryStore = create<SummaryStore>()(
   devtools(
