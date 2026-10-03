@@ -29,6 +29,10 @@
     {
       "source": "/health",
       "destination": "/api"
+    },
+    {
+      "source": "/((?!api/|api$|health$|assets/).*)",
+      "destination": "/index.html"
     }
   ]
 }
