@@ -12,8 +12,12 @@ import {
 import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
-import { getApiResumeHint } from "../lib/api";
-import { getSummaryStageErrorGuidance, PartialSummaryError } from "../lib/summaryErrors";
+import { ApiDisabledError, getApiResumeHint } from "../lib/api";
+import {
+  getSummaryStageErrorGuidance,
+  PartialSummaryError,
+  SummaryApiError,
+} from "../lib/summaryErrorTypes";
 import { cn } from "../lib/utils";
 import { useSettingsStore } from "../stores/settingsStore";
 import { getAdoptedSummaries, type SummaryVersion } from "../stores/summaryStore";
@@ -42,6 +46,22 @@ type ContentMode = "summary" | "explanation";
  * - both: 要約と説明文の両方
  */
 export type GenerateTarget = "explanation" | "both";
+
+/**
+ * 再試行で解決しない失敗の対処方法。トーストと同じ案内文を使う（再試行できる失敗は null）
+ * - API利用OFF: 再開方法（表示時点のキー有無で案内を分ける）
+ * - auth など retryable: false: 分類の案内文
+ */
+const getNonRetryableGuidance = (error: Error | null, hasApiKey: boolean): string | null => {
+  if (error instanceof ApiDisabledError) return getApiResumeHint(hasApiKey);
+  if (
+    (error instanceof PartialSummaryError || error instanceof SummaryApiError) &&
+    !error.retryable
+  ) {
+    return getSummaryStageErrorGuidance(error.code);
+  }
+  return null;
+};
 
 /** 版がない場合の既定値（描画ごとに新しい配列を作らない） */
 const NO_VERSIONS: SummaryVersion[] = [];
@@ -148,7 +168,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   // API利用OFF中は再生成を止める（理由を併記する）
   const apiEnabled = useSettingsStore((s) => s.apiEnabled);
-  const hasApiKey = useSettingsStore((s) => s.hasApiKey);
+  // 表示時点のキー有無に追従させるため、関数ではなく値を購読する
+  const hasApiKey = useSettingsStore((s) => s.apiKey.length > 0);
 
   /** 版の一覧（比較）を開いているか */
   const [isVersionListOpen, setIsVersionListOpen] = useState(false);
@@ -223,11 +244,13 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 失敗時に再試行で押すボタン（要約があれば説明文のみの生成ボタンが出る） */
   const retryButtonLabel = summary ? "なぜ読むべきかを生成" : "要約 + 説明文";
+  /** 再試行で解決しない失敗の対処方法（部分成功・全体の失敗・説明文のみの生成の失敗に共通） */
+  const nonRetryableGuidance = getNonRetryableGuidance(error, hasApiKey);
+  /** 全体の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
+  const errorGuidance = nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで再試行できます。`;
   /** 説明文工程の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
   const partialGuidance =
-    error instanceof PartialSummaryError && !error.retryable
-      ? getSummaryStageErrorGuidance(error.code)
-      : `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
+    nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
 
   // 自動要約生成: 論文が表示され、要約がなく、自動生成が有効な場合に発火
   useEffect(() => {
@@ -415,7 +438,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       </output>
       <div className="sr-only" role="alert" aria-atomic="true">
         {!isLoading && generationResult === "error"
-          ? `要約を生成できませんでした。「${retryButtonLabel}」ボタンで再試行できます。`
+          ? `要約を生成できませんでした。${errorGuidance}`
           : !isLoading && generationResult === "partial"
             ? `要約は保存済みです。説明文を生成できませんでした。${partialGuidance}`
             : null}
@@ -426,7 +449,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         <p className="text-xs text-destructive">
           {isPartial
             ? `要約は保存済みです。説明文は生成できませんでした。${partialGuidance}`
-            : `生成できませんでした。「${retryButtonLabel}」で再試行できます。`}
+            : `生成できませんでした。${errorGuidance}`}
         </p>
       )}
 
@@ -609,7 +632,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             {/* aria-describedby の参照先。再生成ボタンと同じ条件で出す */}
             {!apiEnabled && (
               <p id={regenerateDisabledReasonId} className="text-xs text-muted-foreground">
-                API利用OFFのため再生成を停止中。{getApiResumeHint(hasApiKey())}
+                API利用OFFのため再生成を停止中。{getApiResumeHint(hasApiKey)}
               </p>
             )}
           </div>
