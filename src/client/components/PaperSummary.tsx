@@ -305,7 +305,10 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 生成中の表示（押したボタンの隣に出す。読み上げは live region が担う） */
   const loadingText = <span className="text-xs text-muted-foreground">生成中...</span>;
-  /** 説明文だけを生成中か（それ以外の生成中は、要約があれば「再生成」で始めたものとして表示する） */
+  /**
+   * 説明文だけを生成中か。それ以外の生成中は、要約があれば「再生成」で始めたものとして表示する
+   * （generatingTarget が null の生成中＝対象が渡されない場合も、再生成として扱う）
+   */
   const isGeneratingExplanation = isLoading && generatingTarget === "explanation";
   const isRegenerating = isLoading && !isGeneratingExplanation;
   /**
@@ -429,7 +432,10 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
       {/* 要約なしの状態（生成中もボタンを残し、フォーカスを失わせない） */}
       {!summary && (
-        <div className="flex flex-col items-center justify-center py-6 gap-3">
+        <div
+          className="flex flex-col items-center justify-center py-6 gap-3"
+          aria-busy={isLoading || undefined}
+        >
           <Button
             onClick={() => handleGenerate("both")}
             {...generateButtonDisabledProps}

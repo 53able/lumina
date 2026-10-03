@@ -110,6 +110,28 @@ describe("usePaperSummary", () => {
     expect(result.current.generatingTarget).toBeNull();
   });
 
+  it("正常系: generatingTarget は表示中の論文の生成の対象を返す（Aで再生成中にBで説明文を生成してもAは both）", async () => {
+    mockSummaryApi.mockReturnValue(new Promise(() => undefined));
+    const { result, rerender } = renderUsePaperSummary("paper-a");
+
+    act(() => {
+      void result.current.generateSummary(undefined, "both");
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(result.current.generatingTarget).toBe("both");
+
+    rerender({ paperId: "paper-b" });
+    act(() => {
+      void result.current.generateSummary(undefined, "explanation");
+    });
+    await waitFor(() => expect(mockSummaryApi).toHaveBeenCalledTimes(2));
+    expect(result.current.generatingTarget).toBe("explanation");
+
+    rerender({ paperId: "paper-a" });
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.generatingTarget).toBe("both");
+  });
+
   it("正常系: Aの生成中にBで生成してからAに戻ると、Aは生成中のまま", async () => {
     const generationA = createDeferred<unknown>();
     mockSummaryApi.mockReturnValueOnce(generationA.promise);

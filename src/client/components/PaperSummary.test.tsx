@@ -148,6 +148,9 @@ describe("PaperSummary", () => {
 
       const generateButton = screen.getByRole("button", { name: /要約 \+ 説明文/ });
       expect(generateButton).toHaveAttribute("aria-disabled", "true");
+      // aria-busy はボタンではなく、要約なしの状態のブロックに付ける
+      expect(generateButton).not.toHaveAttribute("aria-busy");
+      expect(generateButton.closest('[aria-busy="true"]')).not.toBeNull();
 
       generateButton.focus();
       await user.keyboard("{Enter}");
