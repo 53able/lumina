@@ -274,11 +274,11 @@ describe("要約API", () => {
         );
 
       it.each([
-        ["401", 401, 401, "auth", false],
-        ["403", 403, 401, "auth", false],
-        ["429", 429, 429, "rate_limit", true],
-        ["500", 500, 500, "upstream", true],
-      ] as const)("異常系: 要約の工程が上流 %s で失敗した場合は安全な分類だけを返す", async (_label, upstreamStatus, status, code, retryable) => {
+        [401, 401, "auth", false],
+        [403, 401, "auth", false],
+        [429, 429, "rate_limit", true],
+        [500, 500, "upstream", true],
+      ] as const)("異常系: 要約の工程が上流 %s で失敗した場合は %s・安全な分類だけを返す", async (upstreamStatus, status, code, retryable) => {
         vi.mocked(generateSummary).mockRejectedValueOnce(
           Object.assign(new Error(upstreamMessage), { statusCode: upstreamStatus })
         );

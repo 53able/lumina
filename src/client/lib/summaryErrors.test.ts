@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiDisabledError } from "./api";
-import { PartialSummaryError, SummaryApiError, showSummaryErrorToast } from "./summaryErrors";
+import { showSummaryErrorToast } from "./summaryErrors";
+import { PartialSummaryError, SummaryApiError } from "./summaryErrorTypes";
 
 const toastError = vi.hoisted(() => vi.fn());
 const toastWarning = vi.hoisted(() => vi.fn());

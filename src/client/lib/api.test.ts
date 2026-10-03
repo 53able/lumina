@@ -15,7 +15,7 @@ import {
   summaryApi,
   syncApi,
 } from "./api";
-import { SummaryApiError } from "./summaryErrors";
+import { SummaryApiError } from "./summaryErrorTypes";
 
 // 既定は API 利用 ON・キー未設定
 vi.mock("@/client/stores/settingsStore", () => ({
@@ -479,6 +479,24 @@ describe("summaryApi のエラー応答", () => {
     expect(error.retryable).toBe(true);
     expect(error.message).not.toContain("sk-");
     expect(error.message).not.toContain("Incorrect API key");
+  });
+
+  it.each([
+    [429, "rate_limit", true],
+    [401, "auth", false],
+    [403, "auth", false],
+  ] as const)("JSON でない %s（ミドルウェアのプレーンテキストなど）はステータスから %s として扱う", async (status, code, retryable) => {
+    mockFetch.mockResolvedValueOnce(
+      new Response("Too many requests, please try again later.", {
+        status,
+        headers: new Headers({ "Content-Type": "text/plain" }),
+      })
+    );
+
+    const error = await captureError();
+
+    expect(error.code).toBe(code);
+    expect(error.retryable).toBe(retryable);
   });
 
   it("JSON でない応答（ゲートウェイのエラーページなど）も upstream として扱う", async () => {
