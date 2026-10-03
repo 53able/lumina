@@ -22,7 +22,7 @@ import { SearchTextEditor } from "./SearchTextEditor";
 const expandedQuery: ExpandedQuery = {
   original: "深層学習",
   english: "deep learning",
-  synonyms: ["neural network", "Representation Learning", "graph", "graph"],
+  synonyms: ["neural network", "Representation Learning", "graph", "Graph"],
   searchText: "deep learning neural network representation learning",
 };
 
@@ -70,8 +70,8 @@ describe("SearchTextEditor", () => {
     expect(screen.getByRole("checkbox", { name: "neural network" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Representation Learning" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "graph" })).not.toBeChecked();
-    // 重複して返った関連語は1つにまとめる
-    expect(screen.getAllByRole("checkbox", { name: "graph" })).toHaveLength(1);
+    // 重複して返った関連語は大文字小文字を区別せず1つにまとめる
+    expect(screen.getAllByRole("checkbox", { name: /^graph$/i })).toHaveLength(1);
   });
 
   it("関連語の一部を含む語（RL と world・curl）や複数形はチェック扱いにせず、除外でも消さない", async () => {
@@ -167,10 +167,14 @@ describe("SearchTextEditor", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("編集していない検索では「元の検索文に戻す」を出さない", () => {
-    renderEditor();
+  it("編集していない検索では、編集欄を変えたときだけ「元の検索文に戻す」を出し、表示中の検索文に戻す", async () => {
+    const { user } = renderEditor();
 
     expect(screen.queryByRole("button", { name: "元の検索文に戻す" })).not.toBeInTheDocument();
+    await user.type(textarea(), " extra");
+    await user.click(screen.getByRole("button", { name: "元の検索文に戻す" }));
+
+    expect(textarea().value).toBe(expandedQuery.searchText);
   });
 
   it("API利用OFF中は再検索ボタンを無効にし、理由をボタンの説明として伝える", () => {

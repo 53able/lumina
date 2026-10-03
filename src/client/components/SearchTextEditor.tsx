@@ -1,7 +1,13 @@
 import { type FC, type FormEvent, useId, useState } from "react";
 import { type ExpandedQuery, MAX_EMBEDDING_TEXT_LENGTH } from "../../shared/schemas/index";
 import { getApiResumeHint } from "../lib/api";
-import { appendTerm, includesTerm, isEditedSearchText, removeTerm } from "../lib/searchTextTerms";
+import {
+  appendTerm,
+  includesTerm,
+  isEditedSearchText,
+  removeTerm,
+  uniqueTerms,
+} from "../lib/searchTextTerms";
 import { useSettingsStore } from "../stores/settingsStore";
 import { Button } from "./ui/button";
 
@@ -41,9 +47,11 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
     !isLoading &&
     trimmedDraft.length > 0 &&
     trimmedDraft.length <= MAX_EMBEDDING_TEXT_LENGTH;
-  const { english, originalSearchText } = expandedQuery;
+  const { english } = expandedQuery;
+  // 編集前の検索文（未編集の検索では表示中の検索文）。「元の検索文に戻す」の戻し先
+  const originalSearchText = expandedQuery.originalSearchText ?? expandedQuery.searchText;
   // 同じ関連語が重複して返っても1つにまとめる
-  const synonyms = [...new Set(expandedQuery.synonyms)];
+  const synonyms = uniqueTerms(expandedQuery.synonyms);
 
   const handleToggleTerm = (term: string, include: boolean) => {
     setDraft((current) =>
@@ -77,7 +85,7 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
         {synonyms.length > 0 ? (
           <fieldset className="flex flex-col gap-1">
             <legend className="text-xs text-muted-foreground">
-              関連語（外すと検索文から除き、付けると末尾に追加します）
+              関連語（検索文にそのまま含まれる語だけチェック済み。外すと検索文から除き、付けると末尾に追加します）
             </legend>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {synonyms.map((term) => (
@@ -102,7 +110,7 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
           >
             この検索文で再検索
           </Button>
-          {originalSearchText !== undefined && draft !== originalSearchText ? (
+          {draft !== originalSearchText ? (
             <Button
               type="button"
               size="sm"

@@ -1,9 +1,11 @@
 /**
  * Embedding に渡す検索文と関連語の対応づけ（含まれるか・除外・追加）。
  *
- * 語句は前後が文字・数字でない位置（Unicode の単語境界）にある完全一致だけを扱う。
- * "RL" は "world" に、"neural network" は "neural networks" に一致しない。
- * 英訳（protectedPhrase）の出現箇所の内側にある一致は、関連語として数えず除外もしない。
+ * 語句は前後が語を構成する文字（文字・数字・結合文字・_ ' - /）でない位置にある完全一致だけを扱う。
+ * "RL" は "world"・"deep-RL" に、"neural network" は "neural networks" に一致しない。
+ * 英訳（protectedPhrase）の出現箇所と一部でも重なる一致は、関連語として数えず除外もしない。
+ * ただし英訳と同じ語句（大文字小文字は区別しない）の関連語は保護せず、通常の関連語として扱う
+ * （英訳そのものを検索文から除くこともできる）。
  */
 import type { ExpandedQuery } from "../../shared/schemas/index";
 
@@ -12,27 +14,41 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
 
 type Range = readonly [start: number, end: number];
 
+/** 語を構成する文字（この文字が前後に続く位置では一致させない） */
+const WORD_CHAR = "[\\p{L}\\p{N}\\p{M}_'\\-/]";
+
 /** text 中で phrase が単語境界つきで現れる範囲（大文字小文字は区別しない） */
 const findPhraseRanges = (text: string, phrase: string): Range[] => {
   if (phrase.trim() === "") return [];
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(phrase)}(?![\\p{L}\\p{N}])`, "giu");
+  const pattern = new RegExp(`(?<!${WORD_CHAR})${escapeRegExp(phrase)}(?!${WORD_CHAR})`, "giu");
   return [...text.matchAll(pattern)].map((m) => [m.index, m.index + m[0].length] as const);
 };
 
-/** 英訳の出現箇所の内側にない term の出現範囲 */
+/** 英訳の出現箇所と重ならない term の出現範囲 */
 const findTermRanges = (text: string, term: string, protectedPhrase?: string): Range[] => {
   const protectedRanges =
     protectedPhrase !== undefined && protectedPhrase.toLowerCase() !== term.toLowerCase()
       ? findPhraseRanges(text, protectedPhrase)
       : [];
   return findPhraseRanges(text, term).filter(
-    ([start, end]) => !protectedRanges.some(([ps, pe]) => start >= ps && end <= pe)
+    ([start, end]) => !protectedRanges.some(([ps, pe]) => start < pe && end > ps)
   );
 };
 
 /** 改行以外の空白か */
 const isInlineSpace = (char: string | undefined): boolean =>
   char !== undefined && char !== "\n" && char !== "\r" && /\s/.test(char);
+
+/** 関連語の重複を除く（大文字小文字は区別せず、最初の表記を残す） */
+export const uniqueTerms = (terms: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  return terms.filter((term) => {
+    const key = term.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 /** 検索文に関連語が含まれるか */
 export const includesTerm = (text: string, term: string, protectedPhrase?: string): boolean =>

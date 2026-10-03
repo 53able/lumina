@@ -6,6 +6,7 @@ import {
   isEditedSearchText,
   isExcludedTerm,
   removeTerm,
+  uniqueTerms,
 } from "./searchTextTerms";
 
 describe("searchTextTerms（#31）", () => {
@@ -35,6 +36,30 @@ describe("searchTextTerms（#31）", () => {
       expect(removeTerm("RL in the real world RL", "RL")).toBe("in the real world");
     });
 
+    it("ハイフン・スラッシュ・アポストロフィ・アンダースコアでつながった語の一部は消さない", () => {
+      expect(removeTerm("deep-RL agents RL", "RL")).toBe("deep-RL agents");
+      expect(removeTerm("BERT-based models BERT", "BERT")).toBe("BERT-based models");
+      expect(removeTerm("RL/control RL's RL_v2 RL", "RL")).toBe("RL/control RL's RL_v2");
+      expect(includesTerm("deep-RL agents", "RL")).toBe(false);
+    });
+
+    it("結合文字が続く位置では一致させない", () => {
+      // "cafe" + 結合アキュートアクセント（U+0301）
+      expect(includesTerm("cafe\u0301 latte", "cafe")).toBe(false);
+    });
+
+    it("英訳と一部でも重なる一致は消さない（deep learning と learning models）", () => {
+      expect(
+        removeTerm("deep learning models learning models", "learning models", "deep learning")
+      ).toBe("deep learning models");
+      expect(includesTerm("deep learning models", "learning models", "deep learning")).toBe(false);
+    });
+
+    it("英訳と同じ語句の関連語は保護せず、通常の関連語として除外できる", () => {
+      expect(includesTerm("deep learning RL", "Deep Learning", "deep learning")).toBe(true);
+      expect(removeTerm("deep learning RL", "Deep Learning", "deep learning")).toBe("RL");
+    });
+
     it("curl のような語の一部は消さない", () => {
       expect(removeTerm("curl RL", "RL")).toBe("curl");
     });
@@ -56,6 +81,12 @@ describe("searchTextTerms（#31）", () => {
         "deep learning\nattention"
       );
       expect(removeTerm("a  b RL c", "RL")).toBe("a  b c");
+    });
+  });
+
+  describe("uniqueTerms", () => {
+    it("大文字小文字を区別せずに重複を除き、最初の表記を残す", () => {
+      expect(uniqueTerms(["Graph", "RL", "graph", "GRAPH", "rl"])).toEqual(["Graph", "RL"]);
     });
   });
 

@@ -6,7 +6,7 @@ import type {
   SearchHistory as SearchHistoryType,
 } from "../../shared/schemas/index";
 import type { GenerateTarget } from "../lib/api";
-import { isEditedSearchText, isExcludedTerm } from "../lib/searchTextTerms";
+import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTextTerms";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
@@ -254,7 +254,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 {expandedQuery.synonyms.length > 0 ? (
                   <p className="text-xs mt-2" style={{ opacity: 0.7 }}>
                     関連語:{" "}
-                    {[...new Set(expandedQuery.synonyms)].map((term, index) => (
+                    {uniqueTerms(expandedQuery.synonyms).map((term, index) => (
                       <span key={term}>
                         {index > 0 ? ", " : null}
                         {isExcludedTerm(expandedQuery, term) ? (

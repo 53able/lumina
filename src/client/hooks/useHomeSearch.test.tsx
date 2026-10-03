@@ -598,6 +598,70 @@ describe("useHomeSearch", () => {
       expect(mockSearchApi.mock.calls[2]?.[0]).toMatchObject({ embeddingText: "deep learning" });
     });
 
+    /** 編集文での再検索を失敗させ、編集内容だけが表示に残る状態にする */
+    const failEditedSearch = async (view: Awaited<ReturnType<typeof searchOriginal>>) => {
+      mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+      act(() => {
+        view.result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(view.result.current.home.error).not.toBeNull());
+      expect(view.result.current.home.displayExpandedQuery?.searchText).toBe("deep learning");
+    };
+
+    it("クリアすると、編集内容の表示を残さない", async () => {
+      const view = await searchOriginal();
+      await failEditedSearch(view);
+
+      view.clear();
+
+      expect(view.result.current.home.displayExpandedQuery).toBeNull();
+    });
+
+    it("履歴から再検索すると、編集内容の表示を残さない", async () => {
+      const view = await searchOriginal();
+      await failEditedSearch(view);
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      // 保存済み Embedding のない履歴（API で検索し直す）
+      act(() => {
+        view.result.current.home.handleReSearch({
+          id: "00000000-0000-4000-8000-000000000001",
+          originalQuery: "B",
+          expandedQuery: expanded("B"),
+          resultCount: 1,
+          createdAt: new Date(),
+        });
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(3));
+
+      expect(view.result.current.home.displayExpandedQuery).toBeNull();
+      await act(async () => {
+        pending.resolve(response("B"));
+        await pending.promise;
+      });
+      expect(view.result.current.home.displayExpandedQuery?.searchText).toBe("B");
+    });
+
+    it("URL の q が外部から変わって検索すると、編集内容の表示を残さない", async () => {
+      const view = await searchOriginal();
+      await failEditedSearch(view);
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      act(() => {
+        view.result.current.filter.setSearchQuery("C");
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(3));
+
+      expect(view.result.current.home.displayExpandedQuery).toBeNull();
+      await act(async () => {
+        pending.resolve(response("C"));
+        await pending.promise;
+      });
+      expect(view.result.current.home.displayExpandedQuery?.searchText).toBe("C");
+    });
+
     it("入力から新しく検索すると、編集内容の表示を残さない", async () => {
       const { result } = await searchOriginal();
       mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
