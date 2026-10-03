@@ -90,6 +90,16 @@ describe("PaperPage の状態表示", () => {
     expect(screen.queryByText("論文を読み込み中...")).not.toBeInTheDocument();
   });
 
+  it("版番号付きURL（v2）でも、版番号なしで保存済みの論文の詳細を表示する", () => {
+    usePaperStore.setState({ papers: [paper], isLoading: false, _db: dummyDb });
+    renderAt(`/papers/${paper.id}v2`);
+
+    expect(screen.getByText(paper.title)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "この論文はこのデバイスに保存されていません" })
+    ).not.toBeInTheDocument();
+  });
+
   it("有効なIDでもこのデバイスに無い論文は、arXiv への回復導線と一覧への導線を表示する", () => {
     usePaperStore.setState({ papers: [], isLoading: false, _db: dummyDb });
     renderAt("/papers/2512.18131v2");

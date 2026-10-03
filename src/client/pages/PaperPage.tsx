@@ -12,6 +12,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 /**
  * arXiv ID の形式
  * 新形式: 2512.18131 / 2512.18131v2、旧形式: math.GT/0309136 / hep-th/9901001v1
+ * 形だけを見る緩い判定で、年月の範囲やアーカイブ名の実在は確かめない（arXiv 側で404になりうる）。
  */
 const ARXIV_ID_PATTERN = /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/;
 
@@ -29,8 +30,8 @@ export const PaperPage: FC = () => {
   // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
   const autoGenerateSummary = useSettingsStore((s) => s.autoGenerateSummary && s.apiEnabled);
 
-  // 論文を取得
-  const paper = id ? getPaperById(id) : undefined;
+  // 論文を取得（保存時に版番号 vN を除いているため、検索時だけ除く。arXiv へのリンクは元の id を使う）
+  const paper = id ? getPaperById(id.replace(/v\d+$/, "")) : undefined;
 
   // サマリー管理（カスタムフックに責務を委譲）
   const {

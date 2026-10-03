@@ -1,41 +1,43 @@
 /**
  * vercel.json の rewrites 検証（Issue #67）
  *
- * Vercel はファイルシステム（dist の静的ファイル）を rewrites より先に解決し、
- * その後 rewrites を定義順に評価して最初に一致したものを適用する。
- * ここではその順序を再現し、SPA の深いURLが index.html に、/api と /health が関数に届くことを確かめる。
+ * Vercel と同じ @vercel/routing-utils で rewrites をルートへ変換し、
+ * 生成された src（path-to-regexp の解釈結果）で一致を判定する。
+ * Vercel はファイルシステム（dist の静的ファイル）を先に解決し（handle: "filesystem"）、
+ * その後ルートを定義順に評価して最初に一致したものを適用する。
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { getTransformedRoutes, type Rewrite } from "@vercel/routing-utils";
 import { describe, expect, it } from "vitest";
-
-interface Rewrite {
-  source: string;
-  destination: string;
-}
 
 const vercelJson = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../vercel.json"), "utf-8")
 ) as { rewrites: Rewrite[] };
 
-/**
- * rewrite の source を正規表現に変換する。
- * このリポジトリで使う形（`:path*` と正規表現グループ）のみ扱う。
- */
-const toRegExp = (source: string): RegExp =>
-  new RegExp(`^${source.replace("/:path*", "(?:/.*)?")}$`);
+const { routes, error } = getTransformedRoutes({ rewrites: vercelJson.rewrites });
+
+/** filesystem ハンドルの後に並ぶ rewrite 由来のルート */
+const rewriteRoutes = (routes ?? []).flatMap((route) =>
+  "src" in route ? [{ src: new RegExp(route.src), dest: route.dest ?? "" }] : []
+);
 
 /** dist に存在する静的ファイルの例 */
 const staticFiles = new Set(["/index.html", "/lumina.svg", "/assets/index-abc123.js"]);
 
-/** ファイルシステム → rewrites（定義順・最初の一致）の順で配信先を解決する */
+/** ファイルシステム → rewrites（定義順・最初の一致）の順で配信先を解決する（クエリは除く） */
 const resolveDestination = (path: string): string | null => {
   if (staticFiles.has(path)) return path;
-  const rewrite = vercelJson.rewrites.find((r) => toRegExp(r.source).test(path));
-  return rewrite?.destination ?? null;
+  const route = rewriteRoutes.find((r) => r.src.test(path));
+  return route ? route.dest.split("?")[0] : null;
 };
 
 describe("vercel.json rewrites", () => {
+  it("Vercel のルート変換でエラーにならない", () => {
+    expect(error).toBeNull();
+    expect(routes?.[0]).toEqual({ handle: "filesystem" });
+  });
+
   it.each([
     "/papers/2512.18131",
     "/papers/2512.18131v2",
@@ -54,17 +56,13 @@ describe("vercel.json rewrites", () => {
     expect(resolveDestination("/lumina.svg")).toBe("/lumina.svg");
   });
 
-  it("SPA フォールバックの正規表現は /api・/health・/assets を対象外にする", () => {
-    const fallback = vercelJson.rewrites.find((r) => r.destination === "/index.html");
-    expect(fallback).toBeDefined();
-    const re = toRegExp(fallback?.source ?? "");
+  it("存在しない（古いハッシュの）アセットには HTML を返さず 404 にする", () => {
+    expect(resolveDestination("/assets/index-old.js")).toBeNull();
+  });
 
-    expect(re.test("/papers/2512.18131")).toBe(true);
-    expect(re.test("/healthcheck")).toBe(true);
-    expect(re.test("/api/v1/x")).toBe(false);
-    expect(re.test("/api")).toBe(false);
-    expect(re.test("/health")).toBe(false);
-    // 存在しない（古いハッシュの）アセットに HTML を返さない
-    expect(re.test("/assets/index-old.js")).toBe(false);
+  it("/health と完全一致しないパスは SPA に渡す（意図した挙動）", () => {
+    // /health の rewrite は完全一致のみ。/health/ や /healthcheck は API ではなくアプリの画面になる
+    expect(resolveDestination("/health/")).toBe("/index.html");
+    expect(resolveDestination("/healthcheck")).toBe("/index.html");
   });
 });
