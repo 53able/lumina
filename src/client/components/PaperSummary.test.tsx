@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type FC, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,6 +49,7 @@ describe("PaperSummary", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    useSettingsStore.setState({ apiKey: "", apiEnabled: true });
   });
 
   describe("要約なしの状態", () => {
@@ -552,7 +553,7 @@ describe("PaperSummary", () => {
         "要約を生成できませんでした。「要約 + 説明文」ボタンで再試行できます。"
       );
       expect(
-        screen.getByText("生成できませんでした。「要約 + 説明文」で再試行できます。")
+        screen.getByText("生成できませんでした。「要約 + 説明文」ボタンで再試行できます。")
       ).toBeInTheDocument();
     });
 
@@ -572,7 +573,6 @@ describe("PaperSummary", () => {
     });
 
     it("異常系: API利用OFFでキー未保存の場合は、キーの保存から案内する", () => {
-      useSettingsStore.setState({ apiKey: "" });
       const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
 
       rerender(
@@ -585,13 +585,69 @@ describe("PaperSummary", () => {
       expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
     });
 
+    it("異常系: API利用OFFの再開方法は、失敗時ではなく表示時点のキー有無で案内する", () => {
+      useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      // 失敗時はキー未保存だった（エラーの resumeHint はキーの保存から案内する）
+      rerender(
+        <PaperSummary paperId="2401.00001" error={new ApiDisabledError(getApiResumeHint(false))} />
+      );
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約を生成できませんでした。設定の「利用可能」をONにすると再開できます。"
+      );
+      expect(
+        screen.getByText("生成できませんでした。設定の「利用可能」をONにすると再開できます。")
+      ).toBeInTheDocument();
+
+      // 表示中にキーを削除すると、再描画でキーの保存からの案内に切り替わる
+      act(() => {
+        useSettingsStore.setState({ apiKey: "" });
+      });
+
+      expect(
+        screen.getByText(
+          "生成できませんでした。設定でAPIキーを保存し、「利用可能」をONにすると再開できます。"
+        )
+      ).toBeInTheDocument();
+    });
+
+    it("異常系: 要約がある状態で説明文の生成がAPI利用OFFで失敗した場合は、要約を残して再開方法を案内する", () => {
+      useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
+      const summary = createSampleSummary();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" summary={summary} isLoading />
+      );
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          error={new ApiDisabledError()}
+          failedTarget="explanation"
+        />
+      );
+
+      expect(screen.getByText(summary.summary)).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約は保存済みです。説明文を生成できませんでした。設定の「利用可能」をONにすると再開できます。"
+      );
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
+      expect(
+        screen.getByText(
+          "要約は保存済みです。説明文は生成できませんでした。設定の「利用可能」をONにすると再開できます。"
+        )
+      ).toBeInTheDocument();
+    });
+
     it("異常系: 全体の失敗は部分成功と異なる文言で表示する", () => {
       const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
 
       rerender(<PaperSummary paperId="2401.00001" error={new Error("timeout")} />);
 
       expect(
-        screen.getByText("生成できませんでした。「要約 + 説明文」で再試行できます。")
+        screen.getByText("生成できませんでした。「要約 + 説明文」ボタンで再試行できます。")
       ).toBeInTheDocument();
       expect(screen.queryByText(/要約は保存済みです/)).not.toBeInTheDocument();
     });
@@ -850,7 +906,6 @@ describe("PaperSummary", () => {
     });
 
     afterEach(async () => {
-      useSettingsStore.setState({ apiEnabled: true });
       await db.delete();
     });
 
