@@ -275,11 +275,12 @@ describe("SearchHistory", () => {
 
       await user.click(undo);
 
-      await waitFor(() => expect(screen.getByRole("button", { name: /^B検索/ })).toHaveFocus());
-      expect(screen.queryByRole("button", { name: "「B検索」を元に戻す" })).not.toBeInTheDocument();
+      // フォーカス移動は完了検知の effect 内で即時、通知はその後の再描画で出るため、通知を待ってからフォーカスを確かめる
       await waitFor(() =>
         expect(screen.getByRole("status")).toHaveTextContent("「B検索」を元に戻しました")
       );
+      expect(screen.getByRole("button", { name: /^B検索/ })).toHaveFocus();
+      expect(screen.queryByRole("button", { name: "「B検索」を元に戻す" })).not.toBeInTheDocument();
       const rows = within(screen.getAllByRole("list").at(-1) as HTMLElement).getAllByRole(
         "listitem"
       );
