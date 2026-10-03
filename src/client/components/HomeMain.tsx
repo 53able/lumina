@@ -88,6 +88,10 @@ interface HomeMainProps {
   onRunEmbeddingBackfill: () => void;
   /** 同期を停止する（取得中のみ有効）。SyncStatusBar の停止ボタンから呼ぶ */
   onStopSync?: () => void;
+  /** 同期する（同期失敗の再試行、未同期時の空表示から呼ぶ） */
+  onSync?: () => void;
+  /** 設定ダイアログを開く（未同期時の空表示から呼ぶ） */
+  onOpenSettings?: () => void;
 }
 
 /**
@@ -134,6 +138,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
   onSyncAll,
   onRunEmbeddingBackfill,
   onStopSync,
+  onSync,
+  onOpenSettings,
 }) => {
   return (
     <>
@@ -207,6 +213,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 onSyncAll={onSyncAll}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
                 onStopSync={onStopSync}
+                onRetrySync={onSync}
               />
             )}
 
@@ -245,6 +252,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
               onRequestSync={onRequestSync}
               emptySearchMessage={emptySearchMessage}
               isSearchLoading={isSearchLoading}
+              onSync={onSync}
+              onOpenSettings={onOpenSettings}
               // インライン展開（デスクトップのみ）
               expandedPaperId={expandedPaperId}
               renderExpandedDetail={renderExpandedDetail}
@@ -268,6 +277,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 onSyncAll={onSyncAll}
                 onRunEmbeddingBackfill={onRunEmbeddingBackfill}
                 onStopSync={onStopSync}
+                onRetrySync={onSync}
               />
             )}
           </div>

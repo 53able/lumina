@@ -400,6 +400,8 @@ const HomePage: FC = () => {
         onSyncAll={syncAll}
         onRunEmbeddingBackfill={runEmbeddingBackfill}
         onStopSync={handleStopSync}
+        onSync={syncPapers}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Footer */}

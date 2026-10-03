@@ -24,6 +24,8 @@ interface SyncStatusBarProps {
   onRunEmbeddingBackfill?: () => void | Promise<void>;
   /** 同期を停止する（取得中のみ有効） */
   onStopSync?: () => void;
+  /** 同期を再試行する（同期エラー表示の「同期を再試行」ボタンから呼ぶ） */
+  onRetrySync?: () => void;
 }
 
 interface EmbeddingBackfillOutcomeNoticeProps {
@@ -122,6 +124,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   onSyncAll,
   onRunEmbeddingBackfill,
   onStopSync,
+  onRetrySync,
 }) => {
   const { getLastSyncedAt, apiEnabled, hasApiKey } = useSettingsStore();
   const lastSyncedAt = getLastSyncedAt();
@@ -137,6 +140,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   const embeddingBackfillOutcome = useSyncStore((s) => s.embeddingBackfillOutcome);
   const setEmbeddingBackfillOutcome = useSyncStore((s) => s.setEmbeddingBackfillOutcome);
   const lastSyncError = useSyncStore((s) => s.lastSyncError);
+  const setLastSyncError = useSyncStore((s) => s.setLastSyncError);
 
   const isSyncing = isFetching || isLoadingMore;
   const syncRateLimitError = lastSyncError instanceof SyncRateLimitError ? lastSyncError : null;
@@ -179,9 +183,13 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           : "mb-6 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 backdrop-blur-sm"
       }
     >
-      {/* 429 レート制限: 何が起きたか・どうするかを明示（ペルソナ5流: メインカラーで主張、視線を誘導） */}
-      {syncRateLimitError ? (
+      {/*
+        同期エラー: トーストが消えても、次の同期成功か「閉じる」まで一覧のそばに残す。
+        429 レート制限は何が起きたか・どうするかを明示（ペルソナ5流: メインカラーで主張、視線を誘導）
+      */}
+      {lastSyncError ? (
         <div
+          data-testid="sync-error"
           className={
             compact
               ? "mb-2 rounded-lg border-2 border-primary/60 bg-primary/10 px-3 py-2"
@@ -197,8 +205,13 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                 : "text-sm font-bold text-primary opacity-[1]"
             }
           >
-            {syncRateLimitError.message}
+            {syncRateLimitError ? syncRateLimitError.message : "論文の同期に失敗しました"}
           </p>
+          {syncRateLimitError ? null : (
+            <p className={compact ? "mt-1 break-all text-xs" : "mt-1.5 break-all text-sm"}>
+              {lastSyncError.message}
+            </p>
+          )}
           <p
             className={
               compact
@@ -206,8 +219,39 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                 : "mt-1.5 text-xs text-muted-foreground opacity-[0.85]"
             }
           >
-            再度「同期」または「同期期間の論文をすべて取得」を押すと再試行できます。
+            {syncRateLimitError
+              ? "再度「同期」または「同期期間の論文をすべて取得」を押すと再試行できます。"
+              : "接続を確認してから、同期を再試行してください。"}
           </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {onRetrySync ? (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={onRetrySync}
+                disabled={isSyncing || isSyncingAll || isSyncingFromDate}
+                className={
+                  compact
+                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                }
+              >
+                同期を再試行
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLastSyncError(null)}
+              className={
+                compact
+                  ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                  : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+              }
+            >
+              閉じる
+            </Button>
+          </div>
         </div>
       ) : null}
       <div
