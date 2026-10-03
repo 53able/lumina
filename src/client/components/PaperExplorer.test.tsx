@@ -550,12 +550,12 @@ describe("PaperExplorer", () => {
         await user.click(screen.getByRole("button", { name: "cs.CL" }));
         await waitFor(() => expect(announcer).toHaveTextContent("cs.CL: 2件の論文を表示"));
 
-        // 通知後の同期による追加でも再通知しない
+        // 通知後の同期による追加でも再通知せず、古い件数の通知は空にする
         const added: Paper = { ...(mockPapers[1] as Paper), id: "2401.00003", title: "Added" };
         act(() => usePaperStore.setState({ papers: [...mockPapers, added] }));
         await waitForAnnounceDelay();
         expect(screen.getByTestId("filter-result-count")).toHaveTextContent("3件");
-        expect(announcer).toHaveTextContent("cs.CL: 2件の論文を表示");
+        expect(announcer).toHaveTextContent("");
       } finally {
         usePaperStore.setState({ papers: [] });
       }
@@ -588,6 +588,31 @@ describe("PaperExplorer", () => {
       expect(all).toHaveAttribute("aria-pressed", "true");
       expect(liked).toHaveAttribute("aria-pressed", "false");
       expect(liked).toBeDisabled();
+      // 押したボタンが無効になるため、フォーカスを「すべて」へ移す（body へ落とさない）
+      expect(all).toHaveFocus();
+    });
+
+    it("0件のブックマーク表示を解除しても、フォーカスを「すべて」へ移す", async () => {
+      renderExplorer({ initialPapers: mockPapers }, "/?filter=bookmarked");
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      await user.click(screen.getByRole("button", { name: "ブックマーク（0件）" }));
+
+      expect(screen.getByRole("button", { name: "ブックマーク（0件）" })).toBeDisabled();
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "すべて" }));
+    });
+
+    it("検索中に条件を変えても、待機後に通知しない", async () => {
+      renderExplorer({ initialPapers: mockPapers, isSearchLoading: true });
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      await user.click(screen.getByRole("button", { name: "cs.LG" }));
+      expect(getLocationSearch()).toBe("?cat=cs.LG");
+      await waitForAnnounceDelay();
+
+      expect(getFilterAnnouncer()).toHaveTextContent("");
     });
 
     it("カテゴリ欄の「絞り込みをすべて解除」でもフォーカスを開閉ボタンへ移す", async () => {
@@ -618,9 +643,10 @@ describe("PaperExplorer", () => {
       expect(toggle).toHaveFocus();
       expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-      // 閉じたら、絞り込む対象がないので開閉ボタンも消える
+      // 閉じたら、絞り込む対象がないので開閉ボタンも消える。フォーカスは検索欄へ移す
       await user.click(toggle);
       expect(screen.queryByRole("button", { name: /^絞り込み($|（)/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("searchbox")).toHaveFocus();
     });
 
     it("折りたたんだままでも適用中の条件と件数が見える", () => {

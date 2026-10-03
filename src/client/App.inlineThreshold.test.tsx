@@ -398,7 +398,8 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     );
     expect(getDisplayedCount()).toBe("1");
     await waitForSettled();
-    expect(filterAnnouncer).toHaveTextContent("cs.AI: 2件の論文を表示");
+    // 絞り込みの通知は再通知せず、古い件数（2件）も残さない
+    expect(filterAnnouncer).toHaveTextContent("");
   });
 
   it("クエリEmbeddingがない検索では、スライダーを無効にして理由を表示する", async () => {

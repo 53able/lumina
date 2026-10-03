@@ -213,7 +213,11 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     setFilterAnnouncement("");
   }
   useEffect(() => {
-    if (filterAdjustment === announcedAdjustmentRef.current) return;
+    if (filterAdjustment === announcedAdjustmentRef.current) {
+      // 絞り込み以外（しきい値・同期など）で件数が変わったら、古い件数の通知を残さない（空にしても読み上げない）
+      setFilterAnnouncement((prev) => (prev === filterAnnouncementText ? prev : ""));
+      return;
+    }
     if (isSearchLoading) {
       // 検索中の件数は確定していないため通知しない
       announcedAdjustmentRef.current = filterAdjustment;
@@ -226,6 +230,25 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     return () => clearTimeout(timer);
   }, [filterAdjustment, filterAnnouncementText, isSearchLoading]);
   const markFilterAdjusted = () => setFilterAdjustment((n) => n + 1);
+
+  // モバイル: 0件の「いいね/ブックマーク」を解除すると押したボタンが無効になるため、フォーカスを「すべて」へ移す
+  const filterAllButtonRef = useRef<HTMLButtonElement>(null);
+  const toggleFilterModeFromPanel = (mode: "liked" | "bookmarked") => {
+    const count = mode === "liked" ? likedCount : bookmarkedCount;
+    const willDisable = filterMode === mode && count === 0;
+    toggleFilterMode(mode);
+    markFilterAdjusted();
+    if (willDisable) filterAllButtonRef.current?.focus();
+  };
+
+  // モバイル: 絞り込む対象がない状態で閉じると開閉ボタンごと消えるため、フォーカスを検索欄へ移す
+  const heroSectionRef = useRef<HTMLElement>(null);
+  const toggleFilterPanel = () => {
+    if (isFilterPanelOpen && !showFilterArea) {
+      heroSectionRef.current?.querySelector<HTMLInputElement>('[role="searchbox"]')?.focus();
+    }
+    setIsFilterPanelOpen((open) => !open);
+  };
 
   // モバイル: 条件を解除すると押したボタンが消えるため、フォーカスを開閉ボタンへ移して見失わせない
   const clearFiltersFromPanel = () => {
@@ -243,7 +266,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   return (
     <div className={cn("space-y-6", !isDesktop && "space-y-4")}>
       {/* Hero Search Section - モバイルではコンパクトにして一覧までの距離を短く */}
-      <section className={cn("space-y-4", !isDesktop && "space-y-3")}>
+      <section ref={heroSectionRef} className={cn("space-y-4", !isDesktop && "space-y-3")}>
         <div className={cn("space-y-2", !isDesktop && "space-y-1")}>
           <div className="flex min-w-0 items-center gap-2">
             <h2
@@ -300,7 +323,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                   ref={filterToggleRef}
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsFilterPanelOpen((open) => !open)}
+                  onClick={toggleFilterPanel}
                   className="h-8 shrink-0 gap-1.5 px-3 text-sm"
                   aria-expanded={isFilterPanelOpen}
                   aria-controls={filterPanelId}
@@ -362,6 +385,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                   <legend className="mb-2 text-xs font-medium text-muted-foreground">表示</legend>
                   <div className="flex flex-wrap gap-2">
                     <Button
+                      ref={filterAllButtonRef}
                       variant={filterMode === "all" ? "default" : "outline"}
                       size="sm"
                       onClick={() => {
@@ -376,10 +400,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     <Button
                       variant={filterMode === "liked" ? "default" : "outline"}
                       size="sm"
-                      onClick={() => {
-                        toggleFilterMode("liked");
-                        markFilterAdjusted();
-                      }}
+                      onClick={() => toggleFilterModeFromPanel("liked")}
                       disabled={likedCount === 0 && filterMode !== "liked"}
                       aria-pressed={filterMode === "liked"}
                       aria-label={`いいね（${likedCount}件）`}
@@ -391,10 +412,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     <Button
                       variant={filterMode === "bookmarked" ? "default" : "outline"}
                       size="sm"
-                      onClick={() => {
-                        toggleFilterMode("bookmarked");
-                        markFilterAdjusted();
-                      }}
+                      onClick={() => toggleFilterModeFromPanel("bookmarked")}
                       disabled={bookmarkedCount === 0 && filterMode !== "bookmarked"}
                       aria-pressed={filterMode === "bookmarked"}
                       aria-label={`ブックマーク（${bookmarkedCount}件）`}
