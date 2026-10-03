@@ -1,5 +1,5 @@
 import { Bookmark, ChevronDown, Heart, SlidersHorizontal, X } from "lucide-react";
-import { type FC, type ReactNode, useId, useMemo, useRef, useState } from "react";
+import { type FC, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteractionContext } from "../contexts/InteractionContext";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -11,6 +11,9 @@ import { PaperList } from "./PaperList";
 import { PaperSearch } from "./PaperSearch";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+
+/** 絞り込み結果を読み上げるまでの待ち時間（連続操作で読み上げを連発しない） */
+const FILTER_ANNOUNCE_DELAY_MS = 400;
 
 /**
  * PaperExplorer コンポーネントのProps
@@ -196,6 +199,40 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const showFilterArea =
     displayPapers.length > 0 || filterMode !== "all" || selectedCategories.size > 0;
 
+  // 絞り込み結果の通知: 利用者が条件を変えたときだけ、操作が落ち着いてから1回読み上げる。
+  // 同期による追加や検索で件数が変わっても読み上げない（表示用の件数は live region にしない）
+  const [filterAdjustment, setFilterAdjustment] = useState(0);
+  const announcedAdjustmentRef = useRef(0);
+  const [filterAnnouncement, setFilterAnnouncement] = useState("");
+  const filterAnnouncementText = `${activeConditionLabels.join("・") || "絞り込みなし"}: ${filteredPapers.length}件を表示`;
+  useEffect(() => {
+    if (filterAdjustment === announcedAdjustmentRef.current) return;
+    if (isSearchLoading) {
+      // 検索中の件数は確定していないため通知しない
+      announcedAdjustmentRef.current = filterAdjustment;
+      return;
+    }
+    const timer = setTimeout(() => {
+      announcedAdjustmentRef.current = filterAdjustment;
+      setFilterAnnouncement(filterAnnouncementText);
+    }, FILTER_ANNOUNCE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [filterAdjustment, filterAnnouncementText, isSearchLoading]);
+  const markFilterAdjusted = () => setFilterAdjustment((n) => n + 1);
+
+  // モバイル: 条件を解除すると押したボタンが消えるため、フォーカスを開閉ボタンへ移して見失わせない
+  const clearFiltersFromPanel = () => {
+    clearAllFilters();
+    markFilterAdjusted();
+    filterToggleRef.current?.focus();
+  };
+
+  // 選択中（展開中）の論文が絞り込みで一覧から外れたか
+  const isExpandedPaperFilteredOut =
+    expandedPaperId !== null &&
+    displayPapers.some((paper) => paper.id === expandedPaperId) &&
+    !filteredPapers.some((paper) => paper.id === expandedPaperId);
+
   return (
     <div className={cn("space-y-6", !isDesktop && "space-y-4")}>
       {/* Hero Search Section - モバイルではコンパクトにして一覧までの距離を短く */}
@@ -246,7 +283,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         />
 
         {/* 絞り込み: モバイルは一覧の手前の折りたたみ領域、デスクトップはインラインコンパクト */}
-        {showFilterArea &&
+        {/* モバイルで領域を開いている間は、解除で対象が0件になっても開閉ボタンごと消さない */}
+        {(showFilterArea || (!isDesktop && isFilterPanelOpen)) &&
           (!isDesktop ? (
             /* モバイル: 一覧の手前に折りたたみ式の絞り込み領域を置く（一覧を覆わず、結果を見ながら調整できる） */
             <div className="space-y-2 pt-1">
@@ -286,12 +324,19 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 )}
                 <p
                   className="shrink-0 text-xs text-muted-foreground"
-                  aria-live="polite"
                   data-testid="filter-result-count"
                 >
                   {isSearchLoading ? "" : `${filteredPapers.length}件`}
                 </p>
               </div>
+              <output
+                className="sr-only"
+                aria-live="polite"
+                aria-atomic="true"
+                aria-label="絞り込みの結果"
+              >
+                {filterAnnouncement}
+              </output>
               <section
                 id={filterPanelId}
                 aria-label="絞り込み条件"
@@ -299,7 +344,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 onKeyDown={(event) => {
                   // Esc で折りたたみ、内部にあったフォーカスを開閉ボタンへ戻す
                   if (event.key === "Escape") {
-                    event.stopPropagation();
                     setIsFilterPanelOpen(false);
                     filterToggleRef.current?.focus();
                   }
@@ -313,7 +357,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     <Button
                       variant={filterMode === "all" ? "default" : "outline"}
                       size="sm"
-                      onClick={() => toggleFilterMode("all")}
+                      onClick={() => {
+                        toggleFilterMode("all");
+                        markFilterAdjusted();
+                      }}
                       aria-pressed={filterMode === "all"}
                       className="h-8"
                     >
@@ -322,7 +369,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     <Button
                       variant={filterMode === "liked" ? "default" : "outline"}
                       size="sm"
-                      onClick={() => toggleFilterMode("liked")}
+                      onClick={() => {
+                        toggleFilterMode("liked");
+                        markFilterAdjusted();
+                      }}
                       disabled={likedCount === 0 && filterMode !== "liked"}
                       aria-pressed={filterMode === "liked"}
                       aria-label={`いいね（${likedCount}件）`}
@@ -334,7 +384,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                     <Button
                       variant={filterMode === "bookmarked" ? "default" : "outline"}
                       size="sm"
-                      onClick={() => toggleFilterMode("bookmarked")}
+                      onClick={() => {
+                        toggleFilterMode("bookmarked");
+                        markFilterAdjusted();
+                      }}
                       disabled={bookmarkedCount === 0 && filterMode !== "bookmarked"}
                       aria-pressed={filterMode === "bookmarked"}
                       aria-label={`ブックマーク（${bookmarkedCount}件）`}
@@ -356,8 +409,11 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                       <CategoryFilter
                         availableCategories={availableCategories}
                         selectedCategories={selectedCategories}
-                        onToggle={toggleCategory}
-                        onClear={clearAllFilters}
+                        onToggle={(category) => {
+                          toggleCategory(category);
+                          markFilterAdjusted();
+                        }}
+                        onClear={clearFiltersFromPanel}
                         hideLabel
                       />
                     </div>
@@ -369,11 +425,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      clearAllFilters();
-                      // ボタン自体が消えるため、フォーカスを開閉ボタンへ移して見失わせない
-                      filterToggleRef.current?.focus();
-                    }}
+                    onClick={clearFiltersFromPanel}
                     className="w-full justify-center text-muted-foreground"
                   >
                     <X className="mr-2 h-4 w-4" />
@@ -465,6 +517,12 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
               ) : null}
             </div>
           ))}
+
+        {isExpandedPaperFilteredOut ? (
+          <p className="text-xs text-muted-foreground">
+            選択中の論文は絞り込み条件に合わないため、一覧に表示していません
+          </p>
+        ) : null}
       </section>
 
       {/* 論文リスト */}

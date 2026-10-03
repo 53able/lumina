@@ -439,6 +439,14 @@ describe("PaperExplorer", () => {
       mediaState.isDesktop = false;
     });
 
+    const getFilterAnnouncer = () => screen.getByRole("status", { name: "絞り込みの結果" });
+
+    /** 通知の待ち時間（400ms）を過ぎるまで待つ */
+    const waitForAnnounceDelay = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+
     /** 開閉ボタンと、それが制御する絞り込み領域を返す */
     const getFilterDisclosure = () => {
       const toggle = screen.getByRole("button", { name: /^絞り込み($|（)/ });
@@ -500,8 +508,119 @@ describe("PaperExplorer", () => {
         screen.queryByText("BERT: Pre-training of Deep Bidirectional Transformers")
       ).not.toBeInTheDocument();
       expect(screen.getByTestId("filter-result-count")).toHaveTextContent("1件");
-      expect(screen.getByTestId("filter-result-count")).toHaveAttribute("aria-live", "polite");
       expect(getFilterDisclosure().toggle).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("条件を変えたときだけ、操作が落ち着いてから結果を1回通知する（表示用の件数は live にしない）", async () => {
+      renderExplorer({ initialPapers: mockPapers });
+
+      const announcer = getFilterAnnouncer();
+      expect(announcer).toHaveAttribute("aria-live", "polite");
+      expect(announcer).toHaveAttribute("aria-atomic", "true");
+      expect(announcer).toHaveTextContent("");
+      expect(screen.getByTestId("filter-result-count")).not.toHaveAttribute("aria-live");
+      expect(screen.getByTestId("filter-result-count").closest("[aria-live]")).toBeNull();
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      // 開閉だけでは通知しない
+      await waitForAnnounceDelay();
+      expect(announcer).toHaveTextContent("");
+
+      await user.click(screen.getByRole("button", { name: "cs.LG" }));
+      // 連続操作で読み上げを連発しないよう、すぐには更新しない
+      expect(announcer).toHaveTextContent("");
+      await waitFor(() => expect(announcer).toHaveTextContent("cs.LG: 1件を表示"));
+    });
+
+    it("同期で論文が追加されて件数が変わっても通知しない", async () => {
+      usePaperStore.setState({ papers: [mockPapers[0] as Paper] });
+      try {
+        renderExplorer();
+        const announcer = getFilterAnnouncer();
+
+        // 条件を変える前の追加では通知しない
+        act(() => usePaperStore.setState({ papers: mockPapers }));
+        await waitForAnnounceDelay();
+        expect(screen.getByTestId("filter-result-count")).toHaveTextContent("2件");
+        expect(announcer).toHaveTextContent("");
+
+        const user = userEvent.setup({ delay: null });
+        await user.click(getFilterDisclosure().toggle);
+        await user.click(screen.getByRole("button", { name: "cs.CL" }));
+        await waitFor(() => expect(announcer).toHaveTextContent("cs.CL: 2件を表示"));
+
+        // 通知後の同期による追加でも再通知しない
+        const added: Paper = { ...(mockPapers[1] as Paper), id: "2401.00003", title: "Added" };
+        act(() => usePaperStore.setState({ papers: [...mockPapers, added] }));
+        await waitForAnnounceDelay();
+        expect(screen.getByTestId("filter-result-count")).toHaveTextContent("3件");
+        expect(announcer).toHaveTextContent("cs.CL: 2件を表示");
+      } finally {
+        usePaperStore.setState({ papers: [] });
+      }
+    });
+
+    it("検索中は表示件数を空にし、0件と誤読させない", () => {
+      renderExplorer({ initialPapers: mockPapers, isSearchLoading: true }, "/?cat=cs.CL");
+
+      expect(screen.getByTestId("filter-result-count")).toHaveTextContent("");
+    });
+
+    it("表示モードのボタンは名前と aria-pressed を持ち、選択中のモードは0件でも押して解除できる", async () => {
+      renderExplorer({ initialPapers: mockPapers }, "/?filter=liked");
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+
+      const all = screen.getByRole("button", { name: "すべて" });
+      const liked = screen.getByRole("button", { name: "いいね（0件）" });
+      const bookmarked = screen.getByRole("button", { name: "ブックマーク（0件）" });
+      expect(all).toHaveAttribute("aria-pressed", "false");
+      expect(liked).toHaveAttribute("aria-pressed", "true");
+      expect(bookmarked).toHaveAttribute("aria-pressed", "false");
+      // 選択中のモードは0件でも無効にしない（解除できなくなるのを防ぐ）
+      expect(liked).toBeEnabled();
+      expect(bookmarked).toBeDisabled();
+
+      await user.click(liked);
+      expect(getLocationSearch()).toBe("");
+      expect(all).toHaveAttribute("aria-pressed", "true");
+      expect(liked).toHaveAttribute("aria-pressed", "false");
+      expect(liked).toBeDisabled();
+    });
+
+    it("カテゴリ欄の「絞り込みをすべて解除」でもフォーカスを開閉ボタンへ移す", async () => {
+      renderExplorer({ initialPapers: mockPapers }, "/?cat=cs.LG");
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      const categoryGroup = screen.getByRole("group", { name: "カテゴリで絞り込み" });
+      await user.click(within(categoryGroup).getByRole("button", { name: "絞り込みをすべて解除" }));
+
+      expect(getLocationSearch()).toBe("");
+      expect(getFilterDisclosure().toggle).toHaveFocus();
+      expect(getFilterDisclosure().toggle).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("検索0件でカテゴリ条件だけが有効なときに解除しても、開閉ボタンを消さずフォーカスを保つ", async () => {
+      renderExplorer(
+        { initialPapers: [], externalQuery: "transformer" },
+        "/?q=transformer&cat=cs.LG"
+      );
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      await user.click(screen.getByRole("button", { name: "絞り込みをクリア" }));
+
+      expect(getLocationSearch()).toBe("?q=transformer");
+      const { toggle } = getFilterDisclosure();
+      expect(toggle).toHaveFocus();
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+      // 閉じたら、絞り込む対象がないので開閉ボタンも消える
+      await user.click(toggle);
+      expect(screen.queryByRole("button", { name: /^絞り込み($|（)/ })).not.toBeInTheDocument();
     });
 
     it("折りたたんだままでも適用中の条件と件数が見える", () => {
@@ -562,6 +681,39 @@ describe("PaperExplorer", () => {
       expect(toggle).not.toHaveFocus();
       // 次のフォーカス先は一覧の論文カード内の操作
       expect(document.activeElement).toHaveAccessibleName("いいね");
+    });
+  });
+
+  describe("選択中の論文と絞り込み", () => {
+    it("選択中（展開中）の論文が絞り込みで一覧から外れたら、その旨を表示する", () => {
+      renderExplorer(
+        {
+          initialPapers: mockPapers,
+          expandedPaperId: "2401.00002",
+          renderExpandedDetail: () => null,
+        },
+        "/?cat=cs.LG"
+      );
+
+      expect(
+        screen.queryByText("BERT: Pre-training of Deep Bidirectional Transformers")
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText("選択中の論文は絞り込み条件に合わないため、一覧に表示していません")
+      ).toBeInTheDocument();
+    });
+
+    it("選択中の論文が一覧に残っているときは表示しない", () => {
+      renderExplorer(
+        {
+          initialPapers: mockPapers,
+          expandedPaperId: "2401.00001",
+          renderExpandedDetail: () => null,
+        },
+        "/?cat=cs.LG"
+      );
+
+      expect(screen.queryByText(/選択中の論文は絞り込み条件に合わない/)).not.toBeInTheDocument();
     });
   });
 
