@@ -11,6 +11,7 @@ import type { SummaryVersion } from "../stores/summaryStore";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
+import { SearchThresholdControl } from "./SearchThresholdControl";
 import { SyncStatusBar } from "./SyncStatusBar";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet.js";
 
@@ -294,6 +295,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
                     isLoading={isLoading}
                   />
                 ) : null}
+                {/* しきい値は結果を見ながら調整する（変更は検索APIを呼ばず表示中の結果に即時反映） */}
+                <SearchThresholdControl resultCount={results.length} />
               </div>
             ) : null}
 
