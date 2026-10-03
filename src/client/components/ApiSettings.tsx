@@ -1,4 +1,5 @@
 import { type FC, useState } from "react";
+import { getApiResumeHint } from "../lib/api";
 import { useSettingsStore } from "../stores/settingsStore";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -14,6 +15,7 @@ import { Switch } from "./ui/switch";
  * - パスワードマスク表示
  * - 利用可能のON/OFF（APIキー設定済み時のみ操作可能）
  * - 自動要約のON/OFF（利用可能がONのときのみ操作可能）
+ * - 利用可能OFF時に停止する処理と再開方法の説明
  *
  * @remarks
  * API key は暗号化されて localStorage に保存される。
@@ -103,6 +105,20 @@ export const ApiSettings: FC = () => {
             disabled={!hasApiKey()}
           />
         </div>
+        {!apiEnabled && (
+          <div className="mt-2 text-xs text-amber-600">
+            <p className="font-medium">API利用がOFFのため、次の処理を停止しています</p>
+            <ul className="mt-1 list-disc pl-4">
+              <li>AI検索（クエリ拡張・検索用Embedding）</li>
+              <li>要約・説明文の生成（自動・手動とも）</li>
+              <li>Embedding補完と、同期時のEmbedding生成</li>
+            </ul>
+            <p className="mt-1">
+              arXivからの論文同期と、保存済みの論文・要約・検索履歴の閲覧は引き続き利用できます。OFF中に取得した論文は、ON後に「Embeddingを補完」を実行するとAI検索の対象になります。
+            </p>
+            <p className="mt-1">{getApiResumeHint(hasApiKey())}</p>
+          </div>
+        )}
       </div>
 
       {/* 自動要約生成スイッチ */}

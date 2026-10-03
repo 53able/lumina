@@ -55,6 +55,45 @@ const withApiKey = (options?: ApiOptions) => {
 };
 
 /**
+ * 設定で API 利用が OFF のときに AI 呼び出し関数が投げるエラー。
+ * fetch の前に投げるため、OFF 中は検索・要約・Embedding のリクエストが発生しない。
+ */
+export class ApiDisabledError extends Error {
+  /** 再開方法（キー保存済みかどうかで案内を分ける） */
+  readonly resumeHint: string;
+
+  constructor(resumeHint = getApiResumeHint(true)) {
+    super(`API利用がOFFのため、AI処理（検索・要約・Embedding補完）を停止しています。${resumeHint}`);
+    this.name = "ApiDisabledError";
+    this.resumeHint = resumeHint;
+  }
+}
+
+/**
+ * API利用OFFからの再開方法。
+ * キー未保存のときは「利用可能」スイッチを操作できないため、先にキーの保存を案内する。
+ */
+export const getApiResumeHint = (hasApiKey: boolean): string =>
+  hasApiKey
+    ? "設定の「利用可能」をONにすると再開できます。"
+    : "設定でAPIキーを保存し、「利用可能」をONにすると再開できます。";
+
+/** 設定で API 利用が OFF か */
+const isApiDisabled = (): boolean => useSettingsStore.getState().apiEnabled === false;
+
+/**
+ * AI 呼び出しの実行境界。設定で API 利用が OFF なら ApiDisabledError を投げる。
+ *
+ * @remarks
+ * APIキー未設定（apiEnabled は既定の true）の場合は止めない。サーバー側のキー解決に委ねる。
+ */
+export const assertApiEnabled = (): void => {
+  if (isApiDisabled()) {
+    throw new ApiDisabledError(getApiResumeHint(useSettingsStore.getState().apiKey.length > 0));
+  }
+};
+
+/**
  * 復号済み API key のキャッシュ（PBKDF2 復号の遅延を避ける）
  * ストアの apiKey が変わったらキャッシュは無効になる
  */
@@ -149,6 +188,7 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
  * @throws Error APIエラー時
  */
 export const searchApi = async (request: SearchRequest, options?: ApiOptions) => {
+  assertApiEnabled();
   const res = await client.api.v1.search.$post(
     { json: request },
     { ...withApiKey(options), init: { signal: options?.signal } }
@@ -337,8 +377,11 @@ export const embeddingApi = async (
   request: { text: string },
   options?: ApiOptions
 ): Promise<{ embedding: number[] }> => {
+  assertApiEnabled();
   const opts = withApiKey(options);
   await waitForEmbeddingInterval();
+  // 送信間隔の待機中に OFF にされた場合も送らない
+  assertApiEnabled();
   const res = await client.api.v1.embedding.$post({ json: request }, opts);
   return handleEmbeddingResponse<{ embedding: number[] }>(res);
 };
@@ -358,9 +401,12 @@ export const embeddingBatchApi = async (
   request: { texts: string[] },
   options?: ApiOptions
 ): Promise<{ embeddings: number[][] }> => {
+  assertApiEnabled();
   const opts = withApiKey(options);
   // バッチ 1 リクエスト = 1 スロット。2 回目以降の待ちを短くする
   await waitForEmbeddingInterval(1);
+  // 送信間隔の待機中に OFF にされた場合も送らない
+  assertApiEnabled();
   const res = await client.api.v1.embedding.batch.$post({ json: request }, opts);
   return handleEmbeddingResponse<{ embeddings: number[][] }>(res);
 };
@@ -428,6 +474,7 @@ const waitForSyncRetryDelay = (delayMs: number, signal?: AbortSignal): Promise<v
  * 同期API
  *
  * arXiv論文を取得し、Embeddingを生成する。
+ * API 利用が OFF のときは skipEmbedding を送り、arXiv 取得のみ行う（Embedding は生成しない）。
  * 429（Too Many Requests）のときは Retry-After に従ってリトライする（embedding と同一レートリミットバケットのため）。
  *
  * @param request 同期リクエスト
@@ -448,8 +495,11 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
       ? { existingPaperIds: request.existingPaperIds }
       : {}),
   };
+  // arXiv 取得は AI 呼び出しではないため継続し、Embedding 生成だけを止める。
+  // 429/503 の再送時にも OFF を再評価する
+  const withEmbeddingFlag = () => (isApiDisabled() ? { ...body, skipEmbedding: true } : body);
 
-  let lastRes = await client.api.v1.sync.$post({ json: body }, opts);
+  let lastRes = await client.api.v1.sync.$post({ json: withEmbeddingFlag() }, opts);
   updateRateLimitFromResponse(lastRes);
   let retryCount = 0;
 
@@ -468,7 +518,7 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
     const delayMs = computeSyncRetryDelayMs(lastRes.headers.get("retry-after"));
     await waitForSyncRetryDelay(delayMs, opts.signal);
     retryCount += 1;
-    lastRes = await client.api.v1.sync.$post({ json: body }, opts);
+    lastRes = await client.api.v1.sync.$post({ json: withEmbeddingFlag() }, opts);
     updateRateLimitFromResponse(lastRes);
   }
 
@@ -528,6 +578,7 @@ export const summaryApi = async (
   request: SummaryApiInput,
   options?: ApiOptions
 ) => {
+  assertApiEnabled();
   const res = await client.api.v1.summary[":id"].$post(
     {
       param: { id: paperId },

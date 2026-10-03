@@ -34,9 +34,16 @@ vi.mock("../stores/paperStore", () => ({
   }),
 }));
 
+/** 設定の API 利用（「利用可能」スイッチ） */
+let mockApiEnabled = true;
+/** API キーが保存済みか */
+let mockHasApiKey = true;
+
 vi.mock("../stores/settingsStore", () => ({
   useSettingsStore: vi.fn(() => ({
     getLastSyncedAt: () => new Date("2026-02-01T15:48:00"),
+    apiEnabled: mockApiEnabled,
+    hasApiKey: () => mockHasApiKey,
   })),
 }));
 
@@ -74,6 +81,8 @@ describe("SyncStatusBar", () => {
     mockSyncStoreState.embeddingBackfillProgress = null;
     mockSyncStoreState.embeddingBackfillOutcome = null;
     mockSyncStoreState.lastSyncError = null;
+    mockApiEnabled = true;
+    mockHasApiKey = true;
   });
 
   describe("Embedding補完の結果表示", () => {
@@ -194,6 +203,58 @@ describe("SyncStatusBar", () => {
       await user.click(button);
 
       expect(onRunEmbeddingBackfill).toHaveBeenCalledTimes(1);
+    });
+
+    it("API利用OFFのときは補完ボタンを無効化し、停止理由と再開方法を添える", async () => {
+      mockApiEnabled = false;
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      const user = userEvent.setup();
+      const onRunEmbeddingBackfill = vi.fn();
+
+      render(<SyncStatusBar onRunEmbeddingBackfill={onRunEmbeddingBackfill} />);
+
+      const button = screen.getByRole("button", { name: "Embedding未設定の論文を補完" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(
+        "API利用OFFのため補完を停止中。設定の「利用可能」をONにすると再開できます。"
+      );
+      await user.click(button);
+      expect(onRunEmbeddingBackfill).not.toHaveBeenCalled();
+    });
+
+    it("API利用OFFかつキー未保存のときは、キーの保存から再開方法を案内する", async () => {
+      mockApiEnabled = false;
+      mockHasApiKey = false;
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      render(<SyncStatusBar onRunEmbeddingBackfill={vi.fn()} />);
+
+      expect(
+        screen.getByRole("button", { name: "Embedding未設定の論文を補完" })
+      ).toHaveAccessibleDescription(
+        "API利用OFFのため補完を停止中。設定でAPIキーを保存し、「利用可能」をONにすると再開できます。"
+      );
+    });
+
+    it("API利用OFFのときは失敗結果に「未処理分を再試行」を出さず、停止案内も重ねない", async () => {
+      mockApiEnabled = false;
+      mockSyncStoreState.embeddingBackfillOutcome = {
+        status: "failed",
+        completed: 0,
+        total: 1,
+        failure: {
+          kind: "server",
+          reason: "サーバーでエラーが発生しました（500）",
+          guidance: "時間をおいて、未処理分を再試行してください。",
+        },
+      };
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      render(<SyncStatusBar onRunEmbeddingBackfill={vi.fn()} />);
+
+      expect(screen.getByTestId("embedding-backfill-outcome")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /未処理分を再試行/ })).not.toBeInTheDocument();
+      expect(screen.queryByText(/API利用OFFのため補完を停止中/)).not.toBeInTheDocument();
     });
   });
 

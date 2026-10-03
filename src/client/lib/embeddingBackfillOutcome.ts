@@ -4,10 +4,16 @@
  * 補完欄の近くに持続表示し、トースト消失後も「なぜ論文が検索対象にならないか」
  * 「待つ・設定を直す・再試行する」のどれを選べばよいかを判断できるようにする。
  */
-import { EmbeddingApiError, EmbeddingRateLimitError } from "./api";
+import { ApiDisabledError, EmbeddingApiError, EmbeddingRateLimitError } from "./api";
 
 /** 失敗理由の分類 */
-export type EmbeddingBackfillFailureKind = "rate_limit" | "auth" | "network" | "server" | "unknown";
+export type EmbeddingBackfillFailureKind =
+  | "api_disabled"
+  | "rate_limit"
+  | "auth"
+  | "network"
+  | "server"
+  | "unknown";
 
 /** 失敗理由と次の操作 */
 export interface EmbeddingBackfillFailure {
@@ -48,6 +54,7 @@ const getStatus = (error: unknown): number | undefined => {
 /**
  * エラーを失敗理由へ分類する
  *
+ * - API利用OFF: 設定で利用可能をONにして再試行
  * - 429: 待機して再試行
  * - 401/403・キー未設定・キー復号失敗: 設定を修正
  * - fetch 失敗（TypeError）: 接続を確認して再試行
@@ -62,6 +69,14 @@ export const classifyEmbeddingBackfillError = (error: unknown): EmbeddingBackfil
     error && typeof error === "object" && "message" in error
       ? String(error.message)
       : String(error);
+
+  if (error instanceof ApiDisabledError) {
+    return {
+      kind: "api_disabled",
+      reason: "API利用がOFFのため補完を停止しています",
+      guidance: `${error.resumeHint}再開後に未処理分を補完してください。`,
+    };
+  }
 
   if (status === 429) {
     return {

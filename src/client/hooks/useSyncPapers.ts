@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Paper, SyncPeriod, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
 import {
+  assertApiEnabled,
   EmbeddingRateLimitError,
   embeddingApi,
   embeddingBatchApi,
@@ -590,6 +591,7 @@ export const useSyncPapers = (
 
     try {
       // キー復号の失敗も補完の失敗として扱い、実行中状態を必ず解除する
+      assertApiEnabled();
       const apiKey = await getDecryptedApiKey();
       if (!apiKey) throw new EmbeddingApiKeyMissingError();
 

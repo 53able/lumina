@@ -9,7 +9,7 @@ import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
 import { useSyncPapers } from "./hooks/useSyncPapers";
-import { SyncRateLimitError } from "./lib/api";
+import { ApiDisabledError, SyncRateLimitError } from "./lib/api";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
@@ -102,10 +102,13 @@ const HomePage: FC = () => {
   const {
     selectedCategories,
     syncPeriodDays,
-    autoGenerateSummary,
+    autoGenerateSummary: autoGenerateSummarySetting,
+    apiEnabled,
     shouldAutoSync,
     searchScoreThreshold,
   } = useSettingsStore();
+  // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
+  const autoGenerateSummary = autoGenerateSummarySetting && apiEnabled;
   // 検索履歴（searchHistoryStore経由で永続化）
   const { histories, addHistory, getRecentHistories, deleteHistory } = useSearchHistoryStore();
   const recentHistories = getRecentHistories(10);
@@ -123,6 +126,7 @@ const HomePage: FC = () => {
     queryEmbedding,
     error: searchError,
     completedQuery,
+    stoppedQuery,
     searchInputValue,
     setSearchInputValue,
     handleSearch,
@@ -134,6 +138,16 @@ const HomePage: FC = () => {
     addHistory,
     findSavedHistory,
   });
+
+  // API利用OFFで止まった検索は、保存済み論文の一覧を残したまま停止理由を通知する
+  useEffect(() => {
+    if (stoppedQuery !== null && searchError) {
+      toast.error("検索停止中: 保存済みの論文を表示しています", {
+        id: "api-disabled-search",
+        description: searchError.message,
+      });
+    }
+  }, [stoppedQuery, searchError]);
 
   // 設定ダイアログの開閉状態
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -160,7 +174,7 @@ const HomePage: FC = () => {
       const message = err instanceof Error ? err.message : "要約の生成に失敗しました";
       // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
       const title = papers.find((p) => p.id === paperId)?.title;
-      toast.error("要約生成エラー", {
+      toast.error(err instanceof ApiDisabledError ? "AI要約を停止中" : "要約生成エラー", {
         description: title ? `${title}: ${message}` : message,
       });
     },
@@ -340,7 +354,8 @@ const HomePage: FC = () => {
         onSearch={handleSearch}
         onClearSearch={handleClearSearch}
         onPaperClick={handlePaperClick}
-        externalQuery={completedQuery}
+        // OFFで止まった検索は、確定クエリ（URL の q）に対して親の一覧（保存済み論文）を表示させる
+        externalQuery={stoppedQuery ?? completedQuery}
         searchInputValue={searchInputValue}
         onSearchInputChange={setSearchInputValue}
         whyReadMap={whyReadMap}

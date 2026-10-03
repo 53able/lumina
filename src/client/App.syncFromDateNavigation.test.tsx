@@ -84,6 +84,8 @@ vi.mock("./stores/settingsStore", () => ({
       shouldAutoSync: () => false,
       searchScoreThreshold: 0.5,
       getLastSyncedAt: () => null,
+      apiEnabled: true,
+      hasApiKey: () => true,
     })),
     {
       getState: () => ({

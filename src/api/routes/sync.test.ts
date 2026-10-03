@@ -137,6 +137,30 @@ describe("同期API", () => {
       expect(vi.mocked(createEmbeddingsBatch).mock.calls[0][0]).toHaveLength(2);
     });
 
+    it("正常系: skipEmbedding: true のときはAPIキーがあってもEmbeddingを生成しない", async () => {
+      const request = new Request("http://localhost/api/v1/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenAI-API-Key": openAIKeyHeader,
+        },
+        body: JSON.stringify({
+          categories: ["cs.AI"],
+          period: "7",
+          maxResults: 10,
+          skipEmbedding: true,
+        }),
+      });
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.fetchedCount).toBe(2);
+      expect(body.papers[0].embedding).toBeUndefined();
+      expect(createEmbeddingsBatch).not.toHaveBeenCalled();
+    });
+
     it("正常系: 複数カテゴリでの同期", async () => {
       // Arrange
       const request = new Request("http://localhost/api/v1/sync", {
