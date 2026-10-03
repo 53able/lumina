@@ -864,7 +864,7 @@ describe("PaperSummary", () => {
       autoGenerate?: boolean;
       isLoading?: boolean;
     }> = (props) => {
-      const { summary, versions, adoptVersion, discardVersion } = usePaperSummary({
+      const { summary, versions, adoptVersion, discardVersion, saveCorrection } = usePaperSummary({
         paperId: "2401.00001",
         abstract: "Abstract",
       });
@@ -875,6 +875,7 @@ describe("PaperSummary", () => {
           versions={versions}
           onAdoptVersion={adoptVersion}
           onDiscardVersion={discardVersion}
+          onSaveCorrection={saveCorrection}
           {...props}
         />
       );
@@ -1078,6 +1079,249 @@ describe("PaperSummary", () => {
       // 破棄は失敗したので抑止しない（その後に要約がなくなれば、通常どおり自動生成する）
       rerender(<PaperSummary {...props} summary={undefined} versions={[]} />);
       expect(onGenerate).toHaveBeenCalledWith("2401.00001", "ja", "both");
+    });
+
+    describe("利用者の訂正", () => {
+      /** 表示中の論文・言語の版を DB から読み直す（再読込の代わり） */
+      const reloadStore = async () => {
+        useSummaryStore.setState({ summaries: [] });
+        await initializeSummaryStore(db);
+      };
+      /** 訂正の入力欄を開いて文字を入れる */
+      const typeCorrection = async (user: ReturnType<typeof userEvent.setup>, text: string) => {
+        await user.click(screen.getByRole("button", { name: /訂正を(追加|編集)/ }));
+        const textarea = screen.getByRole("textbox", { name: /要約への訂正/ });
+        await user.clear(textarea);
+        await user.type(textarea, text);
+        return textarea;
+      };
+
+      it("正常系: 訂正文を入力・保存すると、AI要約と区別して表示し、見出しへフォーカスを移す", async () => {
+        const user = userEvent.setup();
+        await addVersions(["AIの要約"]);
+        render(<ConnectedPaperSummary />);
+
+        await user.click(screen.getByRole("button", { name: "訂正を追加" }));
+        const textarea = screen.getByRole("textbox", { name: "要約への訂正" });
+        expect(textarea).toHaveFocus();
+        expect(textarea).toHaveAttribute("maxLength", "2000");
+        expect(textarea).toHaveAccessibleDescription(/0 \/ 2000文字/);
+        await user.type(textarea, "提案手法の名称が誤り");
+        expect(textarea).toHaveAccessibleDescription(/10 \/ 2000文字/);
+        await user.click(screen.getByRole("button", { name: "訂正を保存" }));
+
+        const section = await screen.findByRole("region", { name: "利用者の訂正" });
+        expect(within(section).getByText("提案手法の名称が誤り")).toBeInTheDocument();
+        expect(within(section).getByText("AI生成ではありません")).toBeInTheDocument();
+        // AI生成文は書き換えず、訂正の枠の外に残す
+        expect(within(section).queryByText("AIの要約")).not.toBeInTheDocument();
+        expect(screen.getByText("AIの要約")).toBeInTheDocument();
+        expect(screen.getByRole("status")).toHaveTextContent("訂正を保存しました");
+        await waitFor(() =>
+          expect(within(section).getByRole("heading", { name: "利用者の訂正" })).toHaveFocus()
+        );
+        expect(screen.getByRole("button", { name: "訂正を編集" })).toBeInTheDocument();
+      });
+
+      it("正常系: 再読込（Store の再初期化）後も訂正文を表示する", async () => {
+        const user = userEvent.setup();
+        await addVersions(["AIの要約"]);
+        const { unmount } = render(<ConnectedPaperSummary />);
+        await typeCorrection(user, "再読込後も残る訂正");
+        await user.click(screen.getByRole("button", { name: "訂正を保存" }));
+        await screen.findByRole("region", { name: "利用者の訂正" });
+        unmount();
+
+        await reloadStore();
+        render(<ConnectedPaperSummary />);
+
+        const section = screen.getByRole("region", { name: "利用者の訂正" });
+        expect(within(section).getByText("再読込後も残る訂正")).toBeInTheDocument();
+        expect(screen.getByText("AIの要約")).toBeInTheDocument();
+      });
+
+      it("正常系: 取消すと保存せず、編集ボタンへフォーカスを戻す", async () => {
+        const user = userEvent.setup();
+        await addVersions(["AIの要約"]);
+        render(<ConnectedPaperSummary />);
+
+        await typeCorrection(user, "保存しない訂正");
+        await user.click(screen.getByRole("button", { name: "取消" }));
+
+        expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+        expect(screen.queryByRole("region", { name: "利用者の訂正" })).not.toBeInTheDocument();
+        await waitFor(() =>
+          expect(screen.getByRole("button", { name: "訂正を追加" })).toHaveFocus()
+        );
+        expect((await db.paperSummaries.toArray())[0]).not.toHaveProperty("userCorrection");
+      });
+
+      it("正常系: 空にして保存すると訂正を削除する", async () => {
+        const user = userEvent.setup();
+        await addVersions(["AIの要約"]);
+        await useSummaryStore
+          .getState()
+          .saveCorrection(useSummaryStore.getState().summaries[0].id, "消す訂正");
+        render(<ConnectedPaperSummary />);
+
+        await user.click(screen.getByRole("button", { name: "訂正を編集" }));
+        await user.clear(screen.getByRole("textbox", { name: "要約への訂正" }));
+        await user.click(screen.getByRole("button", { name: "訂正を保存" }));
+
+        await waitFor(() =>
+          expect(screen.queryByRole("region", { name: "利用者の訂正" })).not.toBeInTheDocument()
+        );
+        expect(screen.getByRole("status")).toHaveTextContent("訂正を削除しました");
+        await waitFor(() =>
+          expect(screen.getByRole("button", { name: "訂正を追加" })).toHaveFocus()
+        );
+      });
+
+      it("正常系: 再生成した新しい版には引き継がず、その旨を示し、旧版を採用し直すと表示する", async () => {
+        const user = userEvent.setup();
+        await addVersions(["第1版の要約"]);
+        await useSummaryStore
+          .getState()
+          .saveCorrection(useSummaryStore.getState().summaries[0].id, "第1版への訂正");
+        render(<ConnectedPaperSummary />);
+        expect(screen.getByRole("region", { name: "利用者の訂正" })).toHaveTextContent(
+          "再生成した新しい版には引き継がれません"
+        );
+
+        // 再生成で新しい版が採用版になる
+        await act(() =>
+          useSummaryStore.getState().addSummary(createSampleSummary({ summary: "第2版の要約" }))
+        );
+
+        expect(screen.queryByRole("region", { name: "利用者の訂正" })).not.toBeInTheDocument();
+        expect(
+          screen.getByText(/第1版に利用者の訂正があります。.*表示中の版には引き継がれません/)
+        ).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "版を比較（2版）" }));
+        const list = screen.getByRole("region", { name: "保存済みの要約の版" });
+        expect(within(list).getByText("第1版への訂正")).toBeInTheDocument();
+        expect(within(list).getByText("利用者の訂正（AI生成ではありません）")).toBeInTheDocument();
+
+        await user.click(within(list).getByRole("button", { name: "第1版を採用" }));
+
+        const section = await screen.findByRole("region", { name: "利用者の訂正" });
+        expect(within(section).getByText("第1版への訂正")).toBeInTheDocument();
+      });
+
+      it("正常系: 訂正の付いた版の破棄は、訂正も消えることを確認ダイアログで示す", async () => {
+        const user = userEvent.setup();
+        await addVersions(["第1版の要約", "第2版の要約"]);
+        await useSummaryStore
+          .getState()
+          .saveCorrection(useSummaryStore.getState().summaries[1].id, "第2版への訂正");
+        render(<ConnectedPaperSummary />);
+
+        await user.click(screen.getByRole("button", { name: "採用中の版を破棄" }));
+        const dialog = await screen.findByRole("dialog");
+        expect(dialog).toHaveTextContent("この版に付けた利用者の訂正も削除されます。");
+        await user.click(within(dialog).getByRole("button", { name: "破棄する" }));
+
+        expect(await screen.findByText("第1版の要約")).toBeInTheDocument();
+        expect(screen.queryByRole("region", { name: "利用者の訂正" })).not.toBeInTheDocument();
+        await act(reloadStore);
+        expect(useSummaryStore.getState().summaries.some((s) => s.userCorrection)).toBe(false);
+      });
+
+      it("正常系: 訂正のない版の破棄では訂正の削除を示さない", async () => {
+        const user = userEvent.setup();
+        await addVersions(["第1版の要約"]);
+        render(<ConnectedPaperSummary />);
+
+        await user.click(screen.getByRole("button", { name: "採用中の版を破棄" }));
+        expect(await screen.findByRole("dialog")).not.toHaveTextContent("利用者の訂正");
+      });
+
+      it("正常系: 編集中に別の版が採用されても、編集を始めた版に保存する", async () => {
+        const user = userEvent.setup();
+        await addVersions(["第1版の要約", "第2版の要約"]);
+        const [first, second] = useSummaryStore.getState().summaries;
+        render(<ConnectedPaperSummary />);
+
+        await typeCorrection(user, "第2版への訂正");
+        expect(screen.getByRole("textbox", { name: "第2版の要約への訂正" })).toBeInTheDocument();
+        // 別の操作（別のタブを含む）で第1版が採用される
+        await act(() => useSummaryStore.getState().adoptSummary(first.id));
+        await user.click(screen.getByRole("button", { name: "訂正を保存" }));
+
+        expect(await screen.findByText("第2版の訂正を保存しました")).toBeInTheDocument();
+        await act(reloadStore);
+        const reloaded = useSummaryStore.getState();
+        expect(reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.id).toBe(first.id);
+        expect(reloaded.summaries.find((s) => s.id === second.id)?.userCorrection?.text).toBe(
+          "第2版への訂正"
+        );
+        expect(reloaded.summaries.find((s) => s.id === first.id)?.userCorrection).toBeUndefined();
+      });
+
+      it("正常系: 保存中に利用者が編集欄の外へ移したフォーカスは奪わない", async () => {
+        const user = userEvent.setup();
+        const version: SummaryVersion = { ...createSampleSummary(), id: 1 };
+        let resolveSave: () => void = () => undefined;
+        const onSaveCorrection = vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveSave = resolve;
+            })
+        );
+        render(
+          <>
+            <PaperSummary
+              paperId="2401.00001"
+              summary={version}
+              versions={[version]}
+              onSaveCorrection={onSaveCorrection}
+            />
+            <button type="button">外のボタン</button>
+          </>
+        );
+
+        await typeCorrection(user, "訂正");
+        await user.click(screen.getByRole("button", { name: "訂正を保存" }));
+        expect(onSaveCorrection).toHaveBeenCalledWith(1, "訂正");
+        const outside = screen.getByRole("button", { name: "外のボタン" });
+        outside.focus();
+        await act(async () => resolveSave());
+
+        await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
+        expect(outside).toHaveFocus();
+      });
+
+      it("異常系: 保存に失敗したら編集欄と下書きを残す", async () => {
+        const user = userEvent.setup();
+        const version: SummaryVersion = { ...createSampleSummary(), id: 1 };
+        render(
+          <PaperSummary
+            paperId="2401.00001"
+            summary={version}
+            versions={[version]}
+            onSaveCorrection={vi.fn().mockRejectedValue(new Error("DB error"))}
+          />
+        );
+
+        await typeCorrection(user, "残す下書き");
+        await user.click(screen.getByRole("button", { name: "訂正を保存" }));
+
+        await waitFor(() =>
+          expect(screen.getByRole("button", { name: "訂正を保存" })).not.toHaveAttribute(
+            "aria-disabled"
+          )
+        );
+        expect(screen.getByRole("textbox", { name: "要約への訂正" })).toHaveValue("残す下書き");
+        expect(screen.queryByRole("region", { name: "利用者の訂正" })).not.toBeInTheDocument();
+      });
+
+      it("正常系: 保存処理を渡さない場合は訂正の入力を出さない", async () => {
+        await addVersions(["AIの要約"]);
+        const version = useSummaryStore.getState().summaries[0];
+        render(<PaperSummary paperId="2401.00001" summary={version} versions={[version]} />);
+
+        expect(screen.queryByRole("button", { name: /訂正を/ })).not.toBeInTheDocument();
+      });
     });
 
     describe("採用・破棄の通知", () => {

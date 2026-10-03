@@ -39,6 +39,7 @@ export const PaperPage: FC = () => {
     versions,
     adoptVersion,
     discardVersion,
+    saveCorrection,
     summaryLanguage,
     setSummaryLanguage,
     isLoading,
@@ -153,6 +154,7 @@ export const PaperPage: FC = () => {
             summaryVersions={versions}
             onAdoptSummaryVersion={adoptVersion}
             onDiscardSummaryVersion={discardVersion}
+            onSaveSummaryCorrection={saveCorrection}
           />
         </div>
       </div>

@@ -3,15 +3,27 @@ import {
   BookOpen,
   History,
   Loader2,
+  PencilLine,
   RefreshCw,
   Sparkles,
   Target,
   Trash2,
   Users,
 } from "lucide-react";
-import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type FC,
+  type FormEvent,
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
-import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
+import {
+  type PaperSummary as PaperSummaryType,
+  SUMMARY_CORRECTION_MAX_LENGTH,
+} from "../../shared/schemas/index";
 import { ApiDisabledError, getApiResumeHint } from "../lib/api";
 import {
   getSummaryStageErrorGuidance,
@@ -31,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import { Label } from "./ui/label";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
 /**
@@ -105,6 +118,8 @@ interface PaperSummaryProps {
   onAdoptVersion?: (id: number) => Promise<void>;
   /** 版を破棄する（渡されない場合は破棄ボタンを出さない） */
   onDiscardVersion?: (id: number) => Promise<void>;
+  /** 版に利用者の訂正文を保存する（空なら訂正を削除する。渡されない場合は訂正の入力を出さない） */
+  onSaveCorrection?: (id: number, text: string) => Promise<void>;
 }
 
 /**
@@ -139,6 +154,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   versions = NO_VERSIONS,
   onAdoptVersion,
   onDiscardVersion,
+  onSaveCorrection,
 }) => {
   // 原則1「状態の外部化」: language は親（usePaperSummary）で一元管理
   // このコンポーネントは Controlled Component として振る舞う
@@ -196,11 +212,57 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     setFocusVersionId(null);
   }, [focusVersionId]);
 
-  // 論文・言語を切り替えたら、前の論文の版の通知と一覧の開閉を持ち越さない
+  /** 訂正文を編集中の版と下書き（版の主キーで持ち、編集中に採用版が変わっても同じ版に保存する） */
+  const [editingCorrection, setEditingCorrection] = useState<{
+    versionId: number;
+    draft: string;
+  } | null>(null);
+  const [isSavingCorrection, setIsSavingCorrection] = useState(false);
+  /** 訂正の編集を閉じた後のフォーカス先（保存・取消のボタンは消えるため） */
+  const [correctionFocus, setCorrectionFocus] = useState<"heading" | "toggle" | null>(null);
+  const correctionFormRef = useRef<HTMLFormElement>(null);
+  const correctionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const correctionIdPrefix = `summary-correction-${paperId}-${selectedLanguage}`;
+  const correctionHeadingId = `${correctionIdPrefix}-heading`;
+  const correctionToggleId = `${correctionIdPrefix}-toggle`;
+  const correctionTextareaId = `${correctionIdPrefix}-input`;
+  const correctionHintId = `${correctionIdPrefix}-hint`;
+  /** 編集中の版（破棄されていれば undefined） */
+  const editingVersion = editingCorrection
+    ? versions.find((v) => v.id === editingCorrection.versionId)
+    : undefined;
+  /** 採用版以外で訂正の付いた版（再生成・採用の切替で訂正が引き継がれないことを示すため） */
+  const otherCorrectedVersions = versions.filter(
+    (v) => v.userCorrection && v.id !== adoptedVersion?.id
+  );
+  const editingVersionId = editingCorrection?.versionId;
+
+  // 編集を開いたら入力欄へフォーカスを移す
+  useEffect(() => {
+    if (editingVersionId !== undefined) correctionTextareaRef.current?.focus();
+  }, [editingVersionId]);
+
+  // 編集を閉じたら、訂正の見出し（保存後）または編集ボタン（取消後）へフォーカスを移す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 編集を閉じたときだけ移す
+  useEffect(() => {
+    if (correctionFocus === null) return;
+    setCorrectionFocus(null);
+    const heading = document.getElementById(correctionHeadingId);
+    const toggle = document.getElementById(correctionToggleId);
+    (correctionFocus === "heading" ? (heading ?? toggle) : (toggle ?? heading))?.focus();
+  }, [correctionFocus]);
+
+  // 編集中の版が破棄されたら（別の操作・別のタブを含む）編集を閉じる
+  useEffect(() => {
+    if (editingCorrection && !editingVersion) setEditingCorrection(null);
+  }, [editingCorrection, editingVersion]);
+
+  // 論文・言語を切り替えたら、前の論文の版の通知と一覧の開閉、訂正の編集を持ち越さない
   // biome-ignore lint/correctness/useExhaustiveDependencies: generationKey の変化だけを契機にする
   useEffect(() => {
     setVersionMessage(null);
     setIsVersionListOpen(false);
+    setEditingCorrection(null);
   }, [generationKey]);
 
   /** 説明文が存在するか */
@@ -382,6 +444,45 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       toast.error("要約の版を破棄できませんでした");
     } finally {
       setPendingDiscard(null);
+    }
+  };
+
+  /** 版の表示名（版が1つなら番号を出さない） */
+  const versionLabelOf = (version: SummaryVersion) =>
+    versions.length > 1 ? `第${versionNumberOf(version)}版の` : "";
+
+  /** 訂正の編集を閉じる（フォーカスは編集を開いたボタンへ戻す） */
+  const handleCancelCorrection = () => {
+    setEditingCorrection(null);
+    setCorrectionFocus("toggle");
+  };
+
+  /** 訂正文を保存する（空なら訂正を削除する） */
+  const handleSaveCorrection = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingCorrection || !editingVersion || !onSaveCorrection || isSavingCorrection) return;
+    const { versionId, draft } = editingCorrection;
+    const label = versionLabelOf(editingVersion);
+    const isRemoving = draft.trim() === "";
+    setIsSavingCorrection(true);
+    setVersionMessage("");
+    try {
+      await onSaveCorrection(versionId, draft);
+      // 保存中に利用者が編集欄の外へ移したフォーカスは奪わない（生成中のフォーカスと同じ方針）
+      const active = document.activeElement;
+      const shouldMoveFocus =
+        active === null ||
+        active === document.body ||
+        Boolean(correctionFormRef.current?.contains(active));
+      setEditingCorrection(null);
+      if (shouldMoveFocus) setCorrectionFocus("heading");
+      setVersionMessage(isRemoving ? `${label}訂正を削除しました` : `${label}訂正を保存しました`);
+    } catch (err) {
+      console.error("Summary correction save error:", err);
+      setVersionMessage(null);
+      toast.error("訂正を保存できませんでした");
+    } finally {
+      setIsSavingCorrection(false);
     }
   };
 
@@ -582,6 +683,87 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             </div>
           )}
 
+          {/* 利用者の訂正: AI生成文は書き換えず、見出し・ラベル・枠線でAI生成文と区別する（色だけに頼らない） */}
+          {adoptedVersion?.userCorrection && (
+            <section
+              aria-labelledby={correctionHeadingId}
+              className="space-y-2 rounded-lg border-2 border-dashed p-3"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <PencilLine className="h-4 w-4" aria-hidden="true" />
+                <h4
+                  id={correctionHeadingId}
+                  tabIndex={-1}
+                  className="text-xs font-bold outline-none"
+                >
+                  利用者の訂正
+                </h4>
+                <Badge variant="outline">AI生成ではありません</Badge>
+              </div>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                {adoptedVersion.userCorrection.text}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {`${format(adoptedVersion.userCorrection.updatedAt, "yyyy-MM-dd HH:mm")} に保存。`}
+                AIの要約は変更していません。訂正は{versionLabelOf(adoptedVersion) || "この版の"}
+                要約にだけ付き、再生成した新しい版には引き継がれません。
+              </p>
+            </section>
+          )}
+          {otherCorrectedVersions.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {otherCorrectedVersions.map((v) => `第${versionNumberOf(v)}版`).join("・")}
+              に利用者の訂正があります。訂正は版ごとに保存され、表示中の版には引き継がれません。
+            </p>
+          )}
+
+          {/* 訂正の入力（編集中に採用版が変わっても、開いたときの版に保存する） */}
+          {editingCorrection && editingVersion && onSaveCorrection && (
+            <form
+              ref={correctionFormRef}
+              onSubmit={handleSaveCorrection}
+              className="space-y-2 rounded-lg border p-3"
+              aria-busy={isSavingCorrection || undefined}
+            >
+              <Label htmlFor={correctionTextareaId} className="text-xs font-bold">
+                {versionLabelOf(editingVersion)}要約への訂正
+              </Label>
+              <textarea
+                ref={correctionTextareaRef}
+                id={correctionTextareaId}
+                value={editingCorrection.draft}
+                onChange={(e) =>
+                  setEditingCorrection({
+                    versionId: editingCorrection.versionId,
+                    draft: e.target.value,
+                  })
+                }
+                maxLength={SUMMARY_CORRECTION_MAX_LENGTH}
+                rows={4}
+                aria-describedby={correctionHintId}
+                className="w-full rounded-md border bg-transparent p-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <p id={correctionHintId} className="text-xs text-muted-foreground">
+                {editingCorrection.draft.length} / {SUMMARY_CORRECTION_MAX_LENGTH}
+                文字。「利用者の訂正」としてAIの要約と分けて表示します。空にして保存すると訂正を削除します。
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  size="sm"
+                  aria-disabled={isSavingCorrection || undefined}
+                  className={cn("gap-2", busyButtonClassName)}
+                >
+                  {isSavingCorrection && <Loader2 className="h-4 w-4 animate-spin" />}
+                  訂正を保存
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleCancelCorrection}>
+                  取消
+                </Button>
+              </div>
+            </form>
+          )}
+
           {/* 版の操作: 再生成（新しい版を追加して採用）・破棄・版の比較 */}
           <div className="space-y-2 pt-2 border-t">
             <div className="flex flex-wrap items-center gap-2">
@@ -613,6 +795,23 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 >
                   <Trash2 className="h-4 w-4" />
                   採用中の版を破棄
+                </Button>
+              )}
+              {!isLoading && adoptedVersion && onSaveCorrection && !editingCorrection && (
+                <Button
+                  id={correctionToggleId}
+                  onClick={() =>
+                    setEditingCorrection({
+                      versionId: adoptedVersion.id,
+                      draft: adoptedVersion.userCorrection?.text ?? "",
+                    })
+                  }
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <PencilLine className="h-4 w-4" />
+                  {adoptedVersion.userCorrection ? "訂正を編集" : "訂正を追加"}
                 </Button>
               )}
               {!isLoading && versions.length > 1 && (
@@ -666,6 +865,14 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                             </li>
                           ))}
                         </ul>
+                      )}
+                      {version.userCorrection && (
+                        <div className="space-y-1 rounded border-2 border-dashed p-2">
+                          <p className="text-xs font-bold">利用者の訂正（AI生成ではありません）</p>
+                          <p className="text-xs whitespace-pre-wrap">
+                            {version.userCorrection.text}
+                          </p>
+                        </div>
                       )}
                       <div className="flex flex-wrap gap-2">
                         {!isAdopted && onAdoptVersion && (
@@ -722,6 +929,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 (versions.length > 1
                   ? "採用中の版のため、残りの版のうち最新の版を採用します。"
                   : "保存済みの版がなくなります。")}
+              {pendingDiscard?.userCorrection && "この版に付けた利用者の訂正も削除されます。"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

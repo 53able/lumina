@@ -40,6 +40,7 @@ export {
   PaperSchema,
   type PaperSummary,
   PaperSummarySchema,
+  SUMMARY_CORRECTION_MAX_LENGTH,
 } from "./paper.js";
 // Search
 export {
