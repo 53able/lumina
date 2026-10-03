@@ -166,7 +166,15 @@ export interface PaperEmbeddingIndex {
 export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
   const entries = new Map<string, IndexEntry>();
 
+  /**
+   * 直前の検索の全件スコア（スコア降順）。
+   * しきい値・件数だけを変えた再検索（#78）では類似度を計算し直さず、この一覧を切り出す。
+   * 索引の更新で破棄する。
+   */
+  let lastScored: { queryEmbedding: number[]; sorted: PaperSearchMatch[] } | null = null;
+
   const upsert = (papers: PaperEmbeddingInput[]): void => {
+    if (papers.length > 0) lastScored = null;
     for (const paper of papers) {
       const embedding = paper.embedding;
       if (!embedding || embedding.length === 0) {
@@ -183,18 +191,13 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
     }
   };
 
-  const search = (
-    queryEmbedding: number[],
-    scoreThreshold: number,
-    limit: number
-  ): PaperSearchMatches => {
-    if (queryEmbedding.length === 0) return { matches: [], totalMatchCount: 0 };
-
+  /** 全件の類似度を計算し、スコア降順に並べる（同点は索引の順を保つ） */
+  const scoreAll = (queryEmbedding: number[]): PaperSearchMatch[] => {
     let querySumOfSquares = 0;
     for (const q of queryEmbedding) querySumOfSquares += q * q;
     const queryNorm = Math.sqrt(querySumOfSquares);
 
-    const matched: PaperSearchMatch[] = [];
+    const scored: PaperSearchMatch[] = [];
     for (const [id, { vector, norm }] of entries) {
       let score = 0;
       const denominator = queryNorm * norm;
@@ -205,13 +208,37 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
         }
         score = dotProduct / denominator;
       }
-      if (score >= scoreThreshold) {
-        matched.push({ id, score });
-      }
+      scored.push({ id, score });
     }
+    scored.sort((a, b) => b.score - a.score);
+    return scored;
+  };
 
-    matched.sort((a, b) => b.score - a.score);
-    return { matches: matched.slice(0, limit), totalMatchCount: matched.length };
+  /** 直前の検索と同じクエリか（Worker へはコピーで届くため内容で比べる） */
+  const isSameQuery = (a: number[], b: number[]): boolean =>
+    a.length === b.length && a.every((value, i) => value === b[i]);
+
+  const search = (
+    queryEmbedding: number[],
+    scoreThreshold: number,
+    limit: number
+  ): PaperSearchMatches => {
+    if (queryEmbedding.length === 0) return { matches: [], totalMatchCount: 0 };
+
+    if (lastScored === null || !isSameQuery(lastScored.queryEmbedding, queryEmbedding)) {
+      lastScored = { queryEmbedding: [...queryEmbedding], sorted: scoreAll(queryEmbedding) };
+    }
+    const { sorted } = lastScored;
+
+    // スコア降順なので、しきい値以上の一致は先頭からの連続した範囲になる
+    let totalMatchCount = 0;
+    while (
+      totalMatchCount < sorted.length &&
+      (sorted[totalMatchCount] as PaperSearchMatch).score >= scoreThreshold
+    ) {
+      totalMatchCount += 1;
+    }
+    return { matches: sorted.slice(0, Math.min(limit, totalMatchCount)), totalMatchCount };
   };
 
   return {

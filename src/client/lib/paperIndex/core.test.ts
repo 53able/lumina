@@ -101,6 +101,44 @@ describe("createPaperEmbeddingIndex", () => {
     }
   });
 
+  it("同じクエリでしきい値・件数だけを変えた再検索も、従来の計算と一致する（直前のスコアを使い回す）", () => {
+    const random = createRandom(11);
+    const dims = 64;
+    const query = Array.from({ length: dims }, () => random());
+    const papers = Array.from({ length: 200 }, (_, i) =>
+      createPaper(
+        `p${i}`,
+        "2024-01-01",
+        query.map((q) => q + random() * (i % 4))
+      )
+    );
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+    for (const [threshold, limit] of [
+      [0.9, 20],
+      [0.3, 20],
+      [0.6, 5],
+      [0.95, 100],
+    ] as const) {
+      const expected = legacyComputeSearchResults(papers, query, threshold, limit);
+      // Worker へはコピーで届くため、内容が同じ別の配列で検索する
+      const actual = index.search([...query], threshold, limit);
+      expect(actual.totalMatchCount).toBe(expected.totalMatchCount);
+      expect(actual.matches.map((m) => m.id)).toEqual(expected.matches.map((m) => m.id));
+    }
+  });
+
+  it("索引を更新すると、同じクエリの再検索でも追加した論文を含める", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert([{ id: "a", embedding: [1, 0] }]);
+    expect(index.search([1, 0], 0.5, 10).matches.map((m) => m.id)).toEqual(["a"]);
+
+    index.upsert([{ id: "b", embedding: [1, 0.1] }]);
+    const result = index.search([1, 0], 0.5, 10);
+    expect(result.matches.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(result.totalMatchCount).toBe(2);
+  });
+
   it("limit は適用後の一致だけを返し、totalMatchCount は適用前の件数", () => {
     const index = createPaperEmbeddingIndex();
     index.upsert([
