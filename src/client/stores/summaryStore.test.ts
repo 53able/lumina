@@ -108,29 +108,78 @@ describe("summaryStore", () => {
       expect(state.summaries).toHaveLength(2);
     });
 
-    it("正常系: 同じ論文・言語の要約は置き換える（説明文の追加生成後に新しい内容を返す）", async () => {
+    it("正常系: 同じ論文・言語の要約を再生成すると旧版を残し、最新の版を返す", async () => {
       const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
       await initializeSummaryStore(mockDb);
 
-      await useSummaryStore.getState().addSummary(createSampleSummary());
-      await useSummaryStore
-        .getState()
-        .addSummary(createSampleSummary({ explanation: "追加生成した説明文" }));
+      await useSummaryStore.getState().addSummary(createSampleSummary({ summary: "旧版" }));
+      await useSummaryStore.getState().addSummary(createSampleSummary({ summary: "新版" }));
 
-      // Assert - Store
       const state = useSummaryStore.getState();
-      expect(state.summaries).toHaveLength(1);
-      expect(state.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.explanation).toBe(
-        "追加生成した説明文"
-      );
-
-      // Assert - IndexedDB（再読み込み後も新しい内容になる）
+      expect(state.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe("新版");
       const dbSummaries = await mockDb.paperSummaries
         .where("paperId")
         .equals("2401.00001")
         .toArray();
-      expect(dbSummaries).toHaveLength(1);
-      expect(dbSummaries[0].explanation).toBe("追加生成した説明文");
+      expect(dbSummaries.map((s) => s.summary)).toEqual(["旧版", "新版"]);
+    });
+
+    it("正常系: 既存の重複レコードは初期化後に最後に保存した版を返す", async () => {
+      await mockDb.paperSummaries.add(createSampleSummary({ summary: "旧版" }));
+      await mockDb.paperSummaries.add(
+        createSampleSummary({ summary: "旧版", explanation: "後から生成した説明文" })
+      );
+      const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+      await initializeSummaryStore(mockDb);
+
+      expect(
+        useSummaryStore.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.explanation
+      ).toBe("後から生成した説明文");
+    });
+  });
+
+  describe("要約の部分更新", () => {
+    it("正常系: 説明文だけを最新の版へ反映し、要約と旧版は変更しない", async () => {
+      const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+      await initializeSummaryStore(mockDb);
+      await useSummaryStore.getState().addSummary(createSampleSummary({ summary: "旧版" }));
+      await useSummaryStore.getState().addSummary(createSampleSummary({ summary: "新版" }));
+
+      await useSummaryStore.getState().updateSummary("2401.00001", "ja", {
+        explanation: "説明文",
+        targetAudience: "研究者",
+        whyRead: "理由",
+      });
+
+      // Assert - Store
+      const state = useSummaryStore.getState();
+      expect(state.summaries).toHaveLength(2);
+      expect(state.getSummaryByPaperIdAndLanguage("2401.00001", "ja")).toMatchObject({
+        summary: "新版",
+        explanation: "説明文",
+        targetAudience: "研究者",
+        whyRead: "理由",
+      });
+      expect(state.summaries[0].explanation).toBeUndefined();
+
+      // Assert - IndexedDB（物理削除しない）
+      const dbSummaries = await mockDb.paperSummaries
+        .where("paperId")
+        .equals("2401.00001")
+        .toArray();
+      expect(dbSummaries).toHaveLength(2);
+      expect(dbSummaries[0].summary).toBe("旧版");
+      expect(dbSummaries[0].explanation).toBeUndefined();
+      expect(dbSummaries[1]).toMatchObject({ summary: "新版", explanation: "説明文" });
+    });
+
+    it("異常系: 要約がない場合は失敗する", async () => {
+      const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+      await initializeSummaryStore(mockDb);
+
+      await expect(
+        useSummaryStore.getState().updateSummary("2401.00001", "ja", { explanation: "説明文" })
+      ).rejects.toThrow("Summary not found");
     });
   });
 

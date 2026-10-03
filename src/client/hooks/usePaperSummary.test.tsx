@@ -7,7 +7,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PartialSummaryError, usePaperSummary } from "./usePaperSummary";
+import { PartialSummaryError } from "../lib/summaryErrors";
+import { usePaperSummary } from "./usePaperSummary";
 
 const mockSummaryApi = vi.fn();
 vi.mock("../lib/api", async (importOriginal) => {
@@ -21,11 +22,13 @@ vi.mock("../lib/api", async (importOriginal) => {
 
 const mockGetSummaryByPaperIdAndLanguage = vi.fn();
 const mockAddSummary = vi.fn();
+const mockUpdateSummary = vi.fn();
 vi.mock("../stores/summaryStore", () => ({
   useSummaryStore: () => ({
     getSummaryByPaperIdAndLanguage: (...args: unknown[]) =>
       mockGetSummaryByPaperIdAndLanguage(...args),
     addSummary: (...args: unknown[]) => mockAddSummary(...args),
+    updateSummary: (...args: unknown[]) => mockUpdateSummary(...args),
   }),
 }));
 
@@ -246,17 +249,30 @@ describe("usePaperSummary", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("異常系: 生成に失敗しても generateSummary は reject しない（失敗は error と onError で扱う）", async () => {
+    mockSummaryApi.mockRejectedValueOnce(new Error("timeout"));
+    const onError = vi.fn();
+    const { result } = renderUsePaperSummary("2401.00001", onError);
+
+    await act(async () => {
+      await expect(result.current.generateSummary()).resolves.toBeUndefined();
+    });
+
+    await waitFor(() => expect(result.current.error?.message).toBe("timeout"));
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   describe("工程別の失敗（部分成功）", () => {
     it("異常系: 説明文だけが失敗した応答では、要約を保存したうえで部分成功のエラーを返す", async () => {
       mockSummaryApi.mockResolvedValueOnce({
         ...createSummaryResponse("2401.00001"),
-        explanationError: "upstream timeout",
+        explanationError: { code: "rate_limit", retryable: true },
       });
       const onError = vi.fn();
       const { result } = renderUsePaperSummary("2401.00001", onError);
 
       await act(async () => {
-        await result.current.generateSummary().catch(() => undefined);
+        await result.current.generateSummary();
       });
 
       expect(mockAddSummary).toHaveBeenCalledTimes(1);
@@ -264,12 +280,33 @@ describe("usePaperSummary", () => {
         expect.objectContaining({ paperId: "2401.00001", summary: "要約", explanation: undefined })
       );
       await waitFor(() => expect(result.current.error).toBeInstanceOf(PartialSummaryError));
-      expect(result.current.error?.message).toContain("upstream timeout");
+      const error = result.current.error as PartialSummaryError;
+      expect(error.code).toBe("rate_limit");
+      expect(error.retryable).toBe(true);
+      expect(error.message).toBe(
+        "要約は保存しました。AIの利用上限に達しました。時間をおいて再試行してください。"
+      );
+      expect(result.current.failedTarget).toBe("both");
       expect(result.current.isLoading).toBe(false);
       expect(onError).toHaveBeenCalledWith(expect.any(PartialSummaryError), "2401.00001");
     });
 
-    it("正常系: 説明文の再試行では説明文だけを要求し、保存済みの要約を残してマージする", async () => {
+    it("異常系: 未知の分類は upstream として扱う", async () => {
+      mockSummaryApi.mockResolvedValueOnce({
+        ...createSummaryResponse("2401.00001"),
+        explanationError: { code: "something_new", retryable: true },
+      });
+      const { result } = renderUsePaperSummary();
+
+      await act(async () => {
+        await result.current.generateSummary();
+      });
+
+      await waitFor(() => expect(result.current.error).toBeInstanceOf(PartialSummaryError));
+      expect((result.current.error as PartialSummaryError).code).toBe("upstream");
+    });
+
+    it("正常系: 説明文の再試行では説明文だけを要求し、保存済みの要約は部分更新で残す", async () => {
       const existingSummary = {
         paperId: "2401.00001",
         summary: "保存済みの要約",
@@ -298,13 +335,36 @@ describe("usePaperSummary", () => {
         expect.objectContaining({ generateTarget: "explanation" }),
         expect.anything()
       );
-      expect(mockAddSummary).toHaveBeenCalledWith({
-        ...existingSummary,
+      expect(mockUpdateSummary).toHaveBeenCalledWith("2401.00001", "ja", {
         explanation: "説明文",
         targetAudience: "研究者",
         whyRead: "理由",
       });
+      // 要約を置き換える保存はしない
+      expect(mockAddSummary).not.toHaveBeenCalled();
       expect(result.current.error).toBeNull();
+      expect(result.current.failedTarget).toBeNull();
+    });
+
+    it("異常系: 説明文の再試行が失敗すると failedTarget は explanation になる", async () => {
+      mockGetSummaryByPaperIdAndLanguage.mockReturnValue({
+        paperId: "2401.00001",
+        summary: "保存済みの要約",
+        keyPoints: [],
+        language: "ja",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      });
+      mockSummaryApi.mockRejectedValueOnce(new Error("timeout"));
+      const { result } = renderUsePaperSummary();
+
+      await act(async () => {
+        await result.current.generateSummary(undefined, "explanation");
+      });
+
+      await waitFor(() => expect(result.current.error?.message).toBe("timeout"));
+      expect(result.current.failedTarget).toBe("explanation");
+      expect(mockAddSummary).not.toHaveBeenCalled();
+      expect(mockUpdateSummary).not.toHaveBeenCalled();
     });
   });
 });

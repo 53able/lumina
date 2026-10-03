@@ -131,12 +131,14 @@ describe("API利用OFF時の外部AI呼び出し停止", () => {
     );
 
     await act(async () => {
-      await expect(result.current.generateSummary("ja", "both")).rejects.toThrow(ApiDisabledError);
+      // 失敗は onError と error で扱い、generateSummary は reject しない
+      await result.current.generateSummary("ja", "both");
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
     // PaperPage / App はこの onError で toast.error(description: err.message) を表示する
     const err = onError.mock.calls[0][0] as Error;
+    expect(err).toBeInstanceOf(ApiDisabledError);
     expect(err.message).toContain("API利用がOFF");
     expect(err.message).toContain("「利用可能」をON");
   });

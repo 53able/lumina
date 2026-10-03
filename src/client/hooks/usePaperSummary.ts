@@ -7,6 +7,7 @@ import {
 import { useCallback, useState } from "react";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
+import { PartialSummaryError, toSummaryStageErrorCode } from "../lib/summaryErrors";
 import { useSummaryStore } from "../stores/summaryStore";
 
 /**
@@ -45,21 +46,6 @@ const isGenerationFor = (
 };
 
 /**
- * 要約は保存できたが、説明文の生成だけが失敗したことを表すエラー
- *
- * 再試行では説明文だけを生成する（generateTarget: "explanation"）。要約は再生成しない。
- */
-export class PartialSummaryError extends Error {
-  /** 失敗した工程 */
-  readonly failedStage = "explanation";
-
-  constructor(reason: string) {
-    super(`要約は保存しました。説明文の生成に失敗しました: ${reason}`);
-    this.name = "PartialSummaryError";
-  }
-}
-
-/**
  * usePaperSummary の戻り値
  */
 interface UsePaperSummaryReturn {
@@ -78,7 +64,13 @@ interface UsePaperSummaryReturn {
    */
   error: Error | null;
   /**
+   * 直近に失敗した生成の対象（error と同じ生成。失敗していなければ null）
+   * "explanation" なら説明文だけの生成が失敗しており、保存済みの要約は残っている
+   */
+  failedTarget: GenerateTarget | null;
+  /**
    * 要約を生成する。同じ論文・言語の生成が実行中なら何もせずに返る
+   * 失敗は error・onError で扱うため、この Promise は reject しない
    * @param language - 言語（省略時は summaryLanguage を使用）
    * @param target - 生成対象（デフォルト: "both"）
    */
@@ -138,7 +130,7 @@ export const usePaperSummary = ({
 }: UsePaperSummaryOptions): UsePaperSummaryReturn => {
   const [summaryLanguage, setSummaryLanguage] = useState<"ja" | "en">("ja");
 
-  const { getSummaryByPaperIdAndLanguage, addSummary } = useSummaryStore();
+  const { getSummaryByPaperIdAndLanguage, addSummary, updateSummary } = useSummaryStore();
 
   // 現在の論文・言語に対応するサマリーを取得
   const summary = getSummaryByPaperIdAndLanguage(paperId, summaryLanguage);
@@ -161,25 +153,31 @@ export const usePaperSummary = ({
 
       const normalizedData = normalizeSummaryResponse(response);
 
-      // 説明文のみ生成の場合、既存の要約を維持してマージ
+      // 説明文のみ生成の場合、既存の要約を維持して説明文だけを更新する
       const existingSummary = getSummaryByPaperIdAndLanguage(paperId, language);
-      const mergedSummary: PaperSummary =
-        target === "explanation" && existingSummary
-          ? {
-              ...existingSummary,
-              explanation: normalizedData.explanation,
-              targetAudience: normalizedData.targetAudience,
-              whyRead: normalizedData.whyRead,
-            }
-          : normalizedData;
+      if (target === "explanation" && existingSummary) {
+        const explanationFields = {
+          explanation: normalizedData.explanation,
+          targetAudience: normalizedData.targetAudience,
+          whyRead: normalizedData.whyRead,
+        };
+        await updateSummary(paperId, language, explanationFields);
+        return { ...existingSummary, ...explanationFields };
+      }
 
-      await addSummary(mergedSummary);
+      await addSummary(normalizedData);
 
       // 説明文の工程だけが失敗した場合: 成功済みの要約は保存したうえで、部分成功として失敗を返す
-      if ("explanationError" in response && typeof response.explanationError === "string") {
-        throw new PartialSummaryError(response.explanationError);
+      const { explanationError } = response as {
+        explanationError?: { code?: unknown; retryable?: unknown };
+      };
+      if (explanationError) {
+        throw new PartialSummaryError(
+          toSummaryStageErrorCode(explanationError.code),
+          explanationError.retryable === true
+        );
       }
-      return mergedSummary;
+      return normalizedData;
     },
     onError: (error, variables) => {
       const err = error instanceof Error ? error : new Error("要約の生成に失敗しました");
@@ -197,7 +195,8 @@ export const usePaperSummary = ({
         .findAll({ mutationKey: SUMMARY_MUTATION_KEY, status: "pending" })
         .some((m) => isGenerationFor(m.state, paperId, language));
       if (isPending) return;
-      await mutateAsync({ paperId, language, target });
+      // 失敗は mutation の状態（error）と onError で扱う。呼び出し側に reject を伝えない（未処理 rejection を防ぐ）
+      await mutateAsync({ paperId, language, target }).catch(() => undefined);
     },
     [queryClient, paperId, summaryLanguage, mutateAsync]
   );
@@ -217,6 +216,8 @@ export const usePaperSummary = ({
     setSummaryLanguage,
     isLoading: currentGeneration?.status === "pending",
     error: currentGeneration?.status === "error" ? currentGeneration.error : null,
+    failedTarget:
+      currentGeneration?.status === "error" ? (currentGeneration.variables?.target ?? null) : null,
     generateSummary,
   };
 };

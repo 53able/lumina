@@ -1,7 +1,7 @@
 import { BookOpen, Loader2, Sparkles, Target, Users } from "lucide-react";
 import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
-import { PartialSummaryError } from "../hooks/usePaperSummary";
+import { PartialSummaryError } from "../lib/summaryErrors";
 import { Button } from "./ui/button";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
@@ -36,6 +36,8 @@ interface PaperSummaryProps {
    * PartialSummaryError の場合は、要約は保存済みで説明文だけが失敗した部分成功として扱う
    */
   error?: Error | null;
+  /** 直近に失敗した生成の対象（"explanation" なら説明文だけの生成が失敗した） */
+  failedTarget?: GenerateTarget | null;
   /** 要約生成時のコールバック */
   onGenerate?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
   /** 言語切替時のコールバック */
@@ -70,6 +72,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   selectedLanguage = "ja",
   isLoading = false,
   error = null,
+  failedTarget = null,
   onGenerate,
   onLanguageChange,
   autoGenerate = false,
@@ -93,8 +96,12 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 説明文が存在するか */
   const hasExplanation = Boolean(summary?.explanation);
-  /** 要約は保存済みで、説明文の生成だけが失敗したか（部分成功） */
-  const isPartial = error instanceof PartialSummaryError;
+  /**
+   * 要約は保存済みで、説明文の工程だけが失敗したか
+   * （「要約 + 説明文」の部分成功と、その後の説明文のみの再試行の失敗を同じ状態として扱う）
+   */
+  const isPartial =
+    error instanceof PartialSummaryError || (Boolean(summary) && failedTarget === "explanation");
 
   // 同じ論文・言語での生成中 → 完了の遷移でだけ結果を記録する（キャッシュ済み要約の表示や切替では通知しない）
   // 生成中に論文・言語を切り替え、完了後に戻った場合は通知しない（要約の表示とトーストで伝わる）。
@@ -237,7 +244,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         {!isLoading && generationResult === "error"
           ? `要約を生成できませんでした。「${retryButtonLabel}」ボタンで再試行できます。`
           : !isLoading && generationResult === "partial"
-            ? `要約は保存しました。説明文を生成できませんでした。「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`
+            ? `要約は保存済みです。説明文を生成できませんでした。「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`
             : null}
       </div>
 
@@ -245,7 +252,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       {!isLoading && error && (
         <p className="text-xs text-destructive">
           {isPartial
-            ? `要約は保存しました。説明文は生成できませんでした。「${retryButtonLabel}」で説明文だけを再試行できます。`
+            ? `要約は保存済みです。説明文は生成できませんでした。「${retryButtonLabel}」で説明文だけを再試行できます。`
             : `生成できませんでした。「${retryButtonLabel}」で再試行できます。`}
         </p>
       )}

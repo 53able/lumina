@@ -1,8 +1,14 @@
 import { zValidator } from "@hono/zod-validator";
+import { RetryError } from "ai";
 import { Hono } from "hono";
 import { z } from "zod";
 import { now } from "../../shared/utils/dateTime";
-import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai";
+import {
+  generateExplanation,
+  generateSummary,
+  getOpenAIConfig,
+  OpenAIApiKeyNotConfiguredError,
+} from "../services/openai";
 import type { Env } from "../types/env";
 
 /**
@@ -25,6 +31,29 @@ const SummaryRequestSchema = z.object({
   /** @deprecated includeExplanation は generateTarget に置き換え */
   includeExplanation: z.boolean().optional(),
 });
+
+/**
+ * 工程の失敗を、上流のエラー文を含まない安全な分類へ変換する
+ * クライアントは code から案内文を作る（rate_limit: 待つ / auth: 設定を直す / それ以外: 再試行）
+ */
+const toStageError = (
+  error: unknown
+): { code: "rate_limit" | "auth" | "invalid_output" | "upstream"; retryable: boolean } => {
+  if (error instanceof OpenAIApiKeyNotConfiguredError) return { code: "auth", retryable: false };
+  // generateExplanation は AI の出力を JSON.parse → zod で検証する
+  if (error instanceof SyntaxError || error instanceof z.ZodError) {
+    return { code: "invalid_output", retryable: true };
+  }
+  // AI SDK は 429 などを再試行し、上限到達時は RetryError に包んで投げる（statusCode は lastError 側）
+  const source = RetryError.isInstance(error) ? error.lastError : error;
+  const statusCode =
+    source && typeof source === "object" && "statusCode" in source
+      ? (source as { statusCode: unknown }).statusCode
+      : undefined;
+  if (statusCode === 401 || statusCode === 403) return { code: "auth", retryable: false };
+  if (statusCode === 429) return { code: "rate_limit", retryable: true };
+  return { code: "upstream", retryable: true };
+};
 
 /**
  * スタブ用の要約を生成（abstractがない場合のフォールバック）
@@ -89,13 +118,13 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
       // 要約の生成後に説明文だけが失敗した場合は、成功済みの要約を失わないよう
       // 部分成功（explanationError 付きの 200）として返す。要約がない場合は全体の失敗として扱う
       let explanationResult: Awaited<ReturnType<typeof generateExplanation>> | undefined;
-      let explanationError: string | undefined;
+      let explanationError: ReturnType<typeof toStageError> | undefined;
       if (shouldGenerateExplanation) {
         try {
           explanationResult = await generateExplanation(abstract, language, config);
         } catch (error) {
           if (!summaryResult) throw error;
-          explanationError = error instanceof Error ? error.message : "Unknown error";
+          explanationError = toStageError(error);
         }
       }
 
@@ -110,7 +139,7 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
             targetAudience: explanationResult.targetAudience,
             whyRead: explanationResult.whyRead,
           }),
-          // 説明文の工程だけが失敗した場合の理由（クライアントは要約を保存し、説明文だけを再試行する）
+          // 説明文の工程だけが失敗した場合の分類（上流のエラー文は含めない。クライアントは要約を保存し、説明文だけを再試行する）
           ...(explanationError !== undefined && { explanationError }),
           language,
           createdAt: now(),

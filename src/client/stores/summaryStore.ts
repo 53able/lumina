@@ -19,9 +19,17 @@ interface SummaryState {
  * summaryStore のアクション型
  */
 interface SummaryActions {
-  /** 要約を保存する（同じ論文・言語の要約があれば置き換える） */
+  /**
+   * 要約を追加する（同じ論文・言語の既存の要約は旧版として残す。表示には最新の1件を使う）
+   */
   addSummary: (summary: PaperSummary) => Promise<void>;
-  /** 論文IDと言語で要約を取得する */
+  /** 論文・言語の最新の要約を部分更新する（説明文のみの生成で使う。要約は置き換えない） */
+  updateSummary: (
+    paperId: string,
+    language: "ja" | "en",
+    changes: Partial<Pick<PaperSummary, "explanation" | "targetAudience" | "whyRead">>
+  ) => Promise<void>;
+  /** 論文IDと言語で最新の要約を取得する */
   getSummaryByPaperIdAndLanguage: (
     paperId: string,
     language: "ja" | "en"
@@ -56,28 +64,45 @@ export const useSummaryStore = create<SummaryStore>()(
         const db = get()._db;
         if (!db) throw new Error("DB not initialized");
 
-        // IndexedDBに保存（説明文の追加生成で同じ論文・言語の要約が重複しないよう置き換える）
-        await db.transaction("rw", db.paperSummaries, async () => {
-          await db.paperSummaries
-            .where("[paperId+language]")
-            .equals([summary.paperId, summary.language])
-            .delete();
-          await db.paperSummaries.add(summary);
-        });
+        // IndexedDBに保存
+        await db.paperSummaries.add(summary);
 
         // Storeを更新
         set((state) => ({
-          summaries: [
-            ...state.summaries.filter(
-              (s) => !(s.paperId === summary.paperId && s.language === summary.language)
-            ),
-            summary,
-          ],
+          summaries: [...state.summaries, summary],
         }));
       },
 
+      updateSummary: async (paperId, language, changes) => {
+        const db = get()._db;
+        if (!db) throw new Error("DB not initialized");
+
+        // 最新のレコード（主キーが最大）だけを更新する。旧版は変更しない
+        // （主キーは自動採番でスキーマ型に含まれないため、:id で指定する）
+        const keys = await db.paperSummaries
+          .where("[paperId+language]")
+          .equals([paperId, language])
+          .primaryKeys();
+        const latestKey = keys.at(-1);
+        if (latestKey === undefined) throw new Error("Summary not found");
+        await db.paperSummaries.where(":id").equals(latestKey).modify(changes);
+
+        // Storeを更新
+        set((state) => {
+          const latest = state.summaries
+            .filter((s) => s.paperId === paperId && s.language === language)
+            .at(-1);
+          return {
+            summaries: state.summaries.map((s) => (s === latest ? { ...s, ...changes } : s)),
+          };
+        });
+      },
+
       getSummaryByPaperIdAndLanguage: (paperId, language) => {
-        return get().summaries.find((s) => s.paperId === paperId && s.language === language);
+        // 同じ論文・言語に複数の版がある場合は最新（最後に追加された）を返す
+        return get()
+          .summaries.filter((s) => s.paperId === paperId && s.language === language)
+          .at(-1);
       },
 
       getSummariesByPaperId: (paperId) => {

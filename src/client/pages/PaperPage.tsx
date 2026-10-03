@@ -1,12 +1,11 @@
 import { FileQuestion } from "lucide-react";
 import type { FC } from "react";
 import { Link, useParams } from "react-router-dom";
-import { toast } from "sonner";
 import { BackToListLink } from "../components/BackToListLink";
 import { PaperDetail } from "../components/PaperDetail";
 import { Button } from "../components/ui/button";
 import { usePaperSummary } from "../hooks/usePaperSummary";
-import { ApiDisabledError } from "../lib/api";
+import { showSummaryErrorToast } from "../lib/summaryErrors";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -26,19 +25,23 @@ export const PaperPage: FC = () => {
   const paper = id ? getPaperById(id) : undefined;
 
   // サマリー管理（カスタムフックに責務を委譲）
-  const { summary, summaryLanguage, setSummaryLanguage, isLoading, error, generateSummary } =
-    usePaperSummary({
-      paperId: paper?.id ?? "",
-      abstract: paper?.abstract ?? "",
-      onError: (err, paperId) => {
-        console.error("Summary generation error:", err);
-        // 生成中に別の論文へ移動している場合があるため、どの論文の失敗かを示す
-        const title = getPaperById(paperId)?.title;
-        toast.error(err instanceof ApiDisabledError ? "AI要約を停止中" : "要約生成エラー", {
-          description: title ? `${title}: ${err.message}` : err.message,
-        });
-      },
-    });
+  const {
+    summary,
+    summaryLanguage,
+    setSummaryLanguage,
+    isLoading,
+    error,
+    failedTarget,
+    generateSummary,
+  } = usePaperSummary({
+    paperId: paper?.id ?? "",
+    abstract: paper?.abstract ?? "",
+    onError: (err, paperId) => {
+      console.error("Summary generation error:", err);
+      // 生成中に別の論文へ移動している場合があるため、どの論文の失敗かを示す
+      showSummaryErrorToast(err, getPaperById(paperId)?.title);
+    },
+  });
 
   // 論文が見つからない場合
   if (!paper) {
@@ -85,6 +88,7 @@ export const PaperPage: FC = () => {
             onGenerateSummary={(_paperId, language, target) => generateSummary(language, target)}
             isSummaryLoading={isLoading}
             summaryError={error}
+            summaryFailedTarget={failedTarget}
             selectedSummaryLanguage={summaryLanguage}
             onSummaryLanguageChange={setSummaryLanguage}
             autoGenerateSummary={autoGenerateSummary}

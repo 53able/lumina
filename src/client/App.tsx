@@ -9,8 +9,9 @@ import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
 import { useSyncPapers } from "./hooks/useSyncPapers";
-import { ApiDisabledError, SyncRateLimitError } from "./lib/api";
+import { SyncRateLimitError } from "./lib/api";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
+import { showSummaryErrorToast } from "./lib/summaryErrors";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -165,18 +166,15 @@ const HomePage: FC = () => {
     setSummaryLanguage,
     isLoading: isSummaryLoading,
     error: summaryError,
+    failedTarget: summaryFailedTarget,
     generateSummary,
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
     abstract: selectedPaper?.abstract ?? "",
     onError: (err, paperId) => {
       console.error("Summary generation error:", err);
-      const message = err instanceof Error ? err.message : "要約の生成に失敗しました";
       // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
-      const title = papers.find((p) => p.id === paperId)?.title;
-      toast.error(err instanceof ApiDisabledError ? "AI要約を停止中" : "要約生成エラー", {
-        description: title ? `${title}: ${message}` : message,
-      });
+      showSummaryErrorToast(err, papers.find((p) => p.id === paperId)?.title);
     },
   });
 
@@ -377,6 +375,7 @@ const HomePage: FC = () => {
                     onGenerateSummary={handleGenerateSummary}
                     isSummaryLoading={isSummaryLoading}
                     summaryError={summaryError}
+                    summaryFailedTarget={summaryFailedTarget}
                     selectedSummaryLanguage={summaryLanguage}
                     onSummaryLanguageChange={handleSummaryLanguageChange}
                     autoGenerateSummary={autoGenerateSummary}
@@ -394,6 +393,7 @@ const HomePage: FC = () => {
         onGenerateSummary={handleGenerateSummary}
         isSummaryLoading={isSummaryLoading}
         summaryError={summaryError}
+        summaryFailedTarget={summaryFailedTarget}
         summaryLanguage={summaryLanguage}
         onSummaryLanguageChange={handleSummaryLanguageChange}
         autoGenerateSummary={autoGenerateSummary}
