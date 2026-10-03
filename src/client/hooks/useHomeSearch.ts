@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Paper, SearchHistory } from "../../shared/schemas/index";
+import type { ExpandedQuery, Paper, SearchHistory } from "../../shared/schemas/index";
 import { usePaperFilter } from "./usePaperFilter";
 import { useSearchFromUrl } from "./useSearchFromUrl";
 import { useSearchHistorySync } from "./useSearchHistorySync";
@@ -34,7 +34,7 @@ const hasSavedEmbedding = (
  * - 履歴からの再検索・URL 起点の検索: 保存済み Embedding があれば API なしで検索
  * - クリア: 実行中の検索を無効化し、URL 由来の検索も再開しない
  * - 変換文の編集からの再検索: URL の q（元の入力）は変えず、編集文を Embedding して検索する。
- *   履歴は元の入力をキーに、編集後の検索文と Embedding で上書きする
+ *   履歴は元の入力をキーに、編集後の検索文と Embedding で上書きする（編集前の検索文は originalSearchText に残す）
  *
  * URL の q は setSearchParams が render 時点の値から次の値を作るため、
  * 1つのハンドラー内で複数回更新しない（クリア時の q 削除は呼び出し元の clearSearchAndFilters が担う）。
@@ -61,6 +61,8 @@ export const useHomeSearch = ({
   const activeQueryRef = useRef<string | null>(null);
   // 表示用の現在のクエリ（LLM が返す expandedQuery.original は入力と一致する保証がないため使わない）
   const [activeQuery, setActiveQuery] = useState<string | null>(null);
+  // 編集文で再検索した拡張クエリ。検索中・失敗時（expandedQuery が null）もエディタに編集内容を残すために使う
+  const [editedQuery, setEditedQuery] = useState<ExpandedQuery | null>(null);
 
   useSearchHistorySync(
     expandedQuery,
@@ -93,6 +95,7 @@ export const useHomeSearch = ({
   const handleSearchFromUrl = useCallback(
     (query: string) => {
       beginQuery(query);
+      setEditedQuery(null);
       setSearchInputValue(query);
       runQuery(query, findSavedHistory?.(query));
     },
@@ -114,6 +117,7 @@ export const useHomeSearch = ({
   const handleSearch = useCallback(
     async (query: string): Promise<Paper[]> => {
       beginQuery(query);
+      setEditedQuery(null);
       setSearchQuery(query);
       const searchResults = await search(query);
       return searchResults.map((r) => r.paper);
@@ -124,15 +128,23 @@ export const useHomeSearch = ({
   /**
    * 確認・編集した変換文（Embedding に渡す検索文）で再検索する。
    * 元の入力（URL の q・入力欄・表示クエリ）は保持し、クエリ拡張は行わない。
+   * 編集前の検索文は originalSearchText に引き継ぐ（履歴にも残り「元の検索文に戻す」に使う）。
    */
   const handleSearchWithEditedText = useCallback(
     (searchText: string) => {
       const query = activeQueryRef.current;
-      if (query === null || expandedQuery === null) return;
+      const base = expandedQuery ?? editedQuery;
+      if (query === null || base === null) return;
+      const nextQuery: ExpandedQuery = {
+        ...base,
+        searchText,
+        originalSearchText: base.originalSearchText ?? base.searchText,
+      };
       beginQuery(query);
-      void search(query, { ...expandedQuery, searchText });
+      setEditedQuery(nextQuery);
+      void search(query, nextQuery);
     },
-    [beginQuery, expandedQuery, search]
+    [beginQuery, expandedQuery, editedQuery, search]
   );
 
   /** 検索をクリア（URL の q は呼び出し元がフィルターと合わせて消す） */
@@ -140,6 +152,7 @@ export const useHomeSearch = ({
     activeQueryRef.current = null;
     lastSearchQueryRef.current = null;
     setActiveQuery(null);
+    setEditedQuery(null);
     setSearchInputValue("");
     reset();
   }, [reset]);
@@ -150,6 +163,7 @@ export const useHomeSearch = ({
       const query = history.originalQuery;
       // 履歴追加用にクエリを記録（既存履歴が更新される）
       beginQuery(query);
+      setEditedQuery(null);
       setSearchInputValue(query);
       setSearchQuery(query);
       runQuery(query, history);
@@ -169,6 +183,11 @@ export const useHomeSearch = ({
     handleSearch,
     handleClearSearch,
     handleReSearch,
+    /**
+     * 検索クエリ表示・検索文エディタ用の拡張クエリ。完了した検索の拡張クエリを優先し、
+     * 編集文での再検索中・失敗時は送信した編集内容を返す（エディタを消さず、編集内容を失わない）
+     */
+    displayExpandedQuery: expandedQuery ?? editedQuery,
     handleSearchWithEditedText,
   };
 };

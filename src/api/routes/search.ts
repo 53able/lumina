@@ -64,12 +64,14 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
         200
       );
     } catch (error) {
-      // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）
-      if (error instanceof Error && error.message.includes("API key")) {
-        const expandedQuery =
-          body.embeddingText !== undefined
-            ? toDirectExpandedQuery(body.query, body.embeddingText)
-            : generateStubExpandedQuery(body.query);
+      // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）。
+      // 検索文を指定した再検索はスタブにせずエラーを返す（実際に Embedding できなかったことを隠さない）
+      if (
+        body.embeddingText === undefined &&
+        error instanceof Error &&
+        error.message.includes("API key")
+      ) {
+        const expandedQuery = generateStubExpandedQuery(body.query);
         return c.json(
           {
             results: [],

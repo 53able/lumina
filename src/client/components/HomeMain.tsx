@@ -6,6 +6,7 @@ import type {
   SearchHistory as SearchHistoryType,
 } from "../../shared/schemas/index";
 import type { GenerateTarget } from "../lib/api";
+import { isEditedSearchText, isExcludedTerm } from "../lib/searchTextTerms";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
@@ -47,7 +48,7 @@ interface HomeMainProps {
   expandedPaperId: string | null;
   /** 展開中の詳細をレンダリング */
   renderExpandedDetail?: (paper: Paper) => ReactNode;
-  /** 拡張クエリ */
+  /** 拡張クエリ（編集文での再検索中・失敗時は送信した編集内容） */
   expandedQuery: ExpandedQuery | null;
   /** 確認・編集した検索文（Embedding に渡す文）で再検索するハンドラー */
   onSearchWithEditedText?: (searchText: string) => void;
@@ -244,10 +245,27 @@ const HomeMainInner: FC<HomeMainProps> = ({
                       → {expandedQuery.english}
                     </span>
                   ) : null}
+                  {isEditedSearchText(expandedQuery) ? (
+                    <span className="ml-2 rounded border border-primary/50 px-1.5 py-0.5 text-xs">
+                      検索文を編集済み
+                    </span>
+                  ) : null}
                 </p>
                 {expandedQuery.synonyms.length > 0 ? (
                   <p className="text-xs mt-2" style={{ opacity: 0.7 }}>
-                    関連語: {expandedQuery.synonyms.join(", ")}
+                    関連語:{" "}
+                    {[...new Set(expandedQuery.synonyms)].map((term, index) => (
+                      <span key={term}>
+                        {index > 0 ? ", " : null}
+                        {isExcludedTerm(expandedQuery, term) ? (
+                          <>
+                            <span className="line-through">{term}</span>（除外）
+                          </>
+                        ) : (
+                          term
+                        )}
+                      </span>
+                    ))}
                   </p>
                 ) : null}
                 {onSearchWithEditedText ? (

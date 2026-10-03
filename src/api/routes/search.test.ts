@@ -210,16 +210,17 @@ describe("検索API", () => {
         expect(vi.mocked(createEmbedding).mock.calls[0]?.[0]).toBe("deep learning neural network");
       });
 
-      it("APIキーなしのスタブでも searchText は指定した検索文になる", async () => {
+      it("APIキーなしではスタブにせずエラーを返す（Embedding できなかったことを隠さない）", async () => {
         const response = await postSearch(
           { query: "深層学習", embeddingText: "deep learning" },
           false
         );
 
-        expect(response.status).toBe(200);
+        expect(response.status).toBe(500);
         const body = await response.json();
-        expect(body.expandedQuery.searchText).toBe("deep learning");
-        expect(body.queryEmbedding).toEqual([]);
+        expect(body).toHaveProperty("error");
+        expect(body).not.toHaveProperty("expandedQuery");
+        expect(createEmbedding).not.toHaveBeenCalled();
       });
 
       it("異常系: 空白のみの検索文は400エラー", async () => {

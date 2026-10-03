@@ -10,8 +10,13 @@ export const ExpandedQuerySchema = z.object({
   english: z.string(),
   /** 同義語・関連語リスト */
   synonyms: z.array(z.string()),
-  /** 検索用統合テキスト */
+  /** 検索用統合テキスト（Embedding に渡した検索文） */
   searchText: z.string(),
+  /**
+   * 利用者が検索文を編集して再検索した場合の、編集前（クエリ拡張が返した）検索文。
+   * クライアントが検索履歴に保持し「元の検索文に戻す」に使う。サーバーは返さない。
+   */
+  originalSearchText: z.string().optional(),
 });
 
 export type ExpandedQuery = z.infer<typeof ExpandedQuerySchema>;

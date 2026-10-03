@@ -515,7 +515,108 @@ describe("useHomeSearch", () => {
       const saved = addHistory.mock.calls[1]?.[0];
       expect(saved?.originalQuery).toBe("深層学習");
       expect(saved?.expandedQuery.searchText).toBe("deep learning neural network");
+      // 編集前の検索文も履歴に残す（「元の検索文に戻す」用）
+      expect(saved?.expandedQuery.originalSearchText).toBe(expandedWithSynonyms.searchText);
       expect(saved?.queryEmbedding).toEqual([0.3, 0.2, 0.1]);
+    });
+
+    it("編集を重ねても、元の検索文はクエリ拡張が返した最初の文のまま", async () => {
+      const { result } = await searchOriginal();
+      mockSearchApi
+        .mockResolvedValueOnce(editedResponse("deep learning"))
+        .mockResolvedValueOnce(editedResponse("deep learning graph"));
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() =>
+        expect(result.current.home.expandedQuery?.searchText).toBe("deep learning")
+      );
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning graph");
+      });
+      await waitFor(() =>
+        expect(result.current.home.expandedQuery?.searchText).toBe("deep learning graph")
+      );
+
+      expect(result.current.home.expandedQuery?.originalSearchText).toBe(
+        expandedWithSynonyms.searchText
+      );
+    });
+
+    it("編集文での再検索中も、表示用の拡張クエリは編集内容を保つ（エディタを消さない）", async () => {
+      const { result } = await searchOriginal();
+      const pending = deferred<ReturnType<typeof editedResponse>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(result.current.home.isLoading).toBe(true));
+
+      expect(result.current.home.expandedQuery).toBeNull();
+      expect(result.current.home.displayExpandedQuery?.searchText).toBe("deep learning");
+      expect(result.current.home.displayExpandedQuery?.synonyms).toEqual(
+        expandedWithSynonyms.synonyms
+      );
+
+      await act(async () => {
+        pending.resolve(editedResponse("deep learning"));
+        await pending.promise;
+      });
+    });
+
+    it.each([
+      ["ネットワークエラー", new TypeError("Failed to fetch")],
+      ["429", new Error("Rate limit exceeded")],
+      ["500", new Error("OpenAI API key is not configured.")],
+      ["API利用OFF", Object.assign(new Error("API利用がOFF"), { name: "ApiDisabledError" })],
+    ])("編集文での再検索が失敗（%s）しても、編集内容を表示に残す", async (_label, failure) => {
+      const { result, addHistory } = await searchOriginal();
+      mockSearchApi.mockRejectedValueOnce(failure);
+
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(result.current.home.error).not.toBeNull());
+
+      expect(result.current.home.isLoading).toBe(false);
+      expect(result.current.home.displayExpandedQuery?.searchText).toBe("deep learning");
+      expect(result.current.home.displayExpandedQuery?.originalSearchText).toBe(
+        expandedWithSynonyms.searchText
+      );
+      // 失敗した編集文の検索は履歴に残さない
+      expect(addHistory).toHaveBeenCalledTimes(1);
+      // 失敗後も同じ編集内容から再試行できる
+      mockSearchApi.mockResolvedValueOnce(editedResponse("deep learning"));
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() =>
+        expect(result.current.home.expandedQuery?.searchText).toBe("deep learning")
+      );
+      expect(mockSearchApi.mock.calls[2]?.[0]).toMatchObject({ embeddingText: "deep learning" });
+    });
+
+    it("入力から新しく検索すると、編集内容の表示を残さない", async () => {
+      const { result } = await searchOriginal();
+      mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+      act(() => {
+        result.current.home.handleSearchWithEditedText("deep learning");
+      });
+      await waitFor(() => expect(result.current.home.error).not.toBeNull());
+
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+      act(() => {
+        void result.current.home.handleSearch("B");
+      });
+
+      expect(result.current.home.displayExpandedQuery).toBeNull();
+      await act(async () => {
+        pending.resolve(response("B"));
+        await pending.promise;
+      });
     });
 
     it("編集文での再検索中にクリアすると、後から届いた応答を採用しない（#34）", async () => {

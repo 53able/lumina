@@ -1,5 +1,8 @@
 import { type FC, type FormEvent, useId, useState } from "react";
 import { type ExpandedQuery, MAX_EMBEDDING_TEXT_LENGTH } from "../../shared/schemas/index";
+import { getApiResumeHint } from "../lib/api";
+import { appendTerm, includesTerm, isEditedSearchText, removeTerm } from "../lib/searchTextTerms";
+import { useSettingsStore } from "../stores/settingsStore";
 import { Button } from "./ui/button";
 
 /**
@@ -14,41 +17,37 @@ interface SearchTextEditorProps {
   isLoading?: boolean;
 }
 
-/** 正規表現の特殊文字をエスケープする */
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/** 連続する空白を1つにまとめ、前後の空白を除く */
-const normalizeSpaces = (value: string): string => value.replace(/\s+/g, " ").trim();
-
-/** 検索文に関連語が含まれるか（大文字小文字は区別しない） */
-const includesTerm = (text: string, term: string): boolean =>
-  text.toLowerCase().includes(term.toLowerCase());
-
-/** 検索文から関連語をすべて取り除く（大文字小文字は区別しない） */
-const removeTerm = (text: string, term: string): string =>
-  normalizeSpaces(text.replace(new RegExp(escapeRegExp(term), "gi"), " "));
-
 /**
  * SearchTextEditor - Embedding に渡した検索文の確認・編集フォーム
  *
- * 通常は折りたたみ、開くと実際に Embedding に使った検索文（英訳・関連語を含む）を表示する。
- * 検索文の編集や関連語の除外・追加をして再検索できる。関連語のチェック状態は検索文の内容から導出し、
+ * 通常は折りたたみ（編集済みの検索では開いた状態で表示）、実際に Embedding に使った検索文
+ * （英訳・関連語を含む）を確認・編集して再検索できる。
+ * 関連語のチェック状態は検索文に単語境界つきの完全一致で含まれるかから導出し、
  * 外すと検索文からその語句を取り除き、付けると末尾に追加する（再検索に使うのは常に表示中の検索文）。
+ * 英訳の内側にある語句は関連語として扱わない。API利用OFF中は再検索できない。
  */
 export const SearchTextEditor: FC<SearchTextEditorProps> = ({
   expandedQuery,
   onSubmit,
   isLoading = false,
 }) => {
+  const { apiEnabled, hasApiKey } = useSettingsStore();
   const [draft, setDraft] = useState(expandedQuery.searchText);
   const textareaId = useId();
+  const apiDisabledId = useId();
   const trimmedDraft = draft.trim();
   const canSubmit =
-    !isLoading && trimmedDraft.length > 0 && trimmedDraft.length <= MAX_EMBEDDING_TEXT_LENGTH;
+    apiEnabled &&
+    !isLoading &&
+    trimmedDraft.length > 0 &&
+    trimmedDraft.length <= MAX_EMBEDDING_TEXT_LENGTH;
+  const { english, originalSearchText } = expandedQuery;
+  // 同じ関連語が重複して返っても1つにまとめる
+  const synonyms = [...new Set(expandedQuery.synonyms)];
 
   const handleToggleTerm = (term: string, include: boolean) => {
     setDraft((current) =>
-      include ? normalizeSpaces(`${current} ${term}`) : removeTerm(current, term)
+      include ? appendTerm(current, term) : removeTerm(current, term, english)
     );
   };
 
@@ -59,7 +58,7 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
   };
 
   return (
-    <details className="mt-3 text-sm">
+    <details className="mt-3 text-sm" open={isEditedSearchText(expandedQuery) || undefined}>
       <summary className="cursor-pointer text-xs font-bold text-primary-light">
         Embeddingに使った検索文を確認・編集
       </summary>
@@ -75,17 +74,17 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
           rows={3}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
-        {expandedQuery.synonyms.length > 0 ? (
+        {synonyms.length > 0 ? (
           <fieldset className="flex flex-col gap-1">
             <legend className="text-xs text-muted-foreground">
               関連語（外すと検索文から除き、付けると末尾に追加します）
             </legend>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {expandedQuery.synonyms.map((term) => (
+              {synonyms.map((term) => (
                 <label key={term} className="flex items-center gap-1 text-xs">
                   <input
                     type="checkbox"
-                    checked={includesTerm(draft, term)}
+                    checked={includesTerm(draft, term, english)}
                     onChange={(e) => handleToggleTerm(term, e.target.checked)}
                   />
                   {term}
@@ -94,11 +93,31 @@ export const SearchTextEditor: FC<SearchTextEditorProps> = ({
             </div>
           </fieldset>
         ) : null}
-        <div>
-          <Button type="submit" size="sm" disabled={!canSubmit}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!canSubmit}
+            aria-describedby={apiEnabled ? undefined : apiDisabledId}
+          >
             この検索文で再検索
           </Button>
+          {originalSearchText !== undefined && draft !== originalSearchText ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setDraft(originalSearchText)}
+            >
+              元の検索文に戻す
+            </Button>
+          ) : null}
         </div>
+        {apiEnabled ? null : (
+          <p id={apiDisabledId} className="text-xs text-muted-foreground">
+            API利用OFFのため再検索を停止中。{getApiResumeHint(hasApiKey())}
+          </p>
+        )}
       </form>
     </details>
   );
