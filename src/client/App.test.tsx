@@ -138,6 +138,7 @@ vi.mock("@/client/hooks/usePaperFilter", () => ({
     toggleFilterMode: vi.fn(),
     toggleCategory: vi.fn(),
     clearAllFilters: vi.fn(),
+    clearSearchAndFilters: vi.fn(),
     filterPapers: (papers: unknown[]) => papers, // パススルー
   }),
 }));

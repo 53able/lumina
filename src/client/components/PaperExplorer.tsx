@@ -79,6 +79,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
     toggleFilterMode,
     toggleCategory,
     clearAllFilters,
+    clearSearchAndFilters,
     filterPapers,
   } = usePaperFilter();
 
@@ -150,7 +151,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const handleClear = () => {
     searchGenerationRef.current += 1;
     setSearchResultPapers([]); // クリア時は空にし、再検索時の表示ブレを防ぐ
-    clearAllFilters(); // URLフィルターもクリア
+    clearSearchAndFilters(); // URLの検索語とフィルターもクリア
     onClear?.();
     // モバイル: 検索結果→一覧に戻ったときメインのスクロール位置を先頭に戻す（レイアウト崩れ防止）
     requestAnimationFrame(() => {
