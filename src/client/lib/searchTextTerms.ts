@@ -1,43 +1,12 @@
 /**
- * Embedding に渡す検索文と関連語の対応づけ（含まれるか・除外・追加）。
+ * Embedding に渡す検索文と、関連語の選択との対応づけ。
  *
- * 語句は前後が語を構成する文字（文字・数字・結合文字・_ ' - /）でない位置にある完全一致だけを扱う。
- * "RL" は "world"・"deep-RL" に、"neural network" は "neural networks" に一致しない。
- * 英訳（protectedPhrase）の出現箇所と一部でも重なる一致は、関連語として数えず除外もしない。
- * ただし英訳と同じ語句（大文字小文字は区別しない）の関連語は保護せず、通常の関連語として扱う
- * （英訳そのものを検索文から除くこともできる）。
+ * 関連語の選択から作る検索文は「英訳 + 選んだ関連語（synonyms の順）」を空白1つでつないだ形だけとし、
+ * 検索文からチェック状態を推測するのは、検索文がこの形そのものである場合に限る。
+ * 語句の部分一致・語順の違い・言い換えから「含まれる／除いた」を推測しない
+ * （完全一致しない語を削除済みのように見せないため）。
  */
 import type { ExpandedQuery } from "../../shared/schemas/index";
-
-/** 正規表現の特殊文字をエスケープする */
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-type Range = readonly [start: number, end: number];
-
-/** 語を構成する文字（この文字が前後に続く位置では一致させない） */
-const WORD_CHAR = "[\\p{L}\\p{N}\\p{M}_'\\-/]";
-
-/** text 中で phrase が単語境界つきで現れる範囲（大文字小文字は区別しない） */
-const findPhraseRanges = (text: string, phrase: string): Range[] => {
-  if (phrase.trim() === "") return [];
-  const pattern = new RegExp(`(?<!${WORD_CHAR})${escapeRegExp(phrase)}(?!${WORD_CHAR})`, "giu");
-  return [...text.matchAll(pattern)].map((m) => [m.index, m.index + m[0].length] as const);
-};
-
-/** 英訳の出現箇所と重ならない term の出現範囲 */
-const findTermRanges = (text: string, term: string, protectedPhrase?: string): Range[] => {
-  const protectedRanges =
-    protectedPhrase !== undefined && protectedPhrase.toLowerCase() !== term.toLowerCase()
-      ? findPhraseRanges(text, protectedPhrase)
-      : [];
-  return findPhraseRanges(text, term).filter(
-    ([start, end]) => !protectedRanges.some(([ps, pe]) => start < pe && end > ps)
-  );
-};
-
-/** 改行以外の空白か */
-const isInlineSpace = (char: string | undefined): boolean =>
-  char !== undefined && char !== "\n" && char !== "\r" && /\s/.test(char);
 
 /** 関連語の重複を除く（大文字小文字は区別せず、最初の表記を残す） */
 export const uniqueTerms = (terms: readonly string[]): string[] => {
@@ -50,41 +19,52 @@ export const uniqueTerms = (terms: readonly string[]): string[] => {
   });
 };
 
-/** 検索文に関連語が含まれるか */
-export const includesTerm = (text: string, term: string, protectedPhrase?: string): boolean =>
-  findTermRanges(text, term, protectedPhrase).length > 0;
+/**
+ * 英訳と選んだ関連語から検索文を作る（前後の空白を除き、空の語は飛ばして空白1つでつなぐ）。
+ * 選択を外した語は検索文に入らない。
+ */
+export const buildSearchText = (english: string, selectedTerms: readonly string[]): string =>
+  [english, ...selectedTerms]
+    .map((part) => part.trim())
+    .filter((part) => part !== "")
+    .join(" ");
 
 /**
- * 検索文から関連語の完全一致をすべて取り除く。
- * 取り除いた箇所の片側の空白（改行以外）だけを詰め、それ以外の空白・改行は保つ。
+ * 検索文が buildSearchText(english, 選択) の形そのものなら、その選択（synonyms の順）を返す。
+ * 形が一致しない（自由編集・AIが作った文・語順の入れ替えなど）なら null。
+ * 関連語どうしが前方一致する場合（graph と graph neural network）も取り違えないよう候補を順に試す。
  */
-export const removeTerm = (text: string, term: string, protectedPhrase?: string): string => {
-  let result = text;
-  for (const [rangeStart, rangeEnd] of findTermRanges(text, term, protectedPhrase).reverse()) {
-    let start = rangeStart;
-    let end = rangeEnd;
-    if (isInlineSpace(result[start - 1])) {
-      while (isInlineSpace(result[start - 1])) start -= 1;
-    } else {
-      while (isInlineSpace(result[end])) end += 1;
+export const parseSelectedTerms = (
+  text: string,
+  english: string,
+  synonyms: readonly string[]
+): string[] | null => {
+  const candidates = synonyms.filter((term) => term.trim() !== "");
+  const match = (from: number, chosen: string[]): string[] | null => {
+    if (buildSearchText(english, chosen) === text) return chosen;
+    for (let i = from; i < candidates.length; i += 1) {
+      const next = [...chosen, candidates[i] as string];
+      const prefix = buildSearchText(english, next);
+      if (text === prefix || text.startsWith(`${prefix} `)) {
+        const found = match(i + 1, next);
+        if (found) return found;
+      }
     }
-    result = result.slice(0, start) + result.slice(end);
-  }
-  return result.trim();
-};
-
-/** 検索文の末尾に関連語を追加する */
-export const appendTerm = (text: string, term: string): string => {
-  const base = text.trimEnd();
-  return base === "" ? term : `${base} ${term}`;
+    return null;
+  };
+  return match(0, []);
 };
 
 /** 利用者が検索文を編集して検索したか（元の検索文と異なるか） */
 export const isEditedSearchText = (query: ExpandedQuery): boolean =>
   query.originalSearchText !== undefined && query.originalSearchText !== query.searchText;
 
-/** 元の検索文に含まれていたが、編集後の検索文から除かれた関連語か */
-export const isExcludedTerm = (query: ExpandedQuery, term: string): boolean =>
-  query.originalSearchText !== undefined &&
-  includesTerm(query.originalSearchText, term, query.english) &&
-  !includesTerm(query.searchText, term, query.english);
+/**
+ * 関連語の選択で作った検索文から、選択を外した関連語か。
+ * 検索文が選択の形（buildSearchText）でない自由編集では、語の一致から削除を推測しない（常に false）。
+ */
+export const isExcludedTerm = (query: ExpandedQuery, term: string): boolean => {
+  if (!isEditedSearchText(query)) return false;
+  const selected = parseSelectedTerms(query.searchText, query.english, uniqueTerms(query.synonyms));
+  return selected !== null && !selected.includes(term);
+};

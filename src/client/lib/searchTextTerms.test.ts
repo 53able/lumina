@@ -1,99 +1,66 @@
 import { describe, expect, it } from "vitest";
 import type { ExpandedQuery } from "../../shared/schemas/index";
 import {
-  appendTerm,
-  includesTerm,
+  buildSearchText,
   isEditedSearchText,
   isExcludedTerm,
-  removeTerm,
+  parseSelectedTerms,
   uniqueTerms,
 } from "./searchTextTerms";
 
-describe("searchTextTerms（#31）", () => {
-  describe("includesTerm", () => {
-    it("単語境界つきの完全一致だけを含むとみなす（大文字小文字は区別しない）", () => {
-      expect(includesTerm("deep RL agents", "rl")).toBe(true);
-      expect(includesTerm("real world robotics", "RL")).toBe(false);
-      expect(includesTerm("curl command", "RL")).toBe(false);
-      expect(includesTerm("neural networks", "neural network")).toBe(false);
-    });
-
-    it("英訳の内側にある語句は関連語として数えない", () => {
-      expect(includesTerm("deep learning models", "learning", "deep learning")).toBe(false);
-      expect(
-        includesTerm("deep learning representation learning", "learning", "deep learning")
-      ).toBe(true);
-    });
-
-    it("正規表現の特殊文字を含む語句も文字どおりに扱う", () => {
-      expect(includesTerm("C++ compiler", "C++")).toBe(true);
-      expect(includesTerm("Cxx compiler", "C.x")).toBe(false);
-    });
-  });
-
-  describe("removeTerm", () => {
-    it("RL を除いても world の rl は消さない", () => {
-      expect(removeTerm("RL in the real world RL", "RL")).toBe("in the real world");
-    });
-
-    it("ハイフン・スラッシュ・アポストロフィ・アンダースコアでつながった語の一部は消さない", () => {
-      expect(removeTerm("deep-RL agents RL", "RL")).toBe("deep-RL agents");
-      expect(removeTerm("BERT-based models BERT", "BERT")).toBe("BERT-based models");
-      expect(removeTerm("RL/control RL's RL_v2 RL", "RL")).toBe("RL/control RL's RL_v2");
-      expect(includesTerm("deep-RL agents", "RL")).toBe(false);
-    });
-
-    it("結合文字が続く位置では一致させない", () => {
-      // "cafe" + 結合アキュートアクセント（U+0301）
-      expect(includesTerm("cafe\u0301 latte", "cafe")).toBe(false);
-    });
-
-    it("英訳と一部でも重なる一致は消さない（deep learning と learning models）", () => {
-      expect(
-        removeTerm("deep learning models learning models", "learning models", "deep learning")
-      ).toBe("deep learning models");
-      expect(includesTerm("deep learning models", "learning models", "deep learning")).toBe(false);
-    });
-
-    it("英訳と同じ語句の関連語は保護せず、通常の関連語として除外できる", () => {
-      expect(includesTerm("deep learning RL", "Deep Learning", "deep learning")).toBe(true);
-      expect(removeTerm("deep learning RL", "Deep Learning", "deep learning")).toBe("RL");
-    });
-
-    it("curl のような語の一部は消さない", () => {
-      expect(removeTerm("curl RL", "RL")).toBe("curl");
-    });
-
-    it("複数形（neural networks）は完全一致でないので残す", () => {
-      expect(removeTerm("neural network and neural networks", "neural network")).toBe(
-        "and neural networks"
-      );
-    });
-
-    it("英訳の内側にある同じ語は消さない", () => {
-      expect(removeTerm("deep learning representation learning", "learning", "deep learning")).toBe(
-        "deep learning representation"
-      );
-    });
-
-    it("取り除いた箇所以外の改行・空白は保つ", () => {
-      expect(removeTerm("deep learning\nneural network  attention", "neural network")).toBe(
-        "deep learning\nattention"
-      );
-      expect(removeTerm("a  b RL c", "RL")).toBe("a  b c");
-    });
-  });
-
+describe("searchTextTerms（#31, #72）", () => {
   describe("uniqueTerms", () => {
     it("大文字小文字を区別せずに重複を除き、最初の表記を残す", () => {
       expect(uniqueTerms(["Graph", "RL", "graph", "GRAPH", "rl"])).toEqual(["Graph", "RL"]);
     });
   });
 
-  describe("appendTerm", () => {
-    it("末尾に空白1つで追加し、空なら語句だけにする", () => {
-      expect(appendTerm("deep learning  ", "RL")).toBe("deep learning RL");
-      expect(appendTerm("", "RL")).toBe("RL");
+  describe("buildSearchText", () => {
+    it("英訳と選んだ関連語を空白1つでつなぐ（前後の空白・空の語は除く）", () => {
+      expect(buildSearchText("deep learning", ["neural network", "RL"])).toBe(
+        "deep learning neural network RL"
+      );
+      expect(buildSearchText(" deep learning ", ["", "  RL "])).toBe("deep learning RL");
+      expect(buildSearchText("deep learning", [])).toBe("deep learning");
+    });
+  });
+
+  describe("parseSelectedTerms", () => {
+    const synonyms = ["neural network", "RL", "graph"];
+
+    it("英訳 + 関連語（synonyms の順）の形そのものなら、その選択を返す", () => {
+      expect(parseSelectedTerms("deep learning RL", "deep learning", synonyms)).toEqual(["RL"]);
+      expect(parseSelectedTerms("deep learning", "deep learning", synonyms)).toEqual([]);
+      expect(
+        parseSelectedTerms("deep learning neural network RL graph", "deep learning", synonyms)
+      ).toEqual(synonyms);
+    });
+
+    it("部分一致（複数形・語の一部）は選択とみなさない", () => {
+      expect(parseSelectedTerms("deep learning neural networks", "deep learning", synonyms)).toBe(
+        null
+      );
+      expect(parseSelectedTerms("deep learning RLHF", "deep learning", synonyms)).toBe(null);
+      expect(parseSelectedTerms("deep learning graphs", "deep learning", synonyms)).toBe(null);
+    });
+
+    it("語順を入れ替えた文・言い換えを含む文は選択の形とみなさない", () => {
+      expect(parseSelectedTerms("deep learning RL neural network", "deep learning", synonyms)).toBe(
+        null
+      );
+      expect(parseSelectedTerms("RL deep learning", "deep learning", synonyms)).toBe(null);
+      expect(
+        parseSelectedTerms("deep learning neural network models RL", "deep learning", synonyms)
+      ).toBe(null);
+    });
+
+    it("前方一致する関連語どうし（graph と graph neural network）を取り違えない", () => {
+      const terms = ["graph", "graph neural network"];
+      expect(parseSelectedTerms("gnn graph neural network", "gnn", terms)).toEqual([
+        "graph neural network",
+      ]);
+      expect(parseSelectedTerms("gnn graph graph neural network", "gnn", terms)).toEqual(terms);
+      expect(parseSelectedTerms("gnn graph", "gnn", terms)).toEqual(["graph"]);
     });
   });
 
@@ -114,11 +81,20 @@ describe("searchTextTerms（#31）", () => {
       expect(isEditedSearchText({ ...query, originalSearchText: undefined })).toBe(false);
     });
 
-    it("元の検索文にあって編集後にない関連語だけを除外とする", () => {
+    it("関連語の選択から作った検索文では、選ばなかった関連語を除外とする", () => {
       expect(isExcludedTerm(query, "neural network")).toBe(true);
+      expect(isExcludedTerm(query, "graph")).toBe(true);
       expect(isExcludedTerm(query, "RL")).toBe(false);
-      // 元から含まれていない語は除外ではない
-      expect(isExcludedTerm(query, "graph")).toBe(false);
+    });
+
+    it("編集していない検索では除外としない", () => {
+      expect(isExcludedTerm({ ...query, originalSearchText: undefined }, "graph")).toBe(false);
+    });
+
+    it("自由編集した検索文では、語が完全一致しなくても除外としない", () => {
+      const freeEdited = { ...query, searchText: "deep learning neural networks for RL" };
+      expect(isExcludedTerm(freeEdited, "neural network")).toBe(false);
+      expect(isExcludedTerm(freeEdited, "graph")).toBe(false);
     });
   });
 });
