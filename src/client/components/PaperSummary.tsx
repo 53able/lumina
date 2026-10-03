@@ -36,6 +36,12 @@ interface PaperSummaryProps {
   onLanguageChange?: (language: "ja" | "en") => void;
   /** 自動要約生成が有効か */
   autoGenerate?: boolean;
+  /** 原文Abstract表示要素のID（指定時は参照範囲の注記からリンクする） */
+  abstractId?: string;
+  /** 論文PDFのURL */
+  pdfUrl?: string;
+  /** arXivページのURL */
+  arxivUrl?: string;
 }
 
 /**
@@ -60,6 +66,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   onGenerate,
   onLanguageChange,
   autoGenerate = false,
+  abstractId,
+  pdfUrl,
+  arxivUrl,
 }) => {
   // 原則1「状態の外部化」: language は親（usePaperSummary）で一元管理
   // このコンポーネントは Controlled Component として振る舞う
@@ -109,7 +118,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-muted-foreground flex items-center gap-2">
           <Sparkles className="h-4 w-4" />
-          AI分析
+          AI要約
         </h3>
 
         <Tabs value={selectedLanguage} onValueChange={handleLanguageChange}>
@@ -123,6 +132,47 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
           </TabsList>
         </Tabs>
       </div>
+
+      {/* 参照範囲の注記: 生成前後を通じて、AIが何を入力にしたかを明示する */}
+      <p className="text-xs text-muted-foreground">
+        Abstractから生成。本文・図表は未参照
+        {(abstractId || pdfUrl || arxivUrl) && (
+          <>
+            {" ・ 原文を確認: "}
+            {abstractId && (
+              <a href={`#${abstractId}`} className="underline hover:text-foreground">
+                Abstract
+              </a>
+            )}
+            {pdfUrl && (
+              <>
+                {abstractId && " / "}
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-foreground"
+                >
+                  本文PDF
+                </a>
+              </>
+            )}
+            {arxivUrl && (
+              <>
+                {(abstractId || pdfUrl) && " / "}
+                <a
+                  href={arxivUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-foreground"
+                >
+                  arXivページ
+                </a>
+              </>
+            )}
+          </>
+        )}
+      </p>
 
       {/* ローディング状態 */}
       {isLoading && (
@@ -140,9 +190,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             要約 + 説明文
           </Button>
           <p className="text-xs text-muted-foreground text-center">
-            要約: 論文の内容を簡潔にまとめます
+            要約: Abstractの記述を簡潔にまとめます
             <br />
-            説明文: なぜこの論文を読むべきかを解説します
+            説明文: Abstractをもとに、この論文を読む理由をAIが推測します
           </p>
         </div>
       )}
@@ -206,6 +256,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
           {/* 説明文モード */}
           {contentMode === "explanation" && hasExplanation && (
             <div className="space-y-4">
+              {/* 論文中の事実と区別するための注記 */}
+              <p className="text-xs text-muted-foreground">
+                以下はAbstractをもとにしたAIの推奨です。論文中の記述ではありません。
+              </p>
+
               {/* メイン説明文 */}
               <p className="text-sm leading-relaxed">{summary.explanation}</p>
 

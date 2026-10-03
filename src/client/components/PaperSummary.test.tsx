@@ -143,7 +143,93 @@ describe("PaperSummary", () => {
     it("正常系: サマリーセクションのタイトルが表示される", () => {
       render(<PaperSummary paperId="2401.00001" />);
 
-      expect(screen.getByText("AI分析")).toBeInTheDocument();
+      expect(screen.getByText("AI要約")).toBeInTheDocument();
+    });
+  });
+
+  describe("参照範囲の表示", () => {
+    const scopeNote = /Abstractから生成。本文・図表は未参照/;
+    const sourceLinkProps = {
+      abstractId: "paper-abstract-2401.00001",
+      pdfUrl: "https://arxiv.org/pdf/2401.00001.pdf",
+      arxivUrl: "https://arxiv.org/abs/2401.00001",
+    };
+
+    it("正常系: 生成前に参照範囲の注記が表示される", () => {
+      render(<PaperSummary paperId="2401.00001" />);
+
+      expect(screen.getByText(scopeNote)).toBeInTheDocument();
+    });
+
+    it("正常系: 生成中に参照範囲の注記が表示される", () => {
+      render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      expect(screen.getByText(scopeNote)).toBeInTheDocument();
+    });
+
+    it("正常系: 生成後に参照範囲の注記が表示される", () => {
+      render(<PaperSummary paperId="2401.00001" summary={createSampleSummary()} />);
+
+      expect(screen.getByText(scopeNote)).toBeInTheDocument();
+    });
+
+    it("正常系: 生成後に原文（Abstract・PDF・arXivページ）へのリンクが表示される", () => {
+      render(
+        <PaperSummary paperId="2401.00001" summary={createSampleSummary()} {...sourceLinkProps} />
+      );
+
+      expect(screen.getByRole("link", { name: "Abstract" })).toHaveAttribute(
+        "href",
+        "#paper-abstract-2401.00001"
+      );
+      const pdfLink = screen.getByRole("link", { name: "本文PDF" });
+      expect(pdfLink).toHaveAttribute("href", sourceLinkProps.pdfUrl);
+      expect(pdfLink).toHaveAttribute("target", "_blank");
+      const arxivLink = screen.getByRole("link", { name: "arXivページ" });
+      expect(arxivLink).toHaveAttribute("href", sourceLinkProps.arxivUrl);
+      expect(arxivLink).toHaveAttribute("target", "_blank");
+    });
+
+    it("正常系: 原文URLが渡されない場合はリンクを表示しない", () => {
+      render(<PaperSummary paperId="2401.00001" summary={createSampleSummary()} />);
+
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    });
+
+    it("正常系: 全文分析と誤認させる文言を表示しない", () => {
+      const { container, unmount } = render(<PaperSummary paperId="2401.00001" />);
+      expect(container).not.toHaveTextContent(/AI分析|論文の内容/);
+      unmount();
+
+      const { container: generated } = render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={createSampleSummary({
+            explanation: "説明文",
+            targetAudience: "強化学習の研究者",
+            whyRead: "サンプル効率改善の手法が分かる",
+          })}
+        />
+      );
+      expect(generated).not.toHaveTextContent(/AI分析|論文の内容/);
+    });
+
+    it("正常系: 説明文はAIの推奨として論文中の記述と区別して表示される", async () => {
+      const user = userEvent.setup();
+      render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={createSampleSummary({
+            explanation: "説明文",
+            targetAudience: "強化学習の研究者",
+            whyRead: "サンプル効率改善の手法が分かる",
+          })}
+        />
+      );
+
+      await user.click(screen.getByRole("tab", { name: /なぜ読むべきか/ }));
+
+      expect(screen.getByText(/AIの推奨です。論文中の記述ではありません/)).toBeInTheDocument();
     });
   });
 });
