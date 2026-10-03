@@ -414,6 +414,126 @@ describe("summaryStore", () => {
       });
     });
 
+    describe("利用者の訂正", () => {
+      /** 版ごとの [本文, 訂正文] を返す（DB の再読込結果） */
+      const corrections = (summaries: SummaryVersion[]) =>
+        summaries.map((s) => [s.summary, s.userCorrection?.text] as const);
+
+      it("正常系: 訂正文を保存してもAI生成文は変わらず、再読込後も維持される", async () => {
+        const store = await addVersions(["AIの要約"]);
+        const [only] = store.getState().summaries;
+
+        await store.getState().saveCorrection(only.id, "  手法名の誤りを訂正  ");
+
+        const current = store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja");
+        expect(current?.summary).toBe("AIの要約");
+        expect(current?.userCorrection?.text).toBe("手法名の誤りを訂正");
+        const reloaded = await reload();
+        const adopted = reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "ja");
+        expect(adopted?.summary).toBe("AIの要約");
+        expect(adopted?.userCorrection?.text).toBe("手法名の誤りを訂正");
+        expect(adopted?.userCorrection?.updatedAt).toBeInstanceOf(Date);
+      });
+
+      it("正常系: 空白だけで保存すると訂正を削除する", async () => {
+        const store = await addVersions(["AIの要約"]);
+        const [only] = store.getState().summaries;
+        await store.getState().saveCorrection(only.id, "訂正");
+
+        await store.getState().saveCorrection(only.id, "   ");
+
+        expect(store.getState().summaries[0]).not.toHaveProperty("userCorrection");
+        const [dbSummary] = await mockDb.paperSummaries.toArray();
+        expect(dbSummary).not.toHaveProperty("userCorrection");
+      });
+
+      it("正常系: 再生成した新しい版には引き継がず、旧版に残る（旧版を採用し直すと表示される）", async () => {
+        const store = await addVersions(["第1版"]);
+        const [first] = store.getState().summaries;
+        await store.getState().saveCorrection(first.id, "第1版への訂正");
+
+        await store.getState().addSummary(createSampleSummary({ summary: "第2版" }));
+
+        expect(
+          store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.userCorrection
+        ).toBeUndefined();
+        expect(corrections((await reload()).summaries)).toEqual([
+          ["第1版", "第1版への訂正"],
+          ["第2版", undefined],
+        ]);
+
+        await store.getState().adoptSummary(first.id);
+        expect(
+          store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.userCorrection?.text
+        ).toBe("第1版への訂正");
+      });
+
+      it("正常系: 説明文のみの更新では訂正文を消さない", async () => {
+        const store = await addVersions(["AIの要約"]);
+        await store.getState().saveCorrection(store.getState().summaries[0].id, "訂正");
+
+        await store.getState().updateSummary("2401.00001", "ja", { whyRead: "理由" });
+
+        const adopted = (await reload()).getSummaryByPaperIdAndLanguage("2401.00001", "ja");
+        expect([adopted?.whyRead, adopted?.userCorrection?.text]).toEqual(["理由", "訂正"]);
+      });
+
+      it("正常系: 版を破棄すると訂正文も消える", async () => {
+        const store = await addVersions(["第1版", "第2版"]);
+        const [, second] = store.getState().summaries;
+        await store.getState().saveCorrection(second.id, "第2版への訂正");
+
+        await store.getState().discardSummary(second.id);
+
+        expect(corrections((await reload()).summaries)).toEqual([["第1版", undefined]]);
+      });
+
+      it("異常系: 上限を超える訂正文は保存しない", async () => {
+        const { SUMMARY_CORRECTION_MAX_LENGTH } = await import("../../shared/schemas/index");
+        const store = await addVersions(["AIの要約"]);
+        const [only] = store.getState().summaries;
+
+        await expect(
+          store.getState().saveCorrection(only.id, "あ".repeat(SUMMARY_CORRECTION_MAX_LENGTH + 1))
+        ).rejects.toThrow();
+
+        expect(corrections((await reload()).summaries)).toEqual([["AIの要約", undefined]]);
+      });
+
+      it("異常系: 破棄済みの版には保存しない（別のタブで破棄された場合を含む）", async () => {
+        const store = await addVersions(["第1版", "第2版"]);
+        const [first] = store.getState().summaries;
+        // 別のタブでの破棄（Store の控えには残る）
+        await mockDb.paperSummaries.delete(first.id as unknown as string);
+
+        await expect(store.getState().saveCorrection(first.id, "訂正")).rejects.toThrow(
+          "Summary not found"
+        );
+        expect(await mockDb.paperSummaries.count()).toBe(1);
+      });
+
+      it("正常系: 保存中に別の版を採用しても、訂正は保存を始めた版に付き、採用版は変わる", async () => {
+        const store = await addVersions(["第1版", "第2版"]);
+        const [first, second] = store.getState().summaries;
+
+        // 第2版（採用版）への訂正の保存中に、第1版を採用する
+        await Promise.all([
+          store.getState().saveCorrection(second.id, "第2版への訂正"),
+          store.getState().adoptSummary(first.id),
+        ]);
+
+        const current = store.getState();
+        expect(current.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.id).toBe(first.id);
+        expect(corrections(current.summaries)).toEqual([
+          ["第1版", undefined],
+          ["第2版", "第2版への訂正"],
+        ]);
+        const reloaded = await reload();
+        expect(corrections(reloaded.summaries)).toEqual(corrections(current.summaries));
+        expect(reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.id).toBe(first.id);
+      });
+    });
+
     it("正常系: getAdoptedSummaries は論文ごとの採用版を返す（一覧の whyRead 用）", async () => {
       const { getAdoptedSummaries } = await import("./summaryStore");
       const base = { keyPoints: [], createdAt: now() };

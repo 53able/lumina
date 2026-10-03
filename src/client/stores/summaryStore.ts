@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import type { PaperSummary } from "../../shared/schemas/index";
+import { type PaperSummary, SUMMARY_CORRECTION_MAX_LENGTH } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
 
 /**
@@ -44,6 +44,11 @@ interface SummaryActions {
   ) => SummaryVersion | undefined;
   /** 指定した版を採用版にする（同じ論文・言語の他の版は採用を外す） */
   adoptSummary: (id: number) => Promise<void>;
+  /**
+   * 指定した版に利用者の訂正文を保存する（空白だけの文字列なら訂正を削除する）
+   * 採用版ではなく版の主キーで指定する: 編集中に別の版が採用されても、利用者が見ていた版に付けるため
+   */
+  saveCorrection: (id: number, text: string) => Promise<void>;
   /** 指定した版を破棄する。採用版を破棄した場合は、残りの版のうち最新の版を採用版にする */
   discardSummary: (id: number) => Promise<void>;
   /** 論文IDで全言語の要約を取得する */
@@ -215,6 +220,37 @@ export const useSummaryStore = create<SummaryStore>()(
         // Storeを更新
         set((state) => ({
           summaries: state.summaries.map((s) => (s.id === adoptedId ? { ...s, ...changes } : s)),
+        }));
+      },
+
+      saveCorrection: async (id, text) => {
+        const db = get()._db;
+        if (!db) throw new Error("DB not initialized");
+        const trimmed = text.trim();
+        if (trimmed.length > SUMMARY_CORRECTION_MAX_LENGTH) {
+          throw new Error("Correction is too long");
+        }
+        const userCorrection = trimmed ? { text: trimmed, updatedAt: new Date() } : undefined;
+
+        // 版が破棄されていないかを DB で確かめてから、その版の訂正だけを書き換える（AI生成の各フィールドは変更しない）
+        await db.transaction("rw", db.paperSummaries, async () => {
+          await readVersionById(db, id);
+          await db.paperSummaries
+            .where(":id")
+            .equals(id)
+            .modify((s) => {
+              if (userCorrection) s.userCorrection = userCorrection;
+              else delete s.userCorrection;
+            });
+        });
+
+        // Storeを更新
+        set((state) => ({
+          summaries: state.summaries.map((s) => {
+            if (s.id !== id) return s;
+            const { userCorrection: _removed, ...rest } = s;
+            return userCorrection ? { ...rest, userCorrection } : rest;
+          }),
         }));
       },
 

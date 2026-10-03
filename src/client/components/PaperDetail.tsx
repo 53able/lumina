@@ -38,6 +38,8 @@ interface PaperDetailProps {
   onAdoptSummaryVersion?: (id: number) => Promise<void>;
   /** 要約の版を破棄する */
   onDiscardSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版に利用者の訂正文を保存する（空なら訂正を削除する） */
+  onSaveSummaryCorrection?: (id: number, text: string) => Promise<void>;
 }
 
 /**
@@ -64,6 +66,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   summaryVersions,
   onAdoptSummaryVersion,
   onDiscardSummaryVersion,
+  onSaveSummaryCorrection,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
@@ -128,6 +131,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             versions={summaryVersions}
             onAdoptVersion={onAdoptSummaryVersion}
             onDiscardVersion={onDiscardSummaryVersion}
+            onSaveCorrection={onSaveSummaryCorrection}
           />
         </div>
 

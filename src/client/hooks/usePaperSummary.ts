@@ -60,6 +60,8 @@ interface UsePaperSummaryReturn {
   adoptVersion: (id: number) => Promise<void>;
   /** 版を破棄する（採用版を破棄した場合は残りの最新の版が採用版になる） */
   discardVersion: (id: number) => Promise<void>;
+  /** 版に利用者の訂正文を保存する（空なら訂正を削除する） */
+  saveCorrection: (id: number, text: string) => Promise<void>;
   /** 選択中の言語 */
   summaryLanguage: "ja" | "en";
   /** 言語を切り替える */
@@ -148,6 +150,7 @@ export const usePaperSummary = ({
     updateSummary,
     adoptSummary,
     discardSummary,
+    saveCorrection,
   } = useSummaryStore();
 
   // 現在の論文・言語に対応するサマリー（採用版）と保存済みの版を取得
@@ -237,6 +240,7 @@ export const usePaperSummary = ({
     versions,
     adoptVersion: adoptSummary,
     discardVersion: discardSummary,
+    saveCorrection,
     summaryLanguage,
     setSummaryLanguage,
     isLoading: currentGeneration?.status === "pending",

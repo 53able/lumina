@@ -93,6 +93,8 @@ interface HomeMainProps {
   onAdoptSummaryVersion?: (id: number) => Promise<void>;
   /** 要約の版を破棄する */
   onDiscardSummaryVersion?: (id: number) => Promise<void>;
+  /** 要約の版に利用者の訂正文を保存する（空なら訂正を削除する） */
+  onSaveSummaryCorrection?: (id: number, text: string) => Promise<void>;
   /** 検索履歴 */
   recentHistories: SearchHistoryType[];
   /** 再検索ハンドラー */
@@ -161,6 +163,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   summaryVersions,
   onAdoptSummaryVersion,
   onDiscardSummaryVersion,
+  onSaveSummaryCorrection,
   recentHistories,
   onReSearch,
   historyUndo,
@@ -198,6 +201,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 summaryVersions={summaryVersions}
                 onAdoptSummaryVersion={onAdoptSummaryVersion}
                 onDiscardSummaryVersion={onDiscardSummaryVersion}
+                onSaveSummaryCorrection={onSaveSummaryCorrection}
               />
             </Suspense>
           ) : null}

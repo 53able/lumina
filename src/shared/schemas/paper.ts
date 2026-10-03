@@ -61,6 +61,21 @@ export const PaperSummarySchema = z.object({
    * 未指定の版しかない既存データは、最新の版を採用版とみなす
    */
   adopted: z.boolean().optional(),
+  /**
+   * 利用者の訂正文（この版の要約本文への訂正。AI生成の各フィールドは書き換えない）
+   * 版に付くため、再生成した新しい版には引き継がず、版を破棄すると一緒に消える
+   */
+  userCorrection: z
+    .object({
+      /** 訂正文 */
+      text: z.string(),
+      /** 最終保存日時 */
+      updatedAt: z.coerce.date(),
+    })
+    .optional(),
 });
+
+/** 利用者の訂正文の最大文字数 */
+export const SUMMARY_CORRECTION_MAX_LENGTH = 2000;
 
 export type PaperSummary = z.infer<typeof PaperSummarySchema>;

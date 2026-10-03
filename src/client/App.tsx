@@ -170,6 +170,7 @@ const HomePage: FC = () => {
     versions: summaryVersions,
     adoptVersion: adoptSummaryVersion,
     discardVersion: discardSummaryVersion,
+    saveCorrection: saveSummaryCorrection,
     summaryLanguage,
     setSummaryLanguage,
     isLoading: isSummaryLoading,
@@ -198,6 +199,7 @@ const HomePage: FC = () => {
   );
 
   // whyReadMap を生成（論文ID → whyRead のマップ）
+  // 利用者の訂正文は要約本文への訂正のため反映しない（一覧の「読む理由」はAIの推奨のまま）
   // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
   const whyReadMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -393,6 +395,7 @@ const HomePage: FC = () => {
                     summaryVersions={summaryVersions}
                     onAdoptSummaryVersion={adoptSummaryVersion}
                     onDiscardSummaryVersion={discardSummaryVersion}
+                    onSaveSummaryCorrection={saveSummaryCorrection}
                   />
                 </Suspense>
               )
@@ -417,6 +420,7 @@ const HomePage: FC = () => {
         summaryVersions={summaryVersions}
         onAdoptSummaryVersion={adoptSummaryVersion}
         onDiscardSummaryVersion={discardSummaryVersion}
+        onSaveSummaryCorrection={saveSummaryCorrection}
         recentHistories={recentHistories}
         onReSearch={handleReSearch}
         historyUndo={historyUndo}
