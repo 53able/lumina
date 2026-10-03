@@ -5,7 +5,7 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
+import { createElement, type ReactNode, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePaperSummary } from "./usePaperSummary";
 
@@ -37,8 +37,11 @@ const createWrapper = () => {
     createElement(QueryClientProvider, { client }, children);
 };
 
-const renderUsePaperSummary = (initialPaperId = "2401.00001") =>
-  renderHook(({ paperId }) => usePaperSummary({ paperId, abstract: "Abstract" }), {
+const renderUsePaperSummary = (
+  initialPaperId = "2401.00001",
+  onError?: (error: Error, paperId: string) => void
+) =>
+  renderHook(({ paperId }) => usePaperSummary({ paperId, abstract: "Abstract", onError }), {
     wrapper: createWrapper(),
     initialProps: { paperId: initialPaperId },
   });
@@ -169,6 +172,59 @@ describe("usePaperSummary", () => {
 
     rerender({ paperId: "2401.00002" });
     expect(result.current.isLoading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("正常系: 同じティックで連続して呼んでもAPIは1回だけ呼ばれる", async () => {
+    mockSummaryApi.mockReturnValue(new Promise(() => undefined));
+    const { result } = renderUsePaperSummary("paper-a");
+
+    act(() => {
+      void result.current.generateSummary();
+      void result.current.generateSummary();
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(mockSummaryApi).toHaveBeenCalledTimes(1);
+  });
+
+  it("正常系: StrictMode で effect が二重に実行されてもAPIは1回だけ呼ばれる", async () => {
+    mockSummaryApi.mockReturnValue(new Promise(() => undefined));
+
+    const { result } = renderHook(
+      () => {
+        const paperSummary = usePaperSummary({ paperId: "paper-a", abstract: "Abstract" });
+        const { generateSummary } = paperSummary;
+        useEffect(() => {
+          void generateSummary();
+        }, [generateSummary]);
+        return paperSummary;
+      },
+      { wrapper: createWrapper(), reactStrictMode: true }
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(mockSummaryApi).toHaveBeenCalledTimes(1);
+  });
+
+  it("異常系: Aの生成中にBへ切り替えた後でAが失敗すると、onError にAの paperId を渡す", async () => {
+    const generationA = createDeferred<unknown>();
+    mockSummaryApi.mockReturnValueOnce(generationA.promise);
+    const onError = vi.fn();
+    const { result, rerender } = renderUsePaperSummary("paper-a", onError);
+
+    act(() => {
+      void result.current.generateSummary().catch(() => undefined);
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+
+    rerender({ paperId: "paper-b" });
+    await act(async () => {
+      generationA.reject(new Error("timeout"));
+    });
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(onError).toHaveBeenCalledWith(expect.any(Error), "paper-a");
     expect(result.current.error).toBeNull();
   });
 

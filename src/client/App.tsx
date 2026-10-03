@@ -196,8 +196,8 @@ const HomePage: FC = () => {
   // サマリー生成ハンドラー（PaperDetailのインターフェースに合わせたラッパー）
   const handleGenerateSummary = useCallback(
     async (_paperId: string, language: "ja" | "en", target: "explanation" | "both" = "both") => {
-      // usePaperSummaryのgenerateSummaryはlanguageがオプショナルなので、明示的に渡す
-      // paperIdはusePaperSummaryの初期化時に設定されているため、ここでは使用しない
+      // 表示中の言語を明示的に渡す。paperId は usePaperSummary に渡した選択中の論文を使うため、ここでは使用しない
+      // 同じ論文・言語の生成が実行中なら generateSummary は何もせずに返る
       await generateSummary(language, target);
     },
     [generateSummary]
