@@ -246,12 +246,23 @@ export const useSemanticSearch = ({
       setSearchPhase("computing");
       computeSeqRef.current += 1;
       const seq = computeSeqRef.current;
-      const next = await computeResults(embedding);
-      if (generation !== generationRef.current || seq !== computeSeqRef.current) return [];
+      while (true) {
+        const next = await computeResults(embedding);
+        if (generation !== generationRef.current || seq !== computeSeqRef.current) return [];
+        // Worker の応答待ちに入力が変わったら、最新の条件で計算し直してから確定する。
+        // 古い件数で done にすると、再計算前に検索履歴へ保存されてしまう。
+        if (
+          next.key.papers !== papersRef.current ||
+          next.key.scoreThreshold !== scoreThresholdRef.current ||
+          next.key.limit !== limitRef.current
+        ) {
+          continue;
+        }
 
-      setComputed(next);
-      setSearchPhase("done");
-      return next.results;
+        setComputed(next);
+        setSearchPhase("done");
+        return next.results;
+      }
     },
     [computeResults, getSearchSource]
   );

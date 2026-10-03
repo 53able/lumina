@@ -3,10 +3,12 @@
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { parseISO } from "date-fns";
+import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
 import type { PaperSearchSource } from "../lib/paperIndex/core";
 import { createTestSearchSource } from "../testing/paperStoreTestUtils";
+import { useSearchHistorySync } from "./useSearchHistorySync";
 import { useSemanticSearch } from "./useSemanticSearch";
 
 // グローバルfetchのモック
@@ -103,6 +105,64 @@ describe("useSemanticSearch", () => {
   });
 
   describe("検索実行", () => {
+    it("計算中にしきい値が変わったら、最新の件数が確定するまで履歴を保存しない", async () => {
+      type Matches = Awaited<ReturnType<PaperSearchSource["search"]>>;
+      let resolveFirst!: (value: Matches) => void;
+      let resolveLatest!: (value: Matches) => void;
+      const first = new Promise<Matches>((resolve) => {
+        resolveFirst = resolve;
+      });
+      const latest = new Promise<Matches>((resolve) => {
+        resolveLatest = resolve;
+      });
+      const source = createTestSearchSource(mockPapers);
+      const searchIndex = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(latest);
+      const addHistory = vi.fn(async () => {});
+      const { result, rerender } = renderHook(
+        ({ scoreThreshold }) => {
+          const search = useSemanticSearch({
+            papers: mockPapers,
+            searchSource: { ...source, search: searchIndex },
+            scoreThreshold,
+          });
+          const query = useRef<string | null>("transformer");
+          useSearchHistorySync(
+            search.expandedQuery,
+            search.queryEmbedding,
+            search.totalMatchCount,
+            search.resultsReady,
+            query,
+            addHistory
+          );
+          return search;
+        },
+        { initialProps: { scoreThreshold: 0.3 } }
+      );
+
+      let pending!: Promise<unknown>;
+      act(() => {
+        pending = result.current.search("transformer");
+      });
+      await waitFor(() => expect(searchIndex).toHaveBeenCalledTimes(1));
+      rerender({ scoreThreshold: 0.99 });
+      await act(async () => {
+        resolveFirst({ matches: [], totalMatchCount: 2 });
+      });
+      await waitFor(() => expect(searchIndex).toHaveBeenCalledTimes(2));
+      expect(searchIndex.mock.calls[1]?.[1]).toBe(0.99);
+      expect(result.current.resultsReady).toBe(false);
+      expect(addHistory).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolveLatest({ matches: [{ id: mockPapers[0].id, score: 1 }], totalMatchCount: 1 });
+        await pending;
+      });
+      expect(result.current.resultsScoreThreshold).toBe(0.99);
+      expect(result.current.resultsReady).toBe(true);
+      expect(addHistory).toHaveBeenCalledTimes(1);
+      expect(addHistory).toHaveBeenCalledWith(expect.objectContaining({ resultCount: 1 }));
+    });
+
     it("search関数を呼ぶと検索APIが呼ばれる", async () => {
       const { result } = renderHook(() =>
         useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
