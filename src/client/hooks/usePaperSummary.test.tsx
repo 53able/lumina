@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { usePaperSummary } from "./usePaperSummary";
+import { PartialSummaryError, usePaperSummary } from "./usePaperSummary";
 
 const mockSummaryApi = vi.fn();
 vi.mock("../lib/api", async (importOriginal) => {
@@ -19,10 +19,13 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
 });
 
+const mockGetSummaryByPaperIdAndLanguage = vi.fn();
+const mockAddSummary = vi.fn();
 vi.mock("../stores/summaryStore", () => ({
   useSummaryStore: () => ({
-    getSummaryByPaperIdAndLanguage: () => undefined,
-    addSummary: vi.fn(),
+    getSummaryByPaperIdAndLanguage: (...args: unknown[]) =>
+      mockGetSummaryByPaperIdAndLanguage(...args),
+    addSummary: (...args: unknown[]) => mockAddSummary(...args),
   }),
 }));
 
@@ -241,5 +244,67 @@ describe("usePaperSummary", () => {
       result.current.setSummaryLanguage("en");
     });
     expect(result.current.error).toBeNull();
+  });
+
+  describe("工程別の失敗（部分成功）", () => {
+    it("異常系: 説明文だけが失敗した応答では、要約を保存したうえで部分成功のエラーを返す", async () => {
+      mockSummaryApi.mockResolvedValueOnce({
+        ...createSummaryResponse("2401.00001"),
+        explanationError: "upstream timeout",
+      });
+      const onError = vi.fn();
+      const { result } = renderUsePaperSummary("2401.00001", onError);
+
+      await act(async () => {
+        await result.current.generateSummary().catch(() => undefined);
+      });
+
+      expect(mockAddSummary).toHaveBeenCalledTimes(1);
+      expect(mockAddSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ paperId: "2401.00001", summary: "要約", explanation: undefined })
+      );
+      await waitFor(() => expect(result.current.error).toBeInstanceOf(PartialSummaryError));
+      expect(result.current.error?.message).toContain("upstream timeout");
+      expect(result.current.isLoading).toBe(false);
+      expect(onError).toHaveBeenCalledWith(expect.any(PartialSummaryError), "2401.00001");
+    });
+
+    it("正常系: 説明文の再試行では説明文だけを要求し、保存済みの要約を残してマージする", async () => {
+      const existingSummary = {
+        paperId: "2401.00001",
+        summary: "保存済みの要約",
+        keyPoints: ["ポイント"],
+        language: "ja" as const,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      };
+      mockGetSummaryByPaperIdAndLanguage.mockReturnValue(existingSummary);
+      mockSummaryApi.mockResolvedValueOnce({
+        ...createSummaryResponse("2401.00001"),
+        summary: "",
+        keyPoints: [],
+        explanation: "説明文",
+        targetAudience: "研究者",
+        whyRead: "理由",
+      });
+      const { result } = renderUsePaperSummary();
+
+      await act(async () => {
+        await result.current.generateSummary(undefined, "explanation");
+      });
+
+      expect(mockSummaryApi).toHaveBeenCalledTimes(1);
+      expect(mockSummaryApi).toHaveBeenCalledWith(
+        "2401.00001",
+        expect.objectContaining({ generateTarget: "explanation" }),
+        expect.anything()
+      );
+      expect(mockAddSummary).toHaveBeenCalledWith({
+        ...existingSummary,
+        explanation: "説明文",
+        targetAudience: "研究者",
+        whyRead: "理由",
+      });
+      expect(result.current.error).toBeNull();
+    });
   });
 });

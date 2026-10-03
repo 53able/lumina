@@ -5,6 +5,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
+import { PartialSummaryError } from "../hooks/usePaperSummary";
 import { PaperSummary } from "./PaperSummary";
 
 /**
@@ -230,6 +231,66 @@ describe("PaperSummary", () => {
       // 元の言語に戻しても古い失敗を読み直さない
       rerender(<PaperSummary paperId="2401.00001" error={error} />);
       expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    });
+
+    it("異常系: 説明文だけが失敗した部分成功では、要約を表示し説明文だけの再試行を案内する", async () => {
+      const user = userEvent.setup();
+      const mockOnGenerate = vi.fn();
+      const summary = createSampleSummary();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" isLoading onGenerate={mockOnGenerate} />
+      );
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          error={new PartialSummaryError("timeout")}
+          onGenerate={mockOnGenerate}
+        />
+      );
+
+      // 成功済みの要約は表示される
+      expect(screen.getByText(summary.summary)).toBeInTheDocument();
+      // 部分成功を失敗と区別して通知・表示する
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約は保存しました。説明文を生成できませんでした。「なぜ読むべきかを生成」ボタンで説明文だけを再試行できます。"
+      );
+      expect(
+        screen.getByText(/要約は保存しました。説明文は生成できませんでした。/)
+      ).toBeInTheDocument();
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+      // 再試行は説明文だけを対象にする
+      await user.click(screen.getByRole("button", { name: /なぜ読むべきかを生成/ }));
+      expect(mockOnGenerate).toHaveBeenCalledWith("2401.00001", "ja", "explanation");
+    });
+
+    it("異常系: 全体の失敗は部分成功と異なる文言で表示する", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(<PaperSummary paperId="2401.00001" error={new Error("timeout")} />);
+
+      expect(
+        screen.getByText("生成できませんでした。「要約 + 説明文」で再試行できます。")
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/要約は保存しました/)).not.toBeInTheDocument();
+    });
+
+    it("正常系: 完了時は失敗・部分成功の表示を出さない", () => {
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+      expect(screen.getByText("生成中...")).toBeInTheDocument();
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={createSampleSummary({ explanation: "説明文" })}
+        />
+      );
+
+      expect(screen.getByRole("status")).toHaveTextContent("要約の生成が完了しました");
+      expect(screen.queryByText(/生成できませんでした/)).not.toBeInTheDocument();
+      expect(screen.queryByText("生成中...")).not.toBeInTheDocument();
     });
 
     it("正常系: 状態通知でフォーカスを移動しない", () => {

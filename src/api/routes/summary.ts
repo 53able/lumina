@@ -86,9 +86,18 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
         : undefined;
 
       // 説明文生成（対象の場合のみ）
-      const explanationResult = shouldGenerateExplanation
-        ? await generateExplanation(abstract, language, config)
-        : undefined;
+      // 要約の生成後に説明文だけが失敗した場合は、成功済みの要約を失わないよう
+      // 部分成功（explanationError 付きの 200）として返す。要約がない場合は全体の失敗として扱う
+      let explanationResult: Awaited<ReturnType<typeof generateExplanation>> | undefined;
+      let explanationError: string | undefined;
+      if (shouldGenerateExplanation) {
+        try {
+          explanationResult = await generateExplanation(abstract, language, config);
+        } catch (error) {
+          if (!summaryResult) throw error;
+          explanationError = error instanceof Error ? error.message : "Unknown error";
+        }
+      }
 
       return c.json(
         {
@@ -101,6 +110,8 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
             targetAudience: explanationResult.targetAudience,
             whyRead: explanationResult.whyRead,
           }),
+          // 説明文の工程だけが失敗した場合の理由（クライアントは要約を保存し、説明文だけを再試行する）
+          ...(explanationError !== undefined && { explanationError }),
           language,
           createdAt: now(),
         },

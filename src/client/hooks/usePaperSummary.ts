@@ -45,6 +45,21 @@ const isGenerationFor = (
 };
 
 /**
+ * 要約は保存できたが、説明文の生成だけが失敗したことを表すエラー
+ *
+ * 再試行では説明文だけを生成する（generateTarget: "explanation"）。要約は再生成しない。
+ */
+export class PartialSummaryError extends Error {
+  /** 失敗した工程 */
+  readonly failedStage = "explanation";
+
+  constructor(reason: string) {
+    super(`要約は保存しました。説明文の生成に失敗しました: ${reason}`);
+    this.name = "PartialSummaryError";
+  }
+}
+
+/**
  * usePaperSummary の戻り値
  */
 interface UsePaperSummaryReturn {
@@ -58,6 +73,7 @@ interface UsePaperSummaryReturn {
   isLoading: boolean;
   /**
    * 直近の生成エラー（表示中の論文・言語のみ。次の生成開始でクリアされる）
+   * 要約だけ保存できた部分成功の場合は PartialSummaryError になる
    * mutation cache から読むため、寿命は mutation の gcTime（既定5分）に依存する
    */
   error: Error | null;
@@ -158,6 +174,11 @@ export const usePaperSummary = ({
           : normalizedData;
 
       await addSummary(mergedSummary);
+
+      // 説明文の工程だけが失敗した場合: 成功済みの要約は保存したうえで、部分成功として失敗を返す
+      if ("explanationError" in response && typeof response.explanationError === "string") {
+        throw new PartialSummaryError(response.explanationError);
+      }
       return mergedSummary;
     },
     onError: (error, variables) => {

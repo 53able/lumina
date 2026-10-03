@@ -19,7 +19,7 @@ interface SummaryState {
  * summaryStore のアクション型
  */
 interface SummaryActions {
-  /** 要約を追加する */
+  /** 要約を保存する（同じ論文・言語の要約があれば置き換える） */
   addSummary: (summary: PaperSummary) => Promise<void>;
   /** 論文IDと言語で要約を取得する */
   getSummaryByPaperIdAndLanguage: (
@@ -56,12 +56,23 @@ export const useSummaryStore = create<SummaryStore>()(
         const db = get()._db;
         if (!db) throw new Error("DB not initialized");
 
-        // IndexedDBに保存
-        await db.paperSummaries.add(summary);
+        // IndexedDBに保存（説明文の追加生成で同じ論文・言語の要約が重複しないよう置き換える）
+        await db.transaction("rw", db.paperSummaries, async () => {
+          await db.paperSummaries
+            .where("[paperId+language]")
+            .equals([summary.paperId, summary.language])
+            .delete();
+          await db.paperSummaries.add(summary);
+        });
 
         // Storeを更新
         set((state) => ({
-          summaries: [...state.summaries, summary],
+          summaries: [
+            ...state.summaries.filter(
+              (s) => !(s.paperId === summary.paperId && s.language === summary.language)
+            ),
+            summary,
+          ],
         }));
       },
 

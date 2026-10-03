@@ -107,6 +107,31 @@ describe("summaryStore", () => {
       const state = useSummaryStore.getState();
       expect(state.summaries).toHaveLength(2);
     });
+
+    it("正常系: 同じ論文・言語の要約は置き換える（説明文の追加生成後に新しい内容を返す）", async () => {
+      const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+      await initializeSummaryStore(mockDb);
+
+      await useSummaryStore.getState().addSummary(createSampleSummary());
+      await useSummaryStore
+        .getState()
+        .addSummary(createSampleSummary({ explanation: "追加生成した説明文" }));
+
+      // Assert - Store
+      const state = useSummaryStore.getState();
+      expect(state.summaries).toHaveLength(1);
+      expect(state.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.explanation).toBe(
+        "追加生成した説明文"
+      );
+
+      // Assert - IndexedDB（再読み込み後も新しい内容になる）
+      const dbSummaries = await mockDb.paperSummaries
+        .where("paperId")
+        .equals("2401.00001")
+        .toArray();
+      expect(dbSummaries).toHaveLength(1);
+      expect(dbSummaries[0].explanation).toBe("追加生成した説明文");
+    });
   });
 
   describe("要約の取得", () => {
