@@ -1,6 +1,6 @@
 import { ExternalLink, RotateCw } from "lucide-react";
 import type { FC } from "react";
-import { ARXIV_ID_PATTERN } from "../pages/PaperPage";
+import { ARXIV_ID_PATTERN } from "../lib/arxivId";
 import { Button } from "./ui/button";
 
 interface InitErrorScreenProps {
@@ -12,7 +12,7 @@ interface InitErrorScreenProps {
 
 /** パスが論文詳細（/papers/:id）で、IDが arXiv の形式なら ID を返す */
 const getArxivIdFromPath = (pathname: string): string | null => {
-  const match = /^\/papers\/(.+)$/.exec(pathname);
+  const match = /^\/papers\/(.+?)\/?$/.exec(pathname);
   if (!match) return null;
   try {
     const id = decodeURIComponent(match[1]);
