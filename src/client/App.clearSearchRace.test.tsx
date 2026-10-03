@@ -5,16 +5,19 @@
  *
  * react-router は URL 更新を startTransition で包むため、クリア直後は「URL の q は残ったまま、
  * 開始済みクエリの記録は消えた」状態が一時的に生じる。この間に検索関数の参照が変わる store 更新
- * （histories / scoreThreshold）が起きても検索 API を呼ばないことを、本物の zustand store で確かめる。
+ * （papers / histories / scoreThreshold）が起きても検索 API を呼ばないことを、本物の zustand store で確かめる。
+ * 別クエリでの検索開始直後（URL 更新の transition が未確定の間）も同様に確かめる。
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SearchHistory } from "../shared/schemas/index";
+import type { Paper, SearchHistory } from "../shared/schemas/index";
 import { App } from "./App";
 import { InteractionProvider } from "./contexts/InteractionContext";
+import { getDecryptedApiKey } from "./lib/api";
+import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
 
@@ -23,11 +26,17 @@ vi.mock("sonner", () => ({
   Toaster: () => null,
 }));
 
+// 検索の開始回数を数える（検索は開始直後に API キーを取得する。無効化された検索は API 呼び出し前に止まる）
+vi.mock("./lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/api")>();
+  return { ...actual, getDecryptedApiKey: vi.fn(actual.getDecryptedApiKey) };
+});
+
 vi.mock("@/client/hooks/useMediaQuery", () => ({
   useMediaQuery: () => true,
 }));
 
-const mockPapers = vi.hoisted(() => [
+const mockPapers: Paper[] = [
   {
     id: "2401.00001",
     title: "Test Paper Title",
@@ -40,17 +49,7 @@ const mockPapers = vi.hoisted(() => [
     arxivUrl: "https://arxiv.org/abs/2401.00001",
     embedding: [0.1, 0.2],
   },
-]);
-
-vi.mock("@/client/stores/paperStore", () => ({
-  usePaperStore: Object.assign(
-    vi.fn((selector?: (s: unknown) => unknown) => {
-      const state = { papers: mockPapers, isLoading: false, addPapers: vi.fn() };
-      return selector ? selector(state) : state;
-    }),
-    { getState: () => ({ papers: mockPapers }) }
-  ),
-}));
+];
 
 vi.mock("@/client/stores/interactionStore", () => ({
   useInteractionStore: vi.fn((selector?: (s: unknown) => unknown) => {
@@ -84,6 +83,29 @@ const holdSearchRequests = () => {
         )
   );
 };
+
+/** /api/v1/search の応答（検索 API が返す最小限の形） */
+const searchResponse = () =>
+  new Response(
+    JSON.stringify({
+      results: [],
+      expandedQuery: {
+        original: "transformer",
+        english: "transformer",
+        synonyms: [],
+        searchText: "transformer",
+      },
+      queryEmbedding: [0.1, 0.2],
+      took: 1,
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } }
+  );
+
+/** 検索 API に送ったクエリ（呼び出し順） */
+const searchQueries = () =>
+  fetchMock.mock.calls
+    .filter(([input]) => isSearchRequest(input))
+    .map(([, init]) => (JSON.parse(String((init as RequestInit).body)) as { query: string }).query);
 
 const searchRequestCount = () =>
   fetchMock.mock.calls.filter(([input]) => isSearchRequest(input)).length;
@@ -130,7 +152,9 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
     useSettingsStore.getState().resetAllSettings();
     // 自動同期を走らせない
     useSettingsStore.setState({ lastSyncedAt: new Date().toISOString(), apiEnabled: true });
-    useSearchHistoryStore.setState({ histories: [] });
+    usePaperStore.setState({ papers: mockPapers, isLoading: false });
+    // DB を初期化していないため、検索完了時の履歴追加は何もしない関数に置き換える
+    useSearchHistoryStore.setState({ histories: [], addHistory: async () => {} });
   });
 
   afterEach(() => {
@@ -138,7 +162,11 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each([
+  const storeUpdates = [
+    {
+      name: "papers",
+      update: () => usePaperStore.setState({ papers: [...mockPapers] }),
+    },
     {
       name: "histories",
       update: () => useSearchHistoryStore.setState({ histories: [otherHistory] }),
@@ -147,7 +175,11 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
       name: "scoreThreshold",
       update: () => useSettingsStore.getState().setSearchScoreThreshold(0.5),
     },
-  ])("クリアと同時に $name が更新されても、検索 API を呼び直さない", async ({ update }) => {
+  ];
+
+  it.each(storeUpdates)("クリアと同時に $name が更新されても、検索 API を呼び直さない", async ({
+    update,
+  }) => {
     const user = userEvent.setup();
     renderApp();
 
@@ -162,12 +194,48 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
       update();
     });
 
-    await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent(""));
+    await waitFor(() => expect(screen.getByTestId("location-search")).toBeEmptyDOMElement());
     expect(searchRequestCount()).toBe(1);
     const searchbox = screen.getByRole("searchbox");
     await waitFor(() => expect(searchbox).toBeEnabled());
     expect(searchbox).toHaveValue("");
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("論文を探す");
     expect(searchRequestCount()).toBe(1);
+  });
+
+  it.each(
+    storeUpdates
+  )("別クエリで検索を始めると同時に $name が更新されても、前の URL のクエリで検索し直さない", async ({
+    update,
+  }) => {
+    // 1回目（transformer）は応答し、2回目以降は応答しない
+    const holdingImplementation = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) =>
+      isSearchRequest(input) && searchRequestCount() === 1
+        ? Promise.resolve(searchResponse())
+        : holdingImplementation?.(input, init)
+    );
+    const user = userEvent.setup();
+    renderApp();
+
+    const searchbox = await screen.findByRole("searchbox");
+    await user.type(searchbox, "transformer{Enter}");
+    await waitFor(() => expect(searchbox).toBeEnabled());
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?q=transformer");
+
+    await user.clear(searchbox);
+    await user.type(searchbox, "bert");
+    const searchButton = screen.getByRole("button", { name: "検索" });
+    const startedBefore = vi.mocked(getDecryptedApiKey).mock.calls.length;
+    act(() => {
+      searchButton.click();
+      update();
+    });
+
+    await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("?q=bert"));
+    // URL 確定前に前のクエリ（transformer）で検索し直すと、bert → transformer → bert と3回開始される
+    expect(vi.mocked(getDecryptedApiKey).mock.calls.length - startedBefore).toBe(1);
+    expect(searchQueries()).toEqual(["transformer", "bert"]);
+    expect(searchbox).toHaveValue("bert");
   });
 });
