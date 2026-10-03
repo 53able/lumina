@@ -425,12 +425,143 @@ describe("PaperExplorer", () => {
       );
 
       const user = userEvent.setup({ delay: null });
-      await user.click(screen.getByRole("button", { name: "絞り込みを開く" }));
+      await user.click(screen.getByRole("button", { name: /^絞り込み($|（)/ }));
       await user.click(await screen.findByRole("button", { name: "絞り込みをクリア" }));
 
       expect(mockClearAllFilters).toHaveBeenCalledTimes(1);
       expect(mockClearSearchAndFilters).not.toHaveBeenCalled();
       expect(getLocationSearch()).toBe("?q=transformer");
+    });
+  });
+
+  describe("モバイルの絞り込み（一覧と並べて操作する）", () => {
+    beforeEach(() => {
+      mediaState.isDesktop = false;
+    });
+
+    /** 開閉ボタンと、それが制御する絞り込み領域を返す */
+    const getFilterDisclosure = () => {
+      const toggle = screen.getByRole("button", { name: /^絞り込み($|（)/ });
+      const panelId = toggle.getAttribute("aria-controls");
+      const panel = panelId ? document.getElementById(panelId) : null;
+      if (!panel) throw new Error("aria-controls が指す絞り込み領域がない");
+      return { toggle, panel };
+    };
+
+    it("開閉ボタンは aria-expanded / aria-controls で領域の開閉を伝え、開いてもフォーカスを移さない", async () => {
+      renderExplorer({ initialPapers: mockPapers });
+
+      const { toggle, panel } = getFilterDisclosure();
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(panel).not.toBeVisible();
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(toggle);
+
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(panel).toBeVisible();
+      expect(screen.getByRole("region", { name: "絞り込み条件" })).toBe(panel);
+      expect(toggle).toHaveFocus();
+
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(panel).not.toBeVisible();
+    });
+
+    it("開いたままでも一覧は隠れず（dialog・aria-hidden・inert なし）、論文を選択できる", async () => {
+      const mockOnPaperClick = vi.fn();
+      renderExplorer({ initialPapers: mockPapers, onPaperClick: mockOnPaperClick });
+
+      const user = userEvent.setup({ delay: null });
+      const toggle = screen.getByRole("button", { name: /^絞り込み($|（)/ });
+      await user.click(toggle);
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      const firstArticle = screen.getAllByRole("article")[0] as HTMLElement;
+      expect(firstArticle.closest("[aria-hidden='true'], [inert]")).toBeNull();
+
+      await user.click(firstArticle);
+      expect(mockOnPaperClick).toHaveBeenCalledWith(mockPapers[0]);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("条件を変えると、領域を開いたまま一覧と件数が即時に更新される", async () => {
+      renderExplorer({ initialPapers: mockPapers });
+
+      expect(screen.getByTestId("filter-result-count")).toHaveTextContent("2件");
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      await user.click(screen.getByRole("button", { name: "cs.LG" }));
+
+      expect(getLocationSearch()).toBe("?cat=cs.LG");
+      expect(screen.getByText("Attention Is All You Need")).toBeInTheDocument();
+      expect(
+        screen.queryByText("BERT: Pre-training of Deep Bidirectional Transformers")
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId("filter-result-count")).toHaveTextContent("1件");
+      expect(screen.getByTestId("filter-result-count")).toHaveAttribute("aria-live", "polite");
+      expect(getFilterDisclosure().toggle).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("折りたたんだままでも適用中の条件と件数が見える", () => {
+      renderExplorer({ initialPapers: mockPapers }, "/?cat=cs.LG");
+
+      const { toggle } = getFilterDisclosure();
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle).toHaveAccessibleName("絞り込み（適用中の条件1件）");
+      expect(screen.getByText("cs.LG", { selector: "p" })).toBeInTheDocument();
+      expect(screen.getByTestId("filter-result-count")).toHaveTextContent("1件");
+    });
+
+    it("「絞り込みをクリア」は領域を閉じず、フォーカスを開閉ボタンへ移す", async () => {
+      renderExplorer({ initialPapers: mockPapers }, "/?cat=cs.LG");
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      await user.click(screen.getByRole("button", { name: "絞り込みをクリア" }));
+
+      const { toggle, panel } = getFilterDisclosure();
+      expect(getLocationSearch()).toBe("");
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(panel).toBeVisible();
+      expect(toggle).toHaveFocus();
+      expect(screen.getByTestId("filter-result-count")).toHaveTextContent("2件");
+    });
+
+    it("領域内で Esc を押すと折りたたみ、フォーカスを開閉ボタンへ戻す", async () => {
+      renderExplorer({ initialPapers: mockPapers });
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getFilterDisclosure().toggle);
+      await user.click(screen.getByRole("button", { name: "cs.CL" }));
+      expect(screen.getByRole("button", { name: "cs.CL" })).toHaveFocus();
+
+      await user.keyboard("{Escape}");
+
+      const { toggle, panel } = getFilterDisclosure();
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(panel).not.toBeVisible();
+      expect(toggle).toHaveFocus();
+      // 条件は保持される
+      expect(getLocationSearch()).toBe("?cat=cs.CL");
+    });
+
+    it("Tab で絞り込み領域から一覧へフォーカスを進められる（フォーカストラップなし）", async () => {
+      renderExplorer({ initialPapers: [mockPapers[1] as Paper] });
+
+      const user = userEvent.setup({ delay: null });
+      const { toggle } = getFilterDisclosure();
+      await user.click(toggle);
+      // 領域内の最後の操作（ブックマーク）は 0 件で無効のため、「すべて」から Tab で抜ける
+      await user.click(screen.getByRole("button", { name: "すべて" }));
+      await user.tab();
+
+      const panel = getFilterDisclosure().panel;
+      expect(panel.contains(document.activeElement)).toBe(false);
+      expect(toggle).not.toHaveFocus();
+      // 次のフォーカス先は一覧の論文カード内の操作
+      expect(document.activeElement).toHaveAccessibleName("いいね");
     });
   });
 

@@ -1,5 +1,5 @@
-import { Bookmark, Heart, SlidersHorizontal, X } from "lucide-react";
-import { type FC, type ReactNode, useMemo, useRef, useState } from "react";
+import { Bookmark, ChevronDown, Heart, SlidersHorizontal, X } from "lucide-react";
+import { type FC, type ReactNode, useId, useMemo, useRef, useState } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteractionContext } from "../contexts/InteractionContext";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -10,7 +10,6 @@ import { CategoryFilter } from "./CategoryFilter";
 import { PaperList } from "./PaperList";
 import { PaperSearch } from "./PaperSearch";
 import { Button } from "./ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 /**
@@ -180,11 +179,19 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   // モバイル: 論文一覧をファーストビューに近づける（オブジェクトファースト）
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
-  // モバイル: 絞り込みをSheetに集約（開閉状態）
-  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  // モバイル: 一覧の手前の折りたたみ式絞り込み領域（開閉状態）
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const filterPanelId = useId();
+  const filterToggleRef = useRef<HTMLButtonElement>(null);
 
   // 有効なフィルター数（バッジ表示用）
   const activeFilterCount = (filterMode !== "all" ? 1 : 0) + selectedCategories.size;
+
+  // 適用中の条件（モバイルで折りたたみ中も確認できるように表示）
+  const activeConditionLabels = [
+    ...(filterMode === "liked" ? ["いいね"] : filterMode === "bookmarked" ? ["ブックマーク"] : []),
+    ...selectedCategories,
+  ];
 
   const showFilterArea =
     displayPapers.length > 0 || filterMode !== "all" || selectedCategories.size > 0;
@@ -238,26 +245,142 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
             : {})}
         />
 
-        {/* 絞り込み: モバイルは「フィルター」ボタン＋Sheet、デスクトップはインラインコンパクト */}
+        {/* 絞り込み: モバイルは一覧の手前の折りたたみ領域、デスクトップはインラインコンパクト */}
         {showFilterArea &&
           (!isDesktop ? (
-            /* モバイル: 1ボタンでSheetを開く（論文一覧までの距離を短く） */
-            <div className="pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsFilterSheetOpen(true)}
-                className="h-8 gap-1.5 px-3 text-sm"
-                aria-label="絞り込みを開く"
+            /* モバイル: 一覧の手前に折りたたみ式の絞り込み領域を置く（一覧を覆わず、結果を見ながら調整できる） */
+            <div className="space-y-2 pt-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <Button
+                  ref={filterToggleRef}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsFilterPanelOpen((open) => !open)}
+                  className="h-8 shrink-0 gap-1.5 px-3 text-sm"
+                  aria-expanded={isFilterPanelOpen}
+                  aria-controls={filterPanelId}
+                >
+                  <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                  絞り込み
+                  {activeFilterCount > 0 ? (
+                    <span className="ml-0.5 rounded-full bg-primary/20 px-1.5 py-0 text-xs font-medium text-primary">
+                      <span className="sr-only">（適用中の条件</span>
+                      {activeFilterCount}
+                      <span className="sr-only">件）</span>
+                    </span>
+                  ) : null}
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform",
+                      isFilterPanelOpen && "rotate-180"
+                    )}
+                    aria-hidden
+                  />
+                </Button>
+                {activeConditionLabels.length > 0 ? (
+                  <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    {activeConditionLabels.join("・")}
+                  </p>
+                ) : (
+                  <span className="flex-1" />
+                )}
+                <p
+                  className="shrink-0 text-xs text-muted-foreground"
+                  aria-live="polite"
+                  data-testid="filter-result-count"
+                >
+                  {isSearchLoading ? "" : `${filteredPapers.length}件`}
+                </p>
+              </div>
+              <section
+                id={filterPanelId}
+                aria-label="絞り込み条件"
+                hidden={!isFilterPanelOpen}
+                onKeyDown={(event) => {
+                  // Esc で折りたたみ、内部にあったフォーカスを開閉ボタンへ戻す
+                  if (event.key === "Escape") {
+                    event.stopPropagation();
+                    setIsFilterPanelOpen(false);
+                    filterToggleRef.current?.focus();
+                  }
+                }}
+                className="space-y-3 rounded-lg border border-border/60 p-3"
               >
-                <SlidersHorizontal className="h-4 w-4" />
-                フィルター
-                {activeFilterCount > 0 ? (
-                  <span className="ml-0.5 rounded-full bg-primary/20 px-1.5 py-0 text-xs font-medium text-primary">
-                    {activeFilterCount}
-                  </span>
+                {/* 表示: すべて / いいね / ブックマーク */}
+                <fieldset className="m-0 min-w-0 space-y-2 border-0 p-0">
+                  <legend className="mb-2 text-xs font-medium text-muted-foreground">表示</legend>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant={filterMode === "all" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleFilterMode("all")}
+                      aria-pressed={filterMode === "all"}
+                      className="h-8"
+                    >
+                      すべて
+                    </Button>
+                    <Button
+                      variant={filterMode === "liked" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleFilterMode("liked")}
+                      disabled={likedCount === 0 && filterMode !== "liked"}
+                      aria-pressed={filterMode === "liked"}
+                      aria-label={`いいね（${likedCount}件）`}
+                      className="h-8 gap-1.5"
+                    >
+                      <Heart className={cn("h-4 w-4", filterMode === "liked" && "fill-current")} />
+                      {likedCount}
+                    </Button>
+                    <Button
+                      variant={filterMode === "bookmarked" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleFilterMode("bookmarked")}
+                      disabled={bookmarkedCount === 0 && filterMode !== "bookmarked"}
+                      aria-pressed={filterMode === "bookmarked"}
+                      aria-label={`ブックマーク（${bookmarkedCount}件）`}
+                      className="h-8 gap-1.5"
+                    >
+                      <Bookmark
+                        className={cn("h-4 w-4", filterMode === "bookmarked" && "fill-current")}
+                      />
+                      {bookmarkedCount}
+                    </Button>
+                  </div>
+                </fieldset>
+
+                {/* カテゴリ（多い場合は領域内でスクロールし、一覧の先頭を押し出しすぎない） */}
+                {availableCategories.length > 1 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">カテゴリ</p>
+                    <div className="max-h-28 overflow-y-auto">
+                      <CategoryFilter
+                        availableCategories={availableCategories}
+                        selectedCategories={selectedCategories}
+                        onToggle={toggleCategory}
+                        onClear={clearAllFilters}
+                        hideLabel
+                      />
+                    </div>
+                  </div>
                 ) : null}
-              </Button>
+
+                {/* クリア（フィルターのみ解除。領域は開いたまま） */}
+                {activeFilterCount > 0 ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      clearAllFilters();
+                      // ボタン自体が消えるため、フォーカスを開閉ボタンへ移して見失わせない
+                      filterToggleRef.current?.focus();
+                    }}
+                    className="w-full justify-center text-muted-foreground"
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    絞り込みをクリア
+                  </Button>
+                ) : null}
+              </section>
             </div>
           ) : (
             /* デスクトップ: インラインコンパクト（ラベル省略・余白縮小） */
@@ -342,85 +465,6 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
               ) : null}
             </div>
           ))}
-
-        {/* モバイル: 絞り込みSheet */}
-        {!isDesktop && (
-          <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
-            <SheetContent side="bottom" className="rounded-t-xl max-h-[85dvh] flex flex-col">
-              <SheetHeader>
-                <SheetTitle>絞り込み</SheetTitle>
-              </SheetHeader>
-              <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4 pb-6">
-                {/* 表示: すべて / いいね / ブックマーク */}
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">表示</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant={filterMode === "all" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => toggleFilterMode("all")}
-                      className="h-8"
-                    >
-                      すべて
-                    </Button>
-                    <Button
-                      variant={filterMode === "liked" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => toggleFilterMode("liked")}
-                      disabled={likedCount === 0}
-                      className="h-8 gap-1.5"
-                    >
-                      <Heart className={cn("h-4 w-4", filterMode === "liked" && "fill-current")} />
-                      {likedCount}
-                    </Button>
-                    <Button
-                      variant={filterMode === "bookmarked" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => toggleFilterMode("bookmarked")}
-                      disabled={bookmarkedCount === 0}
-                      className="h-8 gap-1.5"
-                    >
-                      <Bookmark
-                        className={cn("h-4 w-4", filterMode === "bookmarked" && "fill-current")}
-                      />
-                      {bookmarkedCount}
-                    </Button>
-                  </div>
-                </div>
-
-                {/* カテゴリ */}
-                {availableCategories.length > 1 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">カテゴリ</p>
-                    <CategoryFilter
-                      availableCategories={availableCategories}
-                      selectedCategories={selectedCategories}
-                      onToggle={toggleCategory}
-                      onClear={clearAllFilters}
-                      hideLabel
-                    />
-                  </div>
-                ) : null}
-
-                {/* クリア */}
-                {activeFilterCount > 0 ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      clearAllFilters();
-                      setIsFilterSheetOpen(false);
-                    }}
-                    className="w-full justify-center text-muted-foreground"
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    絞り込みをクリア
-                  </Button>
-                ) : null}
-              </div>
-            </SheetContent>
-          </Sheet>
-        )}
       </section>
 
       {/* 論文リスト */}
