@@ -16,7 +16,6 @@ import { usePaperSummary } from "./hooks/usePaperSummary";
 import { useSemanticSearch } from "./hooks/useSemanticSearch";
 import { useSyncPapers } from "./hooks/useSyncPapers";
 import { ApiDisabledError } from "./lib/api";
-import { getEmptySearchMessage } from "./lib/emptySearchMessage";
 import { PaperPage } from "./pages/PaperPage";
 import { usePaperStore } from "./stores/paperStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -78,6 +77,7 @@ const queryWrapper = ({ children }: { children: ReactNode }) => (
 
 describe("API利用OFF時の外部AI呼び出し停止", () => {
   beforeEach(() => {
+    toastError.mockClear();
     fetchMock.mockReset();
     fetchMock.mockImplementation(
       async () =>
@@ -141,7 +141,7 @@ describe("API利用OFF時の外部AI呼び出し停止", () => {
     expect(err.message).toContain("「利用可能」をON");
   });
 
-  it("API利用OFF時はAI検索のリクエストが発生せず、停止理由を空状態メッセージに表示する", async () => {
+  it("API利用OFF時はAI検索のリクエストが発生せず、検索状態にしない（保存済み論文の一覧を妨げない）", async () => {
     useSettingsStore.setState({ apiEnabled: false });
     const { result } = renderHook(() => useSemanticSearch({ papers: [paper] }));
 
@@ -150,22 +150,9 @@ describe("API利用OFF時の外部AI呼び出し停止", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.current.error?.name).toBe("ApiDisabledError");
-
-    const isSearchActive = result.current.expandedQuery !== null;
-    render(
-      <div>
-        {getEmptySearchMessage(
-          isSearchActive,
-          result.current.results.length,
-          result.current.error,
-          result.current.queryEmbedding,
-          result.current.isLoading
-        )}
-      </div>
-    );
-    expect(screen.getByText("API利用がOFFのためAI検索を停止しています")).toBeInTheDocument();
-    expect(screen.getByText(/「利用可能」をONにすると再開できます/)).toBeInTheDocument();
+    expect(result.current.error).toBeInstanceOf(ApiDisabledError);
+    // App は expandedQuery !== null で検索状態と判定する。null のままなら一覧は全件のまま
+    expect(result.current.expandedQuery).toBeNull();
   });
 
   it("API利用OFF時はEmbedding補完のリクエストが発生せず、停止理由と再開方法を結果に残す", async () => {
@@ -186,18 +173,34 @@ describe("API利用OFF時の外部AI呼び出し停止", () => {
     expect(outcome?.failure?.guidance).toContain("「利用可能」をON");
   });
 
-  it("設定画面でAPI利用OFF時に止まる処理と再開方法を説明する", () => {
-    useSettingsStore.setState({ apiEnabled: false });
+  it("設定画面でAPI利用OFF時に止まる処理と再開方法を説明する（キー保存済み）", () => {
+    useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
     render(<ApiSettings />);
 
-    const status = screen.getByText("API利用がOFFのため、次の処理を停止しています")
+    const notice = screen.getByText("API利用がOFFのため、次の処理を停止しています")
       .parentElement as HTMLElement;
-    expect(status).toHaveTextContent("API利用がOFFのため、次の処理を停止しています");
-    expect(status).toHaveTextContent("AI検索");
-    expect(status).toHaveTextContent("要約・説明文の生成（自動・手動とも）");
-    expect(status).toHaveTextContent("Embedding補完");
-    expect(status).toHaveTextContent("保存済みの論文・要約・検索履歴の閲覧は引き続き利用できます");
-    expect(status).toHaveTextContent("「利用可能」をONにすると再開します");
+    expect(notice).toHaveTextContent("AI検索");
+    expect(notice).toHaveTextContent("要約・説明文の生成（自動・手動とも）");
+    expect(notice).toHaveTextContent("Embedding補完");
+    expect(notice).toHaveTextContent("保存済みの論文・要約・検索履歴の閲覧は引き続き利用できます");
+    expect(notice).toHaveTextContent(
+      "OFF中に取得した論文は、ON後に「Embeddingを補完」を実行するとAI検索の対象になります"
+    );
+    expect(notice).toHaveTextContent("設定の「利用可能」をONにすると再開できます。");
+    expect(screen.getByRole("switch", { name: "利用可能" })).toBeEnabled();
+  });
+
+  it("キー削除後（スイッチを操作できない）は、キーの保存から再開方法を案内する", () => {
+    useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
+    useSettingsStore.getState().clearApiKey();
+    render(<ApiSettings />);
+
+    expect(screen.getByRole("switch", { name: "利用可能" })).toBeDisabled();
+    const notice = screen.getByText("API利用がOFFのため、次の処理を停止しています")
+      .parentElement as HTMLElement;
+    expect(notice).toHaveTextContent(
+      "設定でAPIキーを保存し、「利用可能」をONにすると再開できます。"
+    );
   });
 
   it("API利用ON時は停止説明を表示しない", () => {

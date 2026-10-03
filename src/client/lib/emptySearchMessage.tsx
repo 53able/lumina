@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
  * 検索0件時に表示するメッセージの種別
  */
 export type EmptySearchMessageKind =
-  | "api-disabled"
   | "api-key-decrypt-failed"
   | "api-key-required"
   | "no-results"
@@ -16,7 +15,7 @@ export type EmptySearchMessageKind =
  *
  * @param isSearchActive - 検索が実行済みか（expandedQuery !== null）
  * @param resultCount - 検索結果件数
- * @param searchError - 検索時のエラー（OperationError は API キー復号失敗、ApiDisabledError は API 利用 OFF）
+ * @param searchError - 検索時のエラー（OperationError は API キー復号失敗）
  * @param queryEmbedding - 現在のクエリ Embedding（null は API キー未設定の可能性）
  * @param isLoading - 検索処理中かどうか
  * @returns 表示する ReactNode、または undefined（メッセージ不要な場合）
@@ -31,17 +30,6 @@ export const getEmptySearchMessage = (
   // ローディング中はメッセージを表示しない
   if (isLoading) return undefined;
   if (!isSearchActive || resultCount > 0) return undefined;
-
-  if (searchError?.name === "ApiDisabledError") {
-    return (
-      <>
-        <p className="text-lg text-muted-foreground">API利用がOFFのためAI検索を停止しています</p>
-        <p className="text-sm text-muted-foreground/70">
-          設定の「利用可能」をONにすると再開できます。保存済みの論文と検索履歴はそのまま閲覧できます。
-        </p>
-      </>
-    );
-  }
 
   if (searchError?.name === "OperationError") {
     return (

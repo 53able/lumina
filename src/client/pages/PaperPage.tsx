@@ -6,6 +6,7 @@ import { BackToListLink } from "../components/BackToListLink";
 import { PaperDetail } from "../components/PaperDetail";
 import { Button } from "../components/ui/button";
 import { usePaperSummary } from "../hooks/usePaperSummary";
+import { ApiDisabledError } from "../lib/api";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -33,7 +34,7 @@ export const PaperPage: FC = () => {
         console.error("Summary generation error:", err);
         // 生成中に別の論文へ移動している場合があるため、どの論文の失敗かを示す
         const title = getPaperById(paperId)?.title;
-        toast.error("要約生成エラー", {
+        toast.error(err instanceof ApiDisabledError ? "AI要約を停止中" : "要約生成エラー", {
           description: title ? `${title}: ${err.message}` : err.message,
         });
       },

@@ -1,4 +1,5 @@
 import { type FC, useState } from "react";
+import { getApiResumeHint } from "../lib/api";
 import { useSettingsStore } from "../stores/settingsStore";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -113,8 +114,9 @@ export const ApiSettings: FC = () => {
               <li>Embedding補完と、同期時のEmbedding生成</li>
             </ul>
             <p className="mt-1">
-              arXivからの論文同期と、保存済みの論文・要約・検索履歴の閲覧は引き続き利用できます。「利用可能」をONにすると再開します。
+              arXivからの論文同期と、保存済みの論文・要約・検索履歴の閲覧は引き続き利用できます。OFF中に取得した論文は、ON後に「Embeddingを補完」を実行するとAI検索の対象になります。
             </p>
+            <p className="mt-1">{getApiResumeHint(hasApiKey())}</p>
           </div>
         )}
       </div>

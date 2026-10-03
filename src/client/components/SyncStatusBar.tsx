@@ -123,7 +123,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
   onRunEmbeddingBackfill,
   onStopSync,
 }) => {
-  const { getLastSyncedAt } = useSettingsStore();
+  const { getLastSyncedAt, apiEnabled } = useSettingsStore();
   const lastSyncedAt = getLastSyncedAt();
 
   const isFetching = useSyncStore((s) => s.isFetching);
@@ -366,7 +366,9 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   variant="outline"
                   size="sm"
                   onClick={onRunEmbeddingBackfill}
+                  disabled={!apiEnabled}
                   aria-label="Embedding未設定の論文を補完"
+                  aria-describedby={apiEnabled ? undefined : "embedding-backfill-api-disabled"}
                   className={
                     compact
                       ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
@@ -376,6 +378,11 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   Embeddingを補完
                 </Button>
               )}
+            {onRunEmbeddingBackfill && papersWithoutEmbeddingCount > 0 && !apiEnabled && (
+              <span id="embedding-backfill-api-disabled" className="text-muted-foreground">
+                API利用OFFのため補完を停止中（設定の「利用可能」をONにすると補完できます）
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -396,7 +403,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           outcome={visibleOutcome}
           compact={compact}
           remainingCount={papersWithoutEmbeddingCount}
-          onRetry={onRunEmbeddingBackfill}
+          onRetry={apiEnabled ? onRunEmbeddingBackfill : undefined}
           onDismiss={() => setEmbeddingBackfillOutcome(null)}
         />
       ) : null}

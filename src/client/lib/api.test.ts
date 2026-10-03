@@ -16,9 +16,10 @@ import {
   syncApi,
 } from "./api";
 
+// 既定は API 利用 ON・キー未設定
 vi.mock("@/client/stores/settingsStore", () => ({
   useSettingsStore: {
-    getState: vi.fn(),
+    getState: vi.fn(() => ({ apiEnabled: true, apiKey: "" })),
   },
 }));
 
@@ -269,11 +270,18 @@ describe("syncApi", () => {
 describe("API利用OFF時の実行境界", () => {
   const mockFetch = vi.fn();
 
-  const mockApiEnabled = (apiEnabled: boolean) => {
+  const mockApiEnabled = (apiEnabled: boolean, apiKey = "encrypted-key") => {
     vi.mocked(useSettingsStore.getState).mockReturnValue({
       apiEnabled,
+      apiKey,
     } as ReturnType<typeof useSettingsStore.getState>);
   };
+
+  const okSyncResponse = () =>
+    new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
+      status: 200,
+      headers: new Headers(),
+    });
 
   /** fetch に渡されたリクエスト body を JSON で取り出す */
   const readRequestBody = async (call: unknown[]): Promise<Record<string, unknown>> => {
@@ -289,8 +297,76 @@ describe("API利用OFF時の実行境界", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.mocked(useSettingsStore.getState).mockReset();
+    vi.useRealTimers();
+    vi.mocked(useSettingsStore.getState).mockReturnValue({
+      apiEnabled: true,
+      apiKey: "",
+    } as ReturnType<typeof useSettingsStore.getState>);
     mockFetch.mockReset();
+  });
+
+  it("再開方法はキー保存済みなら「利用可能」をON、未保存ならキーの保存から案内する", async () => {
+    mockApiEnabled(false, "encrypted-key");
+    await expect(searchApi({ query: "q", limit: 10 })).rejects.toMatchObject({
+      resumeHint: "設定の「利用可能」をONにすると再開できます。",
+    });
+
+    mockApiEnabled(false, "");
+    await expect(searchApi({ query: "q", limit: 10 })).rejects.toMatchObject({
+      resumeHint: "設定でAPIキーを保存し、「利用可能」をONにすると再開できます。",
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("Embedding の送信間隔の待機中に OFF にされたら送信しない", async () => {
+    vi.useFakeTimers();
+    mockApiEnabled(true);
+    const embedding = Array(EMBEDDING_DIMENSION).fill(0.1);
+    mockFetch.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ embedding, model: "m", took: 1 }), {
+          status: 200,
+          headers: new Headers(),
+        })
+    );
+    // 1本目で送信時刻を記録し、2本目を待機させる
+    const first = embeddingApi({ text: "first" });
+    await vi.runAllTimersAsync();
+    await first;
+    const callsBefore = mockFetch.mock.calls.length;
+
+    const second = embeddingApi({ text: "second" });
+    const expectReject = expect(second).rejects.toThrow(ApiDisabledError);
+    mockApiEnabled(false);
+    await vi.runAllTimersAsync();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(callsBefore);
+  });
+
+  it("sync の 429 再送前に OFF にされたら、再送で skipEmbedding: true を送る", async () => {
+    vi.useFakeTimers();
+    mockApiEnabled(true);
+    mockFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Too Many Requests" }), {
+          status: 429,
+          headers: new Headers({ "Retry-After": "1" }),
+        })
+      )
+      .mockResolvedValueOnce(okSyncResponse());
+
+    const promise = syncApi(
+      { categories: ["cs.AI"] },
+      {
+        onRateLimited: () => mockApiEnabled(false),
+      }
+    );
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(await readRequestBody(mockFetch.mock.calls[0])).not.toHaveProperty("skipEmbedding");
+    expect((await readRequestBody(mockFetch.mock.calls[1])).skipEmbedding).toBe(true);
   });
 
   it("OFF のとき searchApi は fetch せず ApiDisabledError を投げる", async () => {
@@ -333,12 +409,7 @@ describe("API利用OFF時の実行境界", () => {
 
   it("OFF のとき syncApi は arXiv 同期を続け、skipEmbedding: true を送る", async () => {
     mockApiEnabled(false);
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
-        status: 200,
-        headers: new Headers(),
-      })
-    );
+    mockFetch.mockResolvedValueOnce(okSyncResponse());
 
     await syncApi({ categories: ["cs.AI"] });
 
@@ -349,12 +420,7 @@ describe("API利用OFF時の実行境界", () => {
 
   it("ON のとき syncApi は skipEmbedding を送らない", async () => {
     mockApiEnabled(true);
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
-        status: 200,
-        headers: new Headers(),
-      })
-    );
+    mockFetch.mockResolvedValueOnce(okSyncResponse());
 
     await syncApi({ categories: ["cs.AI"] });
 

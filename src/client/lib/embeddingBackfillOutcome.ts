@@ -74,7 +74,7 @@ export const classifyEmbeddingBackfillError = (error: unknown): EmbeddingBackfil
     return {
       kind: "api_disabled",
       reason: "API利用がOFFのため補完を停止しています",
-      guidance: "設定の「利用可能」をONにしてから、未処理分を再試行してください。",
+      guidance: `${error.resumeHint}再開後に未処理分を補完してください。`,
     };
   }
 
