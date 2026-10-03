@@ -292,8 +292,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 ) : null}
                 {onSearchWithEditedText ? (
                   <SearchTextEditor
-                    // 検索文が変わったら（再検索の完了・別の検索）編集中の内容を表示中の検索文に戻す
-                    key={expandedQuery.searchText}
+                    // 検索が変わったら（再検索の完了・同じ検索文の別検索も含む）編集状態を表示中の検索から作り直す
+                    key={`${expandedQuery.original}\n${expandedQuery.english}\n${expandedQuery.searchText}`}
                     expandedQuery={expandedQuery}
                     onSubmit={onSearchWithEditedText}
                     isLoading={isLoading}
