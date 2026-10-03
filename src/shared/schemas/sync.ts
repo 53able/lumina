@@ -32,6 +32,8 @@ export const SyncRequestSchema = z.object({
     .optional(),
   /** 既に保持している論文の ID。含まれる論文は Embedding を生成せずに返す（新規のみ Embedding）。 */
   existingPaperIds: z.array(z.string()).max(2000).optional(),
+  /** true のとき Embedding を生成せずに返す（クライアントで API 利用が OFF のとき）。 */
+  skipEmbedding: z.boolean().optional(),
 });
 
 export type SyncRequest = z.infer<typeof SyncRequestSchema>;

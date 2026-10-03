@@ -53,7 +53,9 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
           : new Set<string>();
 
       // 2. APIキーがある場合は新規論文のみバッチで Embedding を生成（既存IDはスキップ）
+      //    skipEmbedding 指定時（クライアントで API 利用 OFF）は生成しない
       const papersWithEmbedding = await (async (): Promise<Paper[]> => {
+        if (body.skipEmbedding) return arxivResult.papers;
         try {
           const config = getOpenAIConfig(c);
           const results: Paper[] = [];

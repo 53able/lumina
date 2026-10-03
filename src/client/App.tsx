@@ -102,10 +102,13 @@ const HomePage: FC = () => {
   const {
     selectedCategories,
     syncPeriodDays,
-    autoGenerateSummary,
+    autoGenerateSummary: autoGenerateSummarySetting,
+    apiEnabled,
     shouldAutoSync,
     searchScoreThreshold,
   } = useSettingsStore();
+  // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
+  const autoGenerateSummary = autoGenerateSummarySetting && apiEnabled;
   // 検索履歴（searchHistoryStore経由で永続化）
   const { histories, addHistory, getRecentHistories, deleteHistory } = useSearchHistoryStore();
   const recentHistories = getRecentHistories(10);

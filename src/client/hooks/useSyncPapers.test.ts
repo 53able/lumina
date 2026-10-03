@@ -69,10 +69,14 @@ vi.mock("../stores/paperStore", () => ({
 }));
 
 vi.mock("../stores/settingsStore", () => ({
-  useSettingsStore: (selector: (s: unknown) => unknown) => {
-    const state = { setLastSyncedAt: mockSetLastSyncedAt };
-    return selector ? selector(state) : state;
-  },
+  useSettingsStore: Object.assign(
+    (selector: (s: unknown) => unknown) => {
+      const state = { setLastSyncedAt: mockSetLastSyncedAt };
+      return selector ? selector(state) : state;
+    },
+    // api.ts の実行境界（assertApiEnabled）が参照する。API利用ONとして扱う
+    { getState: () => ({ apiEnabled: true }) }
+  ),
 }));
 
 const createTestQueryClient = () =>

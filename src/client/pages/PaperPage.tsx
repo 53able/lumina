@@ -18,7 +18,8 @@ import { useSettingsStore } from "../stores/settingsStore";
 export const PaperPage: FC = () => {
   const { id } = useParams<{ id: string }>();
   const { getPaperById } = usePaperStore();
-  const { autoGenerateSummary } = useSettingsStore();
+  // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
+  const autoGenerateSummary = useSettingsStore((s) => s.autoGenerateSummary && s.apiEnabled);
 
   // 論文を取得
   const paper = id ? getPaperById(id) : undefined;

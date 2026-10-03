@@ -55,6 +55,31 @@ const withApiKey = (options?: ApiOptions) => {
 };
 
 /**
+ * 設定で API 利用が OFF のときに AI 呼び出し関数が投げるエラー。
+ * fetch の前に投げるため、OFF 中は検索・要約・Embedding のリクエストが発生しない。
+ */
+export class ApiDisabledError extends Error {
+  constructor(
+    message = "API利用がOFFのため、AI処理（検索・要約・Embedding補完）を停止しています。設定の「利用可能」をONにすると再開できます。"
+  ) {
+    super(message);
+    this.name = "ApiDisabledError";
+  }
+}
+
+/**
+ * AI 呼び出しの実行境界。設定で API 利用が OFF なら ApiDisabledError を投げる。
+ *
+ * @remarks
+ * APIキー未設定（apiEnabled は既定の true）の場合は止めない。サーバー側のキー解決に委ねる。
+ */
+export const assertApiEnabled = (): void => {
+  if (useSettingsStore.getState()?.apiEnabled === false) {
+    throw new ApiDisabledError();
+  }
+};
+
+/**
  * 復号済み API key のキャッシュ（PBKDF2 復号の遅延を避ける）
  * ストアの apiKey が変わったらキャッシュは無効になる
  */
@@ -149,6 +174,7 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
  * @throws Error APIエラー時
  */
 export const searchApi = async (request: SearchRequest, options?: ApiOptions) => {
+  assertApiEnabled();
   const res = await client.api.v1.search.$post(
     { json: request },
     { ...withApiKey(options), init: { signal: options?.signal } }
@@ -337,6 +363,7 @@ export const embeddingApi = async (
   request: { text: string },
   options?: ApiOptions
 ): Promise<{ embedding: number[] }> => {
+  assertApiEnabled();
   const opts = withApiKey(options);
   await waitForEmbeddingInterval();
   const res = await client.api.v1.embedding.$post({ json: request }, opts);
@@ -358,6 +385,7 @@ export const embeddingBatchApi = async (
   request: { texts: string[] },
   options?: ApiOptions
 ): Promise<{ embeddings: number[][] }> => {
+  assertApiEnabled();
   const opts = withApiKey(options);
   // バッチ 1 リクエスト = 1 スロット。2 回目以降の待ちを短くする
   await waitForEmbeddingInterval(1);
@@ -428,6 +456,7 @@ const waitForSyncRetryDelay = (delayMs: number, signal?: AbortSignal): Promise<v
  * 同期API
  *
  * arXiv論文を取得し、Embeddingを生成する。
+ * API 利用が OFF のときは skipEmbedding を送り、arXiv 取得のみ行う（Embedding は生成しない）。
  * 429（Too Many Requests）のときは Retry-After に従ってリトライする（embedding と同一レートリミットバケットのため）。
  *
  * @param request 同期リクエスト
@@ -447,6 +476,8 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
     ...(request.existingPaperIds != null && request.existingPaperIds.length > 0
       ? { existingPaperIds: request.existingPaperIds }
       : {}),
+    // arXiv 取得は AI 呼び出しではないため継続し、Embedding 生成だけを止める
+    ...(useSettingsStore.getState()?.apiEnabled === false ? { skipEmbedding: true } : {}),
   };
 
   let lastRes = await client.api.v1.sync.$post({ json: body }, opts);
@@ -528,6 +559,7 @@ export const summaryApi = async (
   request: SummaryApiInput,
   options?: ApiOptions
 ) => {
+  assertApiEnabled();
   const res = await client.api.v1.summary[":id"].$post(
     {
       param: { id: paperId },

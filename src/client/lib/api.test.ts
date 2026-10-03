@@ -2,13 +2,17 @@
  * クライアント API（embeddingApi / embeddingBatchApi の 429 リトライ・getRecommendedConcurrency・getDecryptedApiKey）のユニットテスト
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSettingsStore } from "@/client/stores/settingsStore";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import {
+  ApiDisabledError,
   EmbeddingRateLimitError,
   embeddingApi,
   embeddingBatchApi,
   getDecryptedApiKey,
   getRecommendedConcurrency,
+  searchApi,
+  summaryApi,
   syncApi,
 } from "./api";
 
@@ -259,5 +263,102 @@ describe("syncApi", () => {
       name: "AbortError",
     });
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("API利用OFF時の実行境界", () => {
+  const mockFetch = vi.fn();
+
+  const mockApiEnabled = (apiEnabled: boolean) => {
+    vi.mocked(useSettingsStore.getState).mockReturnValue({
+      apiEnabled,
+    } as ReturnType<typeof useSettingsStore.getState>);
+  };
+
+  /** fetch に渡されたリクエスト body を JSON で取り出す */
+  const readRequestBody = async (call: unknown[]): Promise<Record<string, unknown>> => {
+    const [urlOrRequest, init] = call as [string | Request, RequestInit?];
+    const raw =
+      urlOrRequest instanceof Request ? await urlOrRequest.text() : (init?.body as string);
+    return JSON.parse(raw) as Record<string, unknown>;
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(useSettingsStore.getState).mockReset();
+    mockFetch.mockReset();
+  });
+
+  it("OFF のとき searchApi は fetch せず ApiDisabledError を投げる", async () => {
+    mockApiEnabled(false);
+    await expect(searchApi({ query: "transformer", limit: 10 })).rejects.toThrow(ApiDisabledError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("OFF のとき summaryApi は fetch せず ApiDisabledError を投げる", async () => {
+    mockApiEnabled(false);
+    await expect(summaryApi("2401.00001", { language: "ja" })).rejects.toThrow(ApiDisabledError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("OFF のとき embeddingApi / embeddingBatchApi は fetch せず ApiDisabledError を投げる", async () => {
+    mockApiEnabled(false);
+    await expect(embeddingApi({ text: "test" })).rejects.toThrow(ApiDisabledError);
+    await expect(embeddingBatchApi({ texts: ["a", "b"] })).rejects.toThrow(ApiDisabledError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("ON のとき summaryApi は fetch する", async () => {
+    mockApiEnabled(true);
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          paperId: "2401.00001",
+          summary: "要約",
+          keyPoints: [],
+          language: "ja",
+          createdAt: "2024-01-01T00:00:00.000Z",
+        }),
+        { status: 200, headers: new Headers() }
+      )
+    );
+
+    await summaryApi("2401.00001", { language: "ja" });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("OFF のとき syncApi は arXiv 同期を続け、skipEmbedding: true を送る", async () => {
+    mockApiEnabled(false);
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
+        status: 200,
+        headers: new Headers(),
+      })
+    );
+
+    await syncApi({ categories: ["cs.AI"] });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = await readRequestBody(mockFetch.mock.calls[0]);
+    expect(body.skipEmbedding).toBe(true);
+  });
+
+  it("ON のとき syncApi は skipEmbedding を送らない", async () => {
+    mockApiEnabled(true);
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
+        status: 200,
+        headers: new Headers(),
+      })
+    );
+
+    await syncApi({ categories: ["cs.AI"] });
+
+    const body = await readRequestBody(mockFetch.mock.calls[0]);
+    expect(body).not.toHaveProperty("skipEmbedding");
   });
 });
