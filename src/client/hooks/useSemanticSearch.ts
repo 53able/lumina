@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExpandedQuery, Paper } from "../../shared/schemas/index";
 import { getDecryptedApiKey, searchApi } from "../lib/api";
 
@@ -49,7 +49,7 @@ interface UseSemanticSearchReturn {
   queryEmbedding: number[] | null;
   /** 直近の検索でヒットした総件数（limit適用前。履歴の結果件数表示用） */
   totalMatchCount: number;
-  /** 状態リセット関数 */
+  /** 状態リセット関数（実行中の検索も無効化し、その応答を採用しない） */
   reset: () => void;
 }
 
@@ -118,6 +118,30 @@ export const useSemanticSearch = ({
   const [expandedQuery, setExpandedQuery] = useState<ExpandedQuery | null>(null);
   const [queryEmbedding, setQueryEmbedding] = useState<number[] | null>(null);
 
+  /**
+   * 検索の実行世代。検索開始・reset のたびに進め、古い世代の応答は状態へ反映しない。
+   * 通信中止は補助手段で、応答の採用可否はこの世代で判定する（中止前に届いた応答も破棄するため）。
+   */
+  const generationRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // アンマウント時（論文詳細への遷移など）は実行中の検索を中止・無効化する
+  useEffect(
+    () => () => {
+      abortControllerRef.current?.abort();
+      generationRef.current += 1;
+    },
+    []
+  );
+
+  /** 新しい世代を開始し、前の世代の通信を中止する */
+  const startGeneration = useCallback((): number => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    generationRef.current += 1;
+    return generationRef.current;
+  }, []);
+
   /** 検索開始時に前回の結果をクリアし、ローディング状態にする */
   const resetSearchState = useCallback(() => {
     setIsLoading(true);
@@ -180,6 +204,11 @@ export const useSemanticSearch = ({
 
   const search = useCallback(
     async (query: string): Promise<SearchResult[]> => {
+      const generation = startGeneration();
+      const isCurrent = () => generation === generationRef.current;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       // 検索開始時に前回の検索結果をクリア（検索中に「該当する論文がありませんでした」が表示されないようにする）
       setExpandedQuery(null);
       setQueryEmbedding(null);
@@ -189,9 +218,12 @@ export const useSemanticSearch = ({
         // API key を復号化して取得（早期開始パターン）
         const apiKeyPromise = getDecryptedApiKey();
         const apiKey = await apiKeyPromise;
+        if (!isCurrent()) return [];
 
         // 1. 検索APIを呼び出す（型安全なfetchラッパー経由）
-        const data = await searchApi({ query, limit }, { apiKey });
+        const data = await searchApi({ query, limit }, { apiKey, signal: controller.signal });
+        // クリアや後続検索で無効化された応答は採用しない
+        if (!isCurrent()) return [];
 
         // 2. 拡張クエリを保存
         setExpandedQuery(data.expandedQuery);
@@ -215,6 +247,7 @@ export const useSemanticSearch = ({
         // 4. 共通ロジックで検索結果を計算
         return computeSearchResults(embedding);
       } catch (e) {
+        if (!isCurrent()) return [];
         const err = e instanceof Error ? e : new Error("Unknown error");
         setError(err);
         setResultEntries([]);
@@ -231,10 +264,13 @@ export const useSemanticSearch = ({
         }
         return [];
       } finally {
-        setIsLoading(false);
+        if (isCurrent()) {
+          abortControllerRef.current = null;
+          setIsLoading(false);
+        }
       }
     },
-    [papers, limit, computeSearchResults, resetSearchState]
+    [papers, limit, computeSearchResults, resetSearchState, startGeneration]
   );
 
   /**
@@ -246,6 +282,8 @@ export const useSemanticSearch = ({
       savedExpandedQuery: ExpandedQuery,
       savedQueryEmbedding: number[]
     ): Promise<SearchResult[]> => {
+      // 実行中のAPI検索があれば無効化する（後から届いた応答で履歴の結果を上書きさせない）
+      startGeneration();
       // 検索開始時に前回の検索結果をクリア（検索中に「該当する論文がありませんでした」が表示されないようにする）
       resetSearchState();
 
@@ -275,17 +313,19 @@ export const useSemanticSearch = ({
         setIsLoading(false);
       }
     },
-    [papers, computeSearchResults, resetSearchState]
+    [papers, computeSearchResults, resetSearchState, startGeneration]
   );
 
   const reset = useCallback(() => {
+    startGeneration();
+    setIsLoading(false);
     setResultEntries([]);
     setPapersExcludedFromSearch([]);
     setTotalMatchCount(0);
     setExpandedQuery(null);
     setQueryEmbedding(null);
     setError(null);
-  }, []);
+  }, [startGeneration]);
 
   return {
     search,

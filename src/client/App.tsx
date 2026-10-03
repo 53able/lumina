@@ -1,25 +1,13 @@
-import {
-  type FC,
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
-import { Route, Routes, useSearchParams } from "react-router-dom";
+import { type FC, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
-import type { Paper, SearchHistory as SearchHistoryType } from "../shared/schemas/index";
+import type { Paper } from "../shared/schemas/index";
 import { HomeFooter } from "./components/HomeFooter";
 import { HomeHeader } from "./components/HomeHeader";
 import { HomeMain } from "./components/HomeMain";
+import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
-import { useSearchFromUrl } from "./hooks/useSearchFromUrl";
-import { useSearchHistorySync } from "./hooks/useSearchHistorySync";
-import { useSemanticSearch } from "./hooks/useSemanticSearch";
 import { useSyncPapers } from "./hooks/useSyncPapers";
 import { SyncRateLimitError } from "./lib/api";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
@@ -118,31 +106,37 @@ const HomePage: FC = () => {
     shouldAutoSync,
     searchScoreThreshold,
   } = useSettingsStore();
+  // 検索履歴（searchHistoryStore経由で永続化）
+  const { histories, addHistory, getRecentHistories, deleteHistory } = useSearchHistoryStore();
+  const recentHistories = getRecentHistories(10);
+  const findSavedHistory = useCallback(
+    (query: string) => histories.find((h) => h.originalQuery === query),
+    [histories]
+  );
+
+  // 検索（入力・URL・履歴の各入口を1つの実行経路にまとめる）
   const {
-    search,
-    searchWithSavedData,
     results,
     papersExcludedFromSearch,
     isLoading,
     expandedQuery,
     queryEmbedding,
     error: searchError,
-    reset: clearSearch,
-    totalMatchCount,
-  } = useSemanticSearch({
+    completedQuery,
+    searchInputValue,
+    setSearchInputValue,
+    handleSearch,
+    handleClearSearch,
+    handleReSearch,
+  } = useHomeSearch({
     papers,
     scoreThreshold: searchScoreThreshold,
+    addHistory,
+    findSavedHistory,
   });
 
   // 設定ダイアログの開閉状態
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-
-  // 検索入力欄の値（履歴クリックで反映・クリアで空にする）
-  const [searchInputValue, setSearchInputValue] = useState("");
-
-  // URL の q を読み取り（Phase 2: ロード時の自動検索用。依存はプリミティブ値で無限ループ防止）
-  const [searchParams] = useSearchParams();
-  const urlQuery = searchParams.get("q") ?? "";
 
   // 画面サイズ判定（lg = 1024px以上）
   const isDesktop = useMediaQuery("(min-width: 1024px)");
@@ -183,44 +177,6 @@ const HomePage: FC = () => {
           .map((s) => [s.paperId, s.whyRead as string])
       ),
     [summaries, summaryLanguage]
-  );
-
-  // 検索履歴（searchHistoryStore経由で永続化）
-  const { addHistory, getRecentHistories, deleteHistory } = useSearchHistoryStore();
-  const recentHistories = getRecentHistories(10);
-
-  // 最後に検索したクエリを追跡（履歴追加用）
-  const lastSearchQueryRef = useRef<string | null>(null);
-
-  useSearchHistorySync(
-    expandedQuery,
-    queryEmbedding,
-    totalMatchCount,
-    lastSearchQueryRef,
-    addHistory
-  );
-
-  useSearchFromUrl(urlQuery, search, setSearchInputValue, lastSearchQueryRef);
-
-  // useTransitionで検索を非緊急更新として扱う
-  const [_isPending, startTransition] = useTransition();
-
-  // 検索ハンドラー（useTransitionでラップ）
-  const handleSearch = useCallback(
-    async (query: string): Promise<Paper[]> => {
-      // 履歴追加用にクエリを記録
-      lastSearchQueryRef.current = query;
-      // 検索を実行（結果の更新はトランジションとして扱われる）
-      const searchResults = await search(query);
-      // 検索結果の更新をトランジションとして扱う
-      startTransition(() => {
-        // 状態更新は既にsearch()内で行われているため、ここでは何もしない
-        // startTransitionは検索結果の表示更新を非緊急として扱う
-      });
-      // 検索結果からPaperのみを返す
-      return searchResults.map((r) => r.paper);
-    },
-    [search]
   );
 
   // 論文クリックハンドラー（インライン展開のトグル）
@@ -333,30 +289,6 @@ const HomePage: FC = () => {
     }
   }, [papers.length, isPapersLoading, isSyncing, shouldAutoSync, syncPapers]);
 
-  // 検索をクリア（初期状態に戻す）
-  const handleClearSearch = useCallback(() => {
-    setSearchInputValue("");
-    clearSearch();
-  }, [clearSearch]);
-
-  // 検索履歴から再検索
-  const handleReSearch = useCallback(
-    (history: SearchHistoryType) => {
-      setSearchInputValue(history.originalQuery);
-      // 履歴にqueryEmbeddingが保存されている場合は、保存済みデータを使用（APIリクエストなし）
-      if (history.queryEmbedding && history.queryEmbedding.length > 0) {
-        // 履歴追加用にクエリを記録（既存履歴が更新される）
-        lastSearchQueryRef.current = history.originalQuery;
-        searchWithSavedData(history.expandedQuery, history.queryEmbedding);
-      } else {
-        // queryEmbeddingがない場合は通常の検索を実行（APIリクエストあり）
-        lastSearchQueryRef.current = history.originalQuery;
-        search(history.originalQuery);
-      }
-    },
-    [search, searchWithSavedData]
-  );
-
   // 検索履歴を削除
   const handleDeleteHistory = useCallback(
     (id: string) => {
@@ -405,7 +337,7 @@ const HomePage: FC = () => {
         onSearch={handleSearch}
         onClearSearch={handleClearSearch}
         onPaperClick={handlePaperClick}
-        externalQuery={expandedQuery?.original ?? null}
+        externalQuery={completedQuery}
         searchInputValue={searchInputValue}
         onSearchInputChange={setSearchInputValue}
         whyReadMap={whyReadMap}

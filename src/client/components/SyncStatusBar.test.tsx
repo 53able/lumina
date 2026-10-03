@@ -7,6 +7,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { EmbeddingBackfillOutcome } from "../lib/embeddingBackfillOutcome";
 
 // SyncStatusBar が依存するストア・フックをモック（スタブのみ。実装ロジックは書かない）
 const mockPapersWithEmbeddingMissing = [
@@ -48,6 +49,8 @@ const mockSyncStoreState = {
   syncFromDateTarget: null as string | null,
   isEmbeddingBackfilling: false,
   embeddingBackfillProgress: null,
+  embeddingBackfillOutcome: null as EmbeddingBackfillOutcome | null,
+  setEmbeddingBackfillOutcome: vi.fn(),
   lastSyncError: null,
 };
 
@@ -69,7 +72,100 @@ describe("SyncStatusBar", () => {
     mockSyncStoreState.syncFromDateTarget = null;
     mockSyncStoreState.isEmbeddingBackfilling = false;
     mockSyncStoreState.embeddingBackfillProgress = null;
+    mockSyncStoreState.embeddingBackfillOutcome = null;
     mockSyncStoreState.lastSyncError = null;
+  });
+
+  describe("Embedding補完の結果表示", () => {
+    it("成功時は完了件数を status として通知し、再試行ボタンは出さない", async () => {
+      mockSyncStoreState.embeddingBackfillOutcome = {
+        status: "success",
+        completed: 3,
+        total: 3,
+        failure: null,
+      };
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      render(<SyncStatusBar onRunEmbeddingBackfill={vi.fn()} />);
+
+      expect(screen.getByRole("status")).toHaveTextContent("Embeddingを3件補完しました");
+      expect(screen.queryByRole("button", { name: /未処理分を再試行/ })).not.toBeInTheDocument();
+    });
+
+    it("部分成功時は完了件数・理由・案内を alert で通知し、未処理分だけ再試行できる", async () => {
+      mockSyncStoreState.embeddingBackfillOutcome = {
+        status: "partial",
+        completed: 2,
+        total: 3,
+        failure: {
+          kind: "server",
+          reason: "サーバーでエラーが発生しました（500）",
+          guidance: "時間をおいて、未処理分を再試行してください。",
+        },
+      };
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      const onRunEmbeddingBackfill = vi.fn();
+
+      render(<SyncStatusBar onRunEmbeddingBackfill={onRunEmbeddingBackfill} />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent("Embeddingを一部補完しました（2 / 3件）");
+      expect(alert).toHaveTextContent("サーバーでエラーが発生しました（500）");
+      // 変動する未処理件数は読み上げ領域に含めない（件数変化で再読み上げさせない）
+      expect(alert).not.toHaveTextContent("未処理");
+      const notice = screen.getByTestId("embedding-backfill-outcome");
+      expect(notice).toHaveTextContent("補完済みの分は保存されています");
+      expect(notice).toHaveTextContent("未処理: 1件");
+      // 通常の補完ボタンは結果欄の再試行に集約される
+      expect(
+        screen.queryByRole("button", { name: "Embedding未設定の論文を補完" })
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "未処理分を再試行（1件）" }));
+      expect(onRunEmbeddingBackfill).toHaveBeenCalledTimes(1);
+    });
+
+    it("失敗時は原因に合う案内を残し、閉じるで結果を消せる", async () => {
+      mockSyncStoreState.embeddingBackfillOutcome = {
+        status: "failed",
+        completed: 0,
+        total: 1,
+        failure: {
+          kind: "auth",
+          reason: "OpenAI APIキーを利用できませんでした（認証エラー）",
+          guidance: "設定でAPIキーを確認・再登録してから、未処理分を再試行してください。",
+        },
+      };
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      render(<SyncStatusBar compact onRunEmbeddingBackfill={vi.fn()} />);
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Embeddingを補完できませんでした。OpenAI APIキーを利用できませんでした（認証エラー）"
+      );
+      expect(screen.getByTestId("embedding-backfill-outcome")).toHaveTextContent(
+        "設定でAPIキーを確認"
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: "閉じる" }));
+      expect(mockSyncStoreState.setEmbeddingBackfillOutcome).toHaveBeenCalledWith(null);
+    });
+
+    it("補完の実行中は前回の結果を表示しない", async () => {
+      mockSyncStoreState.isEmbeddingBackfilling = true;
+      mockSyncStoreState.embeddingBackfillOutcome = {
+        status: "failed",
+        completed: 0,
+        total: 1,
+        failure: { kind: "network", reason: "ネットワークに接続できませんでした", guidance: "g" },
+      };
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      render(<SyncStatusBar onRunEmbeddingBackfill={vi.fn()} />);
+
+      expect(screen.queryByTestId("embedding-backfill-outcome")).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    });
   });
 
   describe("Embeddingを補完ボタン（Design Doc: スマホでもembedding取得可能）", () => {

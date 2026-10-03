@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Paper, SyncPeriod, SyncResponse } from "../../shared/schemas/index";
 import { normalizeDate, now, timestamp } from "../../shared/utils/dateTime";
 import {
+  EmbeddingRateLimitError,
   embeddingApi,
   embeddingBatchApi,
   getDecryptedApiKey,
@@ -10,6 +11,11 @@ import {
   syncApi,
 } from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
+import {
+  createEmbeddingBackfillOutcome,
+  EmbeddingApiKeyMissingError,
+  type EmbeddingBackfillOutcome,
+} from "../lib/embeddingBackfillOutcome";
 import { getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -565,45 +571,52 @@ export const useSyncPapers = (
 
   /**
    * Embedding 未設定の論文を手動で補完する（同期ボタンから切り離した処理）
-   * SyncStatusBar の「Embeddingを補完」ボタンから呼ぶ
+   * SyncStatusBar の「Embeddingを補完」ボタンから呼ぶ。
+   * 結果（成功／部分成功／失敗と理由）は syncStore の embeddingBackfillOutcome に残す。
+   * 保存済みの分は保持されるため、再実行すると未処理分だけが対象になる。
    */
   const runEmbeddingBackfill = useCallback(async (): Promise<void> => {
     const papers = getStorePapers();
     const withoutEmbedding = papers.filter((p) => !p.embedding || p.embedding.length === 0);
     if (withoutEmbedding.length === 0) return;
+    const total = withoutEmbedding.length;
+    let completed = 0;
+    let outcome: EmbeddingBackfillOutcome | null = null;
 
     // クリック直後に「取得中」を表示する（getDecryptedApiKey の完了を待たない）
+    useSyncStore.getState().setEmbeddingBackfillOutcome(null);
     useSyncStore.getState().setIsEmbeddingBackfilling(true);
-    useSyncStore.getState().setEmbeddingBackfillProgress({
-      completed: 0,
-      total: withoutEmbedding.length,
-    });
-
-    // API key を復号化して取得（早期開始パターン）
-    const apiKeyPromise = getDecryptedApiKey();
-    const apiKey = await apiKeyPromise;
-    if (!apiKey) {
-      useSyncStore.getState().setIsEmbeddingBackfilling(false);
-      useSyncStore.getState().setEmbeddingBackfillProgress(null);
-      return;
-    }
+    useSyncStore.getState().setEmbeddingBackfillProgress({ completed: 0, total });
 
     try {
-      await runBackfillEmbeddings(withoutEmbedding, {
+      // キー復号の失敗も補完の失敗として扱い、実行中状態を必ず解除する
+      const apiKey = await getDecryptedApiKey();
+      if (!apiKey) throw new EmbeddingApiKeyMissingError();
+
+      const result = await runBackfillEmbeddings(withoutEmbedding, {
         fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
         fetchEmbeddingBatch: (texts) =>
           embeddingBatchApi({ texts }, { apiKey }).then((r) => r.embeddings),
         addPaper,
         addPapers,
-        onProgress: (completed, total) => {
-          useSyncStore.getState().setEmbeddingBackfillProgress({ completed, total });
+        onProgress: (done, progressTotal) => {
+          completed = done;
+          useSyncStore
+            .getState()
+            .setEmbeddingBackfillProgress({ completed: done, total: progressTotal });
         },
       });
-    } catch {
-      // エラーは呼び出し元で toast 等表示する想定。ここでは状態だけ戻す
+      outcome = createEmbeddingBackfillOutcome(
+        completed,
+        total,
+        result?.rateLimited ? new EmbeddingRateLimitError() : null
+      );
+    } catch (err) {
+      outcome = createEmbeddingBackfillOutcome(completed, total, err);
     } finally {
       useSyncStore.getState().setIsEmbeddingBackfilling(false);
       useSyncStore.getState().setEmbeddingBackfillProgress(null);
+      useSyncStore.getState().setEmbeddingBackfillOutcome(outcome);
     }
   }, [addPaper, addPapers, getStorePapers]);
 

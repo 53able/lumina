@@ -5,7 +5,7 @@
  */
 import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Paper } from "../../shared/schemas/index";
+import { EMBEDDING_BATCH_MAX_SIZE, type Paper } from "../../shared/schemas/index";
 import { EmbeddingRateLimitError } from "./api";
 import { runBackfillEmbeddings } from "./backfillEmbeddings";
 
@@ -174,12 +174,13 @@ describe("runBackfillEmbeddings", () => {
       .mockResolvedValueOnce(Array(1536).fill(0.1))
       .mockRejectedValueOnce(new EmbeddingRateLimitError());
 
-    await runBackfillEmbeddings(papers, {
+    const result = await runBackfillEmbeddings(papers, {
       fetchEmbedding: mockFetchEmbedding,
       addPaper: mockAddPaper,
       getRecommendedConcurrency: () => 2,
     });
 
+    expect(result).toEqual({ rateLimited: true });
     expect(mockFetchEmbedding).toHaveBeenCalledTimes(2);
     expect(mockFetchEmbedding).toHaveBeenNthCalledWith(1, "Title One\n\nAbstract One");
     expect(mockFetchEmbedding).toHaveBeenNthCalledWith(2, "Title Two\n\nAbstract Two");
@@ -253,14 +254,37 @@ describe("runBackfillEmbeddings", () => {
       ];
       mockFetchEmbeddingBatch.mockRejectedValueOnce(new EmbeddingRateLimitError());
 
-      await runBackfillEmbeddings(papers, {
+      const result = await runBackfillEmbeddings(papers, {
         fetchEmbedding: mockFetchEmbedding,
         fetchEmbeddingBatch: mockFetchEmbeddingBatch,
         addPaper: mockAddPaper,
       });
 
+      expect(result).toEqual({ rateLimited: true });
       expect(mockFetchEmbeddingBatch).toHaveBeenCalledTimes(1);
       expect(mockAddPaper).not.toHaveBeenCalled();
+    });
+
+    it("429 以外のエラーは完了済みチャンクを保存したまま reject する", async () => {
+      const papers: Paper[] = Array.from({ length: EMBEDDING_BATCH_MAX_SIZE + 1 }, (_, i) =>
+        createPaperWithoutEmbedding(`2401.${String(i).padStart(5, "0")}`, `T${i}`, `A${i}`)
+      );
+      const onProgress = vi.fn();
+      mockFetchEmbeddingBatch
+        .mockImplementationOnce(async (texts: string[]) => texts.map(() => Array(1536).fill(0.1)))
+        .mockRejectedValueOnce(new Error("server error"));
+
+      await expect(
+        runBackfillEmbeddings(papers, {
+          fetchEmbedding: mockFetchEmbedding,
+          fetchEmbeddingBatch: mockFetchEmbeddingBatch,
+          addPaper: mockAddPaper,
+          onProgress,
+        })
+      ).rejects.toThrow("server error");
+
+      expect(mockAddPaper).toHaveBeenCalledTimes(EMBEDDING_BATCH_MAX_SIZE);
+      expect(onProgress).toHaveBeenLastCalledWith(EMBEDDING_BATCH_MAX_SIZE, papers.length);
     });
   });
 });

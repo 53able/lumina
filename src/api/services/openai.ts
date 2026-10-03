@@ -108,6 +108,16 @@ export interface ExplanationResult {
 }
 
 /**
+ * OpenAI APIキーが設定されていないときに getOpenAIConfig が投げるエラー
+ */
+export class OpenAIApiKeyNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OpenAIApiKeyNotConfiguredError";
+  }
+}
+
+/**
  * リクエストからOpenAI APIキーを取得する
  *
  * 優先順位: 1. リクエストヘッダー (X-OpenAI-API-Key) 2. 環境変数 (OPENAI_API_KEY)
@@ -132,7 +142,7 @@ export const getOpenAIConfig = (c: Context<{ Bindings: Env }>): OpenAIConfig => 
     const errorMessage = isProduction
       ? "OpenAI API key is not configured. In production, you must pass X-OpenAI-API-Key header. Environment variables are not used for security reasons."
       : "OpenAI API key is not configured. Set OPENAI_API_KEY environment variable or pass X-OpenAI-API-Key header.";
-    throw new Error(errorMessage);
+    throw new OpenAIApiKeyNotConfiguredError(errorMessage);
   }
 
   return { apiKey, models: resolveModels(env(c)) };

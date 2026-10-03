@@ -37,9 +37,16 @@ export interface BackfillEmbeddingsDeps {
   fetchEmbeddingBatch?: (texts: string[]) => Promise<number[][]>;
 }
 
+/** runBackfillEmbeddings の結果 */
+export interface BackfillEmbeddingsResult {
+  /** 429 で途中停止したか（完了分は保存済み。残りは次回再開） */
+  rateLimited: boolean;
+}
+
 /**
  * Embedding が無い論文に対して fetchEmbedding / fetchEmbeddingBatch で取得し、addPaper で更新する。
- * 429 が出たら新規取得を止め、完了した分だけ保存して resolve。残りは次回再開。
+ * 429 が出たら新規取得を止め、完了した分だけ保存して rateLimited: true で resolve。残りは次回再開。
+ * 429 以外のエラーは完了分を保存したまま reject する。
  *
  * @param papers 対象の論文配列（embedding が無いものだけ処理する）
  * @param deps fetchEmbedding / addPaper / getRecommendedConcurrency / 任意で fetchEmbeddingBatch
@@ -47,20 +54,19 @@ export interface BackfillEmbeddingsDeps {
 export const runBackfillEmbeddings = async (
   papers: Paper[],
   deps: BackfillEmbeddingsDeps
-): Promise<void> => {
+): Promise<BackfillEmbeddingsResult> => {
   const toProcess = papers.filter((p) => !p.embedding || p.embedding.length === 0);
-  if (toProcess.length === 0) return;
+  if (toProcess.length === 0) return { rateLimited: false };
 
   const { fetchEmbedding, addPaper, onProgress, fetchEmbeddingBatch } = deps;
 
   if (fetchEmbeddingBatch) {
-    await runBackfillEmbeddingsBatch(toProcess, {
+    return runBackfillEmbeddingsBatch(toProcess, {
       fetchEmbeddingBatch,
       addPaper,
       addPapers: deps.addPapers,
       onProgress,
     });
-    return;
   }
 
   const getRecommendedConcurrency = deps.getRecommendedConcurrency ?? getApiRecommendedConcurrency;
@@ -100,10 +106,11 @@ export const runBackfillEmbeddings = async (
   if (firstRejection?.status === "rejected") {
     const reason = firstRejection.reason;
     if (reason instanceof EmbeddingRateLimitError) {
-      return;
+      return { rateLimited: true };
     }
     throw reason;
   }
+  return { rateLimited: false };
 };
 
 /** バッチ用: チャンク単位で fetchEmbeddingBatch を呼び、addPaper で保存。429 で打ち切り。 */
@@ -115,7 +122,7 @@ const runBackfillEmbeddingsBatch = async (
     addPapers?: (papers: Paper[]) => Promise<void>;
     onProgress?: (completed: number, total: number) => void;
   }
-): Promise<void> => {
+): Promise<BackfillEmbeddingsResult> => {
   const total = toProcess.length;
   let completedCount = 0;
 
@@ -149,9 +156,10 @@ const runBackfillEmbeddingsBatch = async (
       }
     } catch (e) {
       if (e instanceof EmbeddingRateLimitError) {
-        return;
+        return { rateLimited: true };
       }
       throw e;
     }
   }
+  return { rateLimited: false };
 };

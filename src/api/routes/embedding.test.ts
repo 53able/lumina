@@ -1,3 +1,4 @@
+import { RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import { createApp } from "../app";
@@ -146,7 +147,7 @@ describe("Embedding API", () => {
       expect(response.status).toBe(400);
     });
 
-    it("異常系: APIキーがない場合は500エラー", async () => {
+    it("異常系: APIキーがない場合は401エラー（設定の問題として区別する）", async () => {
       // Arrange
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
@@ -163,13 +164,70 @@ describe("Embedding API", () => {
       const response = await app.request(request);
 
       // Assert
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(401);
       const body = await response.json();
       expect(body.error).toContain("API key");
+    });
+
+    it.each([
+      [401, 401],
+      [403, 403],
+      [429, 429],
+      [502, 500],
+    ])("異常系: OpenAI が %i を返したときは %i を返す", async (upstreamStatus, expectedStatus) => {
+      vi.mocked(createEmbedding).mockRejectedValueOnce(
+        Object.assign(new Error("upstream error"), { statusCode: upstreamStatus })
+      );
+      const request = new Request("http://localhost/api/v1/embedding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": openAIKeyHeader },
+        body: JSON.stringify({ text: "test" }),
+      });
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(expectedStatus);
     });
   });
 
   describe("POST /api/v1/embedding/batch", () => {
+    it("異常系: 再試行上限に達した 429（RetryError）は429として返す", async () => {
+      const rateLimited = Object.assign(new Error("Rate limit reached"), { statusCode: 429 });
+      vi.mocked(createEmbeddingsBatch).mockRejectedValueOnce(
+        new RetryError({
+          message: "Failed after 3 attempts",
+          reason: "maxRetriesExceeded",
+          errors: [rateLimited, rateLimited, rateLimited],
+        })
+      );
+      const request = new Request("http://localhost/api/v1/embedding/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": openAIKeyHeader },
+        body: JSON.stringify({ texts: ["a"] }),
+      });
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(429);
+    });
+
+    it("異常系: OpenAI の認証エラーは401として返す", async () => {
+      vi.mocked(createEmbeddingsBatch).mockRejectedValueOnce(
+        Object.assign(new Error("Incorrect API key provided"), { statusCode: 401 })
+      );
+      const request = new Request("http://localhost/api/v1/embedding/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": openAIKeyHeader },
+        body: JSON.stringify({ texts: ["a", "b"] }),
+      });
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.error).toContain("Incorrect API key");
+    });
+
     it("正常系: 複数テキストからEmbeddingを一括生成できる", async () => {
       const request = new Request("http://localhost/api/v1/embedding/batch", {
         method: "POST",
