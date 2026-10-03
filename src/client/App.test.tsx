@@ -269,19 +269,21 @@ describe("App", () => {
     it("正常系: 検索履歴セクションが表示される", () => {
       renderWithProviders(<App />);
 
-      expect(screen.getByRole("button", { name: "検索履歴" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^検索履歴/ })).toBeInTheDocument();
     });
 
-    it("正常系: 検索履歴が表示される", () => {
+    it("正常系: 検索履歴が表示される", async () => {
+      const user = userEvent.setup();
       renderWithProviders(<App />);
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
-      expect(screen.getByText("強化学習")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^強化学習/ })).toBeVisible();
     });
 
     it("正常系: 検索履歴の削除ボタンをクリックするとdeleteHistoryが呼ばれる", async () => {
       const user = userEvent.setup();
       renderWithProviders(<App />);
-      await user.click(screen.getByRole("button", { name: "検索履歴" }));
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
       // 削除ボタンをクリック
       const deleteButton = screen.getByRole("button", { name: "「強化学習」を削除" });
@@ -290,12 +292,14 @@ describe("App", () => {
       expect(mockDeleteHistory).toHaveBeenCalledWith("history-1");
     });
 
-    it("正常系: 検索履歴がない場合は空状態メッセージを表示する", () => {
+    it("正常系: 検索履歴がない場合は空状態メッセージを表示する", async () => {
+      const user = userEvent.setup();
       mockRecentHistories = [];
 
       renderWithProviders(<App />);
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
-      expect(screen.getByText("検索履歴がありません")).toBeInTheDocument();
+      expect(screen.getByText("検索履歴がありません")).toBeVisible();
     });
   });
 

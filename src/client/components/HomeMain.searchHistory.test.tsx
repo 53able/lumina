@@ -18,6 +18,7 @@ import { HomeMain } from "./HomeMain";
  * - モバイル（390px 相当）: 検索欄の手前の折りたたみから、再検索・削除・元に戻す・再試行ができる
  * - デスクトップ: 従来どおりサイドバーに表示する
  * - サイドバーと折りたたみの SearchHistory を同時にマウントしない（live region・フォーカス先の重複を防ぐ）
+ * - 折りたたみ中も、通知（パネル外の live region）と開閉ボタンの件数で操作の結果が分かる
  */
 
 const { mediaState } = vi.hoisted(() => ({ mediaState: { isDesktop: false } }));
@@ -130,7 +131,7 @@ describe("HomeMain の検索履歴", () => {
       await seed(["A検索"]);
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
 
-      const toggle = screen.getByRole("button", { name: "検索履歴" });
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
       expect(toggle).toHaveAttribute("aria-expanded", "false");
       const panel = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
       expect(panel).not.toBeNull();
@@ -150,7 +151,7 @@ describe("HomeMain の検索履歴", () => {
       await seed(["A検索"]);
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
 
-      await user.click(screen.getByRole("button", { name: "検索履歴" }));
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
       expect(screen.getByRole("button", { name: "「A検索」を削除" })).not.toHaveClass("opacity-0");
     });
@@ -160,7 +161,7 @@ describe("HomeMain の検索履歴", () => {
       const onReSearch = vi.fn();
       await seed(["A検索", "B検索"]);
       render(<ConnectedHomeMain onReSearch={onReSearch} />);
-      const toggle = screen.getByRole("button", { name: "検索履歴" });
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
 
       await user.click(toggle);
       await user.click(screen.getByRole("button", { name: /^B検索/ }));
@@ -175,7 +176,7 @@ describe("HomeMain の検索履歴", () => {
       const user = userEvent.setup();
       await seed(["A検索", "B検索", "C検索"]);
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
-      await user.click(screen.getByRole("button", { name: "検索履歴" }));
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
       await user.click(screen.getByRole("button", { name: "「B検索」を削除" }));
 
@@ -197,7 +198,7 @@ describe("HomeMain の検索履歴", () => {
       await seed(["A検索"]);
       vi.spyOn(db.searchHistories, "delete").mockRejectedValueOnce(new Error("DB書き込み失敗"));
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
-      await user.click(screen.getByRole("button", { name: "検索履歴" }));
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
       await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
 
@@ -215,7 +216,7 @@ describe("HomeMain の検索履歴", () => {
       const user = userEvent.setup();
       await seed(["A検索"]);
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
-      const toggle = screen.getByRole("button", { name: "検索履歴" });
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
       await user.click(toggle);
       screen.getByRole("button", { name: /^A検索/ }).focus();
 
@@ -225,12 +226,107 @@ describe("HomeMain の検索履歴", () => {
       expect(toggle).toHaveFocus();
     });
 
-    it("サイドバーの履歴はマウントしない（履歴一覧と live region は1つだけ）", async () => {
+    it("サイドバーの履歴はマウントしない（<aside> も描画せず、履歴一覧と live region は1つだけ）", async () => {
       await seed(["A検索"]);
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
 
+      expect(screen.queryByRole("complementary", { hidden: true })).not.toBeInTheDocument();
       expect(countLiveRegions()).toBe(1);
       expect(screen.getAllByRole("button", { name: /^A検索/, hidden: true })).toHaveLength(1);
+    });
+
+    it("開閉ボタンに履歴の件数を出す（0件でも分かる）", async () => {
+      await seed([]);
+      render(<ConnectedHomeMain onReSearch={vi.fn()} />);
+
+      expect(screen.getByRole("button", { name: /^検索履歴/ })).toHaveAccessibleName(
+        "検索履歴 0件"
+      );
+    });
+
+    it("通知の live region はパネルの外にあり、折りたたみ中も読み上げ対象になる", async () => {
+      await seed(["A検索"]);
+      render(<ConnectedHomeMain onReSearch={vi.fn()} />);
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      const panel = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+
+      // hidden: false（既定）で取れる = 非表示の領域の中にない
+      const status = await screen.findByRole("status");
+      expect(panel?.contains(status)).toBe(false);
+    });
+
+    it("折りたたんだ後に完了した削除は、パネル外で通知し、開閉ボタンに元に戻せる件数を出す", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索", "B検索"]);
+      let resolveDelete: () => void = () => {};
+      const realDelete = db.searchHistories.delete.bind(db.searchHistories);
+      vi.spyOn(db.searchHistories, "delete").mockImplementationOnce(
+        (key) =>
+          new Promise<void>((resolve) => {
+            resolveDelete = () => {
+              void realDelete(key).then(() => resolve());
+            };
+          })
+      );
+      render(<ConnectedHomeMain onReSearch={vi.fn()} />);
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      await user.click(toggle);
+
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      await user.keyboard("{Escape}");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      resolveDelete();
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「A検索」を削除しました")
+      );
+      expect(toggle).toHaveAccessibleName("検索履歴 1件、元に戻せる1件");
+      // 折りたたみ中はフォーカスを奪わない
+      expect(toggle).toHaveFocus();
+    });
+
+    it("折りたたんだ後に失敗した削除は、パネル外で通知し、開閉ボタンに失敗件数を出す", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索"]);
+      let rejectDelete: () => void = () => {};
+      vi.spyOn(db.searchHistories, "delete").mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            rejectDelete = () => reject(new Error("DB書き込み失敗"));
+          })
+      );
+      render(<ConnectedHomeMain onReSearch={vi.fn()} />);
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      await user.click(toggle);
+
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+      await user.keyboard("{Escape}");
+      rejectDelete();
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "「A検索」を削除できませんでした。検索履歴を開いて再試行できます。"
+        )
+      );
+      expect(toggle).toHaveAccessibleName("検索履歴 1件、失敗1件");
+
+      // 開くと行内のエラーと再試行がある
+      await user.click(toggle);
+      expect(screen.getByRole("alert")).toHaveTextContent("削除できませんでした: DB書き込み失敗");
+      expect(screen.getByRole("button", { name: "「A検索」の削除を再試行" })).toBeVisible();
+    });
+
+    it("開いている間の失敗は行内の alert だけで伝え、live region では重ねて通知しない", async () => {
+      const user = userEvent.setup();
+      await seed(["A検索"]);
+      vi.spyOn(db.searchHistories, "delete").mockRejectedValueOnce(new Error("DB書き込み失敗"));
+      render(<ConnectedHomeMain onReSearch={vi.fn()} />);
+      await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
+
+      await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
+
+      await screen.findByRole("alert");
+      expect(screen.getByRole("status")).toHaveTextContent("");
     });
   });
 
@@ -242,7 +338,7 @@ describe("HomeMain の検索履歴", () => {
       await seed(["A検索", "B検索"]);
       render(<ConnectedHomeMain onReSearch={onReSearch} />);
 
-      expect(screen.queryByRole("button", { name: "検索履歴" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^検索履歴/ })).not.toBeInTheDocument();
       const sidebar = screen.getByRole("complementary");
       expect(within(sidebar).getByText("検索履歴")).toBeInTheDocument();
       expect(countLiveRegions()).toBe(1);
@@ -250,6 +346,11 @@ describe("HomeMain の検索履歴", () => {
 
       await user.click(within(sidebar).getByRole("button", { name: /^A検索/ }));
       expect(onReSearch).toHaveBeenCalledTimes(1);
+
+      // タッチ端末（pointer: coarse）ではホバーなしで削除ボタンを表示する
+      expect(within(sidebar).getByRole("button", { name: "「B検索」を削除" })).toHaveClass(
+        "pointer-coarse:opacity-100"
+      );
 
       await user.click(within(sidebar).getByRole("button", { name: "「B検索」を削除" }));
       await within(sidebar).findByRole("button", { name: "「B検索」を元に戻す" });

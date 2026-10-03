@@ -24,6 +24,8 @@ interface MobileSearchHistoryProps {
  * 一覧を覆わないよう、検索欄の手前に折りたたみ領域として置く。
  * 中身はサイドバーと同じ SearchHistory を使い、削除・元に戻す・失敗表示・通知・フォーカス移動をそろえる。
  * 削除ボタンをホバーなしで見せるため、コンパクト表示にはしない。
+ * 折りたたみ中も操作の結果が伝わるよう、通知の live region はパネルの外に置き、
+ * 開閉ボタンに件数・元に戻せる件数・失敗件数を出す（絞り込みと同じ方針）。
  */
 export const MobileSearchHistory: FC<MobileSearchHistoryProps> = ({
   histories,
@@ -33,6 +35,19 @@ export const MobileSearchHistory: FC<MobileSearchHistoryProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const panelId = useId();
   const toggleRef = useRef<HTMLButtonElement>(null);
+  /** パネルの外に置く live region の置き場所（描画後に決まるため state で持つ） */
+  const [liveRegionContainer, setLiveRegionContainer] = useState<HTMLDivElement | null>(null);
+
+  const undoableCount = undo?.deletedHistories.length ?? 0;
+  const failureCount = Object.keys(undo?.historyErrors ?? {}).length;
+  // 見た目の件数表示を区切って読み上げる（表示テキストを含めた名前にする）
+  const toggleLabel = [
+    `検索履歴 ${histories.length}件`,
+    undoableCount > 0 ? `元に戻せる${undoableCount}件` : null,
+    failureCount > 0 ? `失敗${failureCount}件` : null,
+  ]
+    .filter(Boolean)
+    .join("、");
 
   const close = () => {
     setIsOpen(false);
@@ -56,14 +71,27 @@ export const MobileSearchHistory: FC<MobileSearchHistoryProps> = ({
         className="h-8 gap-1.5 px-3 text-sm"
         aria-expanded={isOpen}
         aria-controls={panelId}
+        aria-label={toggleLabel}
       >
         <History className="h-4 w-4" aria-hidden />
         検索履歴
+        <span className="text-xs text-muted-foreground">{histories.length}件</span>
+        {undoableCount > 0 ? (
+          <span className="rounded-full bg-primary/20 px-1.5 text-xs text-primary">
+            元に戻せる{undoableCount}件
+          </span>
+        ) : null}
+        {failureCount > 0 ? (
+          <span className="rounded-full bg-destructive/15 px-1.5 text-xs text-destructive">
+            失敗{failureCount}件
+          </span>
+        ) : null}
         <ChevronDown
           className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")}
           aria-hidden
         />
       </Button>
+      <div ref={setLiveRegionContainer} className="contents" />
       <section
         id={panelId}
         aria-label="検索履歴"
@@ -74,7 +102,13 @@ export const MobileSearchHistory: FC<MobileSearchHistoryProps> = ({
         }}
         className="rounded-lg border border-border/60 p-3"
       >
-        <SearchHistory histories={histories} onReSearch={handleReSearch} undo={undo} />
+        <SearchHistory
+          histories={histories}
+          onReSearch={handleReSearch}
+          undo={undo}
+          liveRegionContainer={liveRegionContainer}
+          announceFailures={!isOpen}
+        />
       </section>
     </div>
   );

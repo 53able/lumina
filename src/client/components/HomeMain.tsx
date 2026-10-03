@@ -211,42 +211,44 @@ const HomeMainInner: FC<HomeMainProps> = ({
 
       {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
       <div className="flex min-h-0 relative">
-        {/* Sidebar - 検索履歴 */}
-        <aside className="hidden lg:flex w-64 flex-col bg-sidebar/50 relative z-10">
-          {/* 視線誘導の基準線 - サイドバーとメインコンテンツの境界 */}
-          <div
-            className="absolute right-0 top-0 bottom-0 w-[3px] pointer-events-none z-20"
-            style={{
-              background:
-                "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
-              boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
-              filter: "blur(1px)",
-            }}
-          />
-          <div className="px-6 pt-6 pb-4">
-            <h3
-              className="text-sm font-bold uppercase tracking-wider text-primary-light"
-              style={{ opacity: 1 }}
-            >
-              検索履歴
-            </h3>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <Suspense
-              fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
-            >
-              {/* モバイルの折りたたみと同時にマウントしない（通知・フォーカス先の重複を防ぐ） */}
-              {isDesktop ? (
+        {/* Sidebar - 検索履歴（デスクトップのみ。モバイルは検索欄の手前の折りたたみ）
+            表示は CSS の lg ではなく isDesktop だけで決める（既定の文字サイズが 16px でない環境で、入口が消えたり二重になったりしないように）。
+            サイドバーと折りたたみは同時にマウントしない（通知・フォーカス先の重複を防ぐ）。
+            画面幅を切り替えると SearchHistory が作り直され、処理中の削除・元に戻すの完了通知とフォーカス移動は行わない（結果は行内の表示に残る） */}
+        {isDesktop ? (
+          <aside className="flex w-64 flex-col bg-sidebar/50 relative z-10">
+            {/* 視線誘導の基準線 - サイドバーとメインコンテンツの境界 */}
+            <div
+              className="absolute right-0 top-0 bottom-0 w-[3px] pointer-events-none z-20"
+              style={{
+                background:
+                  "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
+                boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
+                filter: "blur(1px)",
+              }}
+            />
+            <div className="px-6 pt-6 pb-4">
+              <h3
+                className="text-sm font-bold uppercase tracking-wider text-primary-light"
+                style={{ opacity: 1 }}
+              >
+                検索履歴
+              </h3>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 pb-6">
+              <Suspense
+                fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
+              >
                 <SearchHistory
                   histories={recentHistories}
                   onReSearch={onReSearch}
                   undo={historyUndo}
                   compact
                 />
-              ) : null}
-            </Suspense>
-          </div>
-        </aside>
+              </Suspense>
+            </div>
+          </aside>
+        ) : null}
 
         {/* Main Content - 論文リスト（モバイルはオブジェクトファーストで一覧を上に） */}
         <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto min-w-0 relative z-10">
