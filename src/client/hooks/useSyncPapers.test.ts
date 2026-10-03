@@ -1101,13 +1101,14 @@ describe("useSyncPapers", () => {
       expect(useSyncStore.getState().lastSyncError).toBeNull();
     });
 
-    it("初回同期で取得した論文の保存が終わるまで isSavingSyncedPapers を立てる", async () => {
+    it("初回同期で取得した論文の保存が終わるまで保存中として数え、保存に失敗しても戻す", async () => {
       vi.useRealTimers();
-      let resolveSave: () => void = () => {};
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      let rejectSave: (error: Error) => void = () => {};
       mockAddPapers.mockImplementation(
         () =>
-          new Promise<void>((resolve) => {
-            resolveSave = resolve;
+          new Promise<void>((_resolve, reject) => {
+            rejectSave = reject;
           })
       );
       mockSyncApi.mockResolvedValueOnce(createMockResponse(0, 2));
@@ -1118,12 +1119,81 @@ describe("useSyncPapers", () => {
       await act(async () => {
         result.current.sync();
       });
-      await waitFor(() => expect(useSyncStore.getState().isSavingSyncedPapers).toBe(true));
+      await waitFor(() => expect(useSyncStore.getState().savingSyncedPapersCount).toBe(1));
 
       await act(async () => {
-        resolveSave();
+        rejectSave(new Error("DB write failed"));
       });
-      expect(useSyncStore.getState().isSavingSyncedPapers).toBe(false);
+      expect(useSyncStore.getState().savingSyncedPapersCount).toBe(0);
+      expect(consoleError).toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
+
+    it("保存中の件数は並行する保存がすべて終わるまで0にならない", () => {
+      const store = useSyncStore.getState();
+      store.beginSavingSyncedPapers();
+      store.beginSavingSyncedPapers();
+      useSyncStore.getState().endSavingSyncedPapers();
+      expect(useSyncStore.getState().savingSyncedPapersCount).toBe(1);
+      useSyncStore.getState().endSavingSyncedPapers();
+      useSyncStore.getState().endSavingSyncedPapers();
+      expect(useSyncStore.getState().savingSyncedPapersCount).toBe(0);
+    });
+
+    it("syncAll の初回同期が失敗すると発生元は all のまま、通知は1回だけで、再試行は syncAll をやり直す", async () => {
+      vi.useRealTimers();
+      mockSyncApi.mockRejectedValueOnce(new Error("Sync failed: 503"));
+      const onError = vi.fn();
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onError }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await result.current.syncAll();
+      });
+      // effect の実行を待つ
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+
+      expect(useSyncStore.getState().lastSyncError?.message).toBe("Sync failed: 503");
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "all" });
+      expect(onError).toHaveBeenCalledTimes(1);
+
+      mockSyncApi.mockImplementation((request: { start?: number }) =>
+        Promise.resolve(createMockResponse(request.start ?? 0, 75))
+      );
+      await act(async () => {
+        result.current.retrySync();
+      });
+
+      await waitFor(() => expect(useSyncStore.getState().isSyncingAll).toBe(false));
+      await waitFor(() => expect(useSyncStore.getState().lastSyncError).toBeNull());
+      const starts = mockSyncApi.mock.calls
+        .slice(1)
+        .map(([req]) => (req as { start?: number }).start);
+      expect(starts).toEqual([0, 50]);
+    });
+
+    it("syncAll の途中の追加取得が失敗すると発生元は all になり、通知は1回だけ", async () => {
+      vi.useRealTimers();
+      mockSyncApi
+        .mockResolvedValueOnce(createMockResponse(0, 125))
+        .mockRejectedValueOnce(new Error("Sync failed: 500"));
+      const onError = vi.fn();
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onError }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await result.current.syncAll();
+      });
+
+      expect(useSyncStore.getState().lastSyncError?.message).toBe("Sync failed: 500");
+      expect(useSyncStore.getState().lastSyncErrorSource).toEqual({ kind: "all" });
+      expect(onError).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -184,7 +184,9 @@ export const PaperList: FC<PaperListProps> = ({
   const isLoadingMore = useSyncStore((s) => s.isLoadingMore);
   const isSyncing = isFetching || isLoadingMore;
   const lastSyncError = useSyncStore((s) => s.lastSyncError);
-  const isSavingSyncedPapers = useSyncStore((s) => s.isSavingSyncedPapers);
+  const isSavingSyncedPapers = useSyncStore((s) => (s.savingSyncedPapersCount ?? 0) > 0);
+  const isSyncingAll = useSyncStore((s) => s.isSyncingAll);
+  const isSyncingFromDate = useSyncStore((s) => s.isSyncingFromDate);
   const storedPaperCount = usePaperStore((s) => s.papers.length);
   // IndexedDB からの初期読み込み中（initializePaperStore が true にする）
   const isPaperStoreLoading = usePaperStore((s) => s.isLoading);
@@ -371,8 +373,10 @@ export const PaperList: FC<PaperListProps> = ({
                   storedPaperCount,
                   isLoading:
                     isSyncing ||
+                    Boolean(isSyncingAll) ||
+                    Boolean(isSyncingFromDate) ||
                     isSyncPending ||
-                    Boolean(isSavingSyncedPapers) ||
+                    isSavingSyncedPapers ||
                     isPaperStoreLoading,
                   lastSyncError: lastSyncError ?? null,
                   hasSynced,

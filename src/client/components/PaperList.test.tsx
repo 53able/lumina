@@ -23,7 +23,9 @@ interface MockSyncStoreState {
   isFetching: boolean;
   isLoadingMore: boolean;
   lastSyncError?: Error | null;
-  isSavingSyncedPapers?: boolean;
+  savingSyncedPapersCount?: number;
+  isSyncingAll?: boolean;
+  isSyncingFromDate?: boolean;
 }
 let mockSyncStoreState: MockSyncStoreState = { isFetching: false, isLoadingMore: false };
 vi.mock("../stores/syncStore", () => ({
@@ -39,12 +41,9 @@ vi.mock("../stores/paperStore", () => ({
 
 /** 同期に成功したことがあるか（最終同期日時）で「未同期」と「同期済み・該当なし」を分ける */
 let mockLastSyncedAt: string | null = null;
-/** API 利用 OFF（#29）。arXiv からの同期は OFF でも行えるため、空表示の操作は変えない */
-let mockApiEnabled = true;
 vi.mock("../stores/settingsStore", () => ({
-  useSettingsStore: (
-    selector: (s: { lastSyncedAt: string | null; apiEnabled: boolean }) => unknown
-  ) => selector({ lastSyncedAt: mockLastSyncedAt, apiEnabled: mockApiEnabled }),
+  useSettingsStore: (selector: (s: { lastSyncedAt: string | null }) => unknown) =>
+    selector({ lastSyncedAt: mockLastSyncedAt }),
 }));
 
 vi.mock("../hooks/useGridVirtualizer", () => ({
@@ -104,7 +103,6 @@ describe("PaperList", () => {
     mockSyncStoreState = { isFetching: false, isLoadingMore: false };
     mockPaperStoreState = { papers: [], isLoading: false };
     mockLastSyncedAt = null;
-    mockApiEnabled = true;
     cleanup();
     vi.clearAllMocks();
   });
@@ -167,16 +165,22 @@ describe("PaperList", () => {
       expect(onSync).not.toHaveBeenCalled();
     });
 
-    it("正常系: API 利用 OFF でも論文が未取得なら「論文を同期」を出す（arXiv 取得は AI を使わない）", async () => {
+    it.each([
+      ["すべて取得", { isSyncingAll: true }],
+      ["指定日以前の取得", { isSyncingFromDate: true }],
+    ] as const)("正常系: 同期失敗の後に%sで再試行している間は取得中にし、再試行ボタンを出さない", async (_label, syncing) => {
       const { PaperList } = await import("./PaperList");
-      mockApiEnabled = false;
-      const onSync = vi.fn();
+      mockSyncStoreState = {
+        isFetching: false,
+        isLoadingMore: false,
+        lastSyncError: new Error("Sync failed: 503"),
+        ...syncing,
+      };
 
-      renderWithRouter(<PaperList papers={[]} onSync={onSync} onOpenSettings={vi.fn()} />);
+      renderWithRouter(<PaperList papers={[]} onRetrySync={vi.fn()} />);
 
-      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "not-synced");
-      await userEvent.click(screen.getByRole("button", { name: "論文を同期" }));
-      expect(onSync).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "loading");
+      expect(screen.queryByRole("button", { name: "同期を再試行" })).not.toBeInTheDocument();
     });
 
     it("正常系: 同期に成功して論文が0件の場合は同期期間・カテゴリの見直しを案内する", async () => {
@@ -200,7 +204,7 @@ describe("PaperList", () => {
       );
       expect(screen.getByTestId("paper-list-empty")).toHaveAttribute("data-kind", "loading");
 
-      mockSyncStoreState = { isFetching: false, isLoadingMore: false, isSavingSyncedPapers: true };
+      mockSyncStoreState = { isFetching: false, isLoadingMore: false, savingSyncedPapersCount: 1 };
       mockLastSyncedAt = "2026-10-01T00:00:00.000Z";
       rerender(
         <MemoryRouter>

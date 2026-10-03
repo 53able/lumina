@@ -48,8 +48,8 @@ interface SyncState {
   lastSyncError: Error | null;
   /** lastSyncError が起きた処理（再試行で同じ処理をやり直すため） */
   lastSyncErrorSource: SyncErrorSource | null;
-  /** 初回同期の結果をストアへ保存中か（取得完了から論文が一覧に出るまでの間） */
-  isSavingSyncedPapers: boolean;
+  /** 初回同期の結果をストアへ保存中の件数（取得完了から論文が一覧に出るまで。並行保存に備えて数える） */
+  savingSyncedPapersCount: number;
 }
 
 /**
@@ -74,7 +74,8 @@ interface SyncActions {
   setEmbeddingBackfillOutcome: (outcome: EmbeddingBackfillOutcome | null) => void;
   /** エラーと発生元を記録する。null を渡すと発生元も消える */
   setLastSyncError: (error: Error | null, source?: SyncErrorSource) => void;
-  setIsSavingSyncedPapers: (value: boolean) => void;
+  beginSavingSyncedPapers: () => void;
+  endSavingSyncedPapers: () => void;
   /** すべての同期状態を初期値に戻す */
   reset: () => void;
 }
@@ -95,7 +96,7 @@ const initialState: SyncState = {
   embeddingBackfillOutcome: null,
   lastSyncError: null,
   lastSyncErrorSource: null,
-  isSavingSyncedPapers: false,
+  savingSyncedPapersCount: 0,
 };
 
 /**
@@ -121,7 +122,10 @@ export const useSyncStore = create<SyncStore>()(
       setEmbeddingBackfillOutcome: (outcome) => set({ embeddingBackfillOutcome: outcome }),
       setLastSyncError: (error, source) =>
         set({ lastSyncError: error, lastSyncErrorSource: error ? (source ?? null) : null }),
-      setIsSavingSyncedPapers: (value) => set({ isSavingSyncedPapers: value }),
+      beginSavingSyncedPapers: () =>
+        set((s) => ({ savingSyncedPapersCount: s.savingSyncedPapersCount + 1 })),
+      endSavingSyncedPapers: () =>
+        set((s) => ({ savingSyncedPapersCount: Math.max(0, s.savingSyncedPapersCount - 1) })),
       reset: () => set(initialState),
     }),
     { name: "sync-store" }

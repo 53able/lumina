@@ -363,10 +363,14 @@ export const useSyncPapers = (
 
       if (newPapers.length > 0) {
         // 保存が終わるまで一覧の0件表示を「取得中」にする（「論文がありません」を一瞬出さない）
-        useSyncStore.getState().setIsSavingSyncedPapers(true);
-        void Promise.resolve(addPapers(newPapers)).finally(() => {
-          useSyncStore.getState().setIsSavingSyncedPapers(false);
-        });
+        useSyncStore.getState().beginSavingSyncedPapers();
+        void Promise.resolve(addPapers(newPapers))
+          .catch((err: unknown) => {
+            console.error("Failed to save synced papers:", err);
+          })
+          .finally(() => {
+            useSyncStore.getState().endSavingSyncedPapers();
+          });
       }
       commitSyncResult(response, 0, newPapers, true);
     },
@@ -376,14 +380,14 @@ export const useSyncPapers = (
   // エラー時の処理（query の error を保持し、onError コールバックを呼ぶ）
   // ユーザーが停止した場合（AbortError）はエラー表示しない
   useEffect(() => {
-    if (!error || handledInitialSyncErrors.has(error)) return;
+    if (!error || typeof error !== "object" || handledInitialSyncErrors.has(error)) return;
     handledInitialSyncErrors.add(error);
     const isAbort = error instanceof DOMException && error.name === "AbortError";
     if (isAbort) return;
     const err = toError(error);
-    const store = useSyncStore.getState();
-    // syncAll 経由の失敗は syncAll 側で記録済み（発生元を all のまま残す）
-    if (store.lastSyncError !== err) store.setLastSyncError(err, { kind: "initial" });
+    // syncAll 経由の失敗は syncAll 側で記録・通知済み（発生元を all のまま残し、通知を重ねない）
+    if (useSyncStore.getState().lastSyncError === err) return;
+    useSyncStore.getState().setLastSyncError(err, { kind: "initial" });
     onErrorRef.current?.(err);
   }, [error]);
 
@@ -554,8 +558,10 @@ export const useSyncPapers = (
           await syncMore(ac.signal);
         } catch (syncMoreErr) {
           const e = toError(syncMoreErr);
+          // syncMore が記録・通知済みなら、発生元だけ all に変えて通知は重ねない
+          const alreadyReported = useSyncStore.getState().lastSyncError === e;
           useSyncStore.getState().setLastSyncError(e, { kind: "all" });
-          onErrorRef.current?.(e);
+          if (!alreadyReported) onErrorRef.current?.(e);
           break;
         }
         await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
@@ -564,8 +570,10 @@ export const useSyncPapers = (
       const isAbort = err instanceof DOMException && err.name === "AbortError";
       if (!isAbort) {
         const e = toError(err);
+        // 初回同期の失敗を effect が先に記録・通知していたら、発生元だけ all に変えて通知は重ねない
+        const alreadyReported = useSyncStore.getState().lastSyncError === e;
         useSyncStore.getState().setLastSyncError(e, { kind: "all" });
-        onErrorRef.current?.(e);
+        if (!alreadyReported) onErrorRef.current?.(e);
       }
     } finally {
       const totalAdded = syncAllAccumulatedRef.current;
@@ -717,6 +725,7 @@ export const useSyncPapers = (
           }
 
           setLastSyncedAt(now());
+          // 通常の同期と同じく、成功したら発生元を問わず直近の同期エラーを消す（論文の取得経路が回復したため）
           useSyncStore.getState().setLastSyncError(null);
           onSyncFromDateSuccessRef.current?.(totalAdded, totalFetched);
           return { addedCount: totalAdded, totalFetched, wasAborted: false };
