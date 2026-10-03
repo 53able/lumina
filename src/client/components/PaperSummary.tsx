@@ -249,7 +249,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     setCorrectionFocus(null);
     const heading = document.getElementById(correctionHeadingId);
     const toggle = document.getElementById(correctionToggleId);
-    (correctionFocus === "heading" ? (heading ?? toggle) : (toggle ?? heading))?.focus();
+    // どちらもなければ（生成中で編集ボタンを出さない場合など）AI要約の見出しへ
+    (
+      (correctionFocus === "heading" ? (heading ?? toggle) : (toggle ?? heading)) ??
+      headingRef.current
+    )?.focus();
   }, [correctionFocus]);
 
   // 編集中の版が破棄されたら（別の操作・別のタブを含む）編集を閉じる
@@ -453,8 +457,24 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
   /** 訂正の編集を閉じる（フォーカスは編集を開いたボタンへ戻す） */
   const handleCancelCorrection = () => {
+    // 保存中は取消できない（保存の完了で編集欄が閉じるため、取消と競合させない）
+    if (isSavingCorrection) return;
     setEditingCorrection(null);
     setCorrectionFocus("toggle");
+  };
+
+  /**
+   * 編集欄を閉じ、フォーカスを訂正の見出し（なければ編集ボタン）へ移す。
+   * 保存中に利用者が編集欄の外へ移したフォーカスは奪わない（生成中のフォーカスと同じ方針）
+   */
+  const closeCorrectionEditor = () => {
+    const active = document.activeElement;
+    const shouldMoveFocus =
+      active === null ||
+      active === document.body ||
+      Boolean(correctionFormRef.current?.contains(active));
+    setEditingCorrection(null);
+    if (shouldMoveFocus) setCorrectionFocus("heading");
   };
 
   /** 訂正文を保存する（空なら訂正を削除する） */
@@ -465,22 +485,24 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     const label = versionLabelOf(editingVersion);
     const isRemoving = draft.trim() === "";
     setIsSavingCorrection(true);
+    // 同じ文言が続いても読み上げられるよう、一度空にしてから結果を入れる
     setVersionMessage("");
     try {
       await onSaveCorrection(versionId, draft);
-      // 保存中に利用者が編集欄の外へ移したフォーカスは奪わない（生成中のフォーカスと同じ方針）
-      const active = document.activeElement;
-      const shouldMoveFocus =
-        active === null ||
-        active === document.body ||
-        Boolean(correctionFormRef.current?.contains(active));
-      setEditingCorrection(null);
-      if (shouldMoveFocus) setCorrectionFocus("heading");
+      closeCorrectionEditor();
       setVersionMessage(isRemoving ? `${label}訂正を削除しました` : `${label}訂正を保存しました`);
     } catch (err) {
       console.error("Summary correction save error:", err);
-      setVersionMessage(null);
-      toast.error("訂正を保存できませんでした");
+      // null に戻すと生成の完了通知が再び入り、誤って読み上げられるため "" のままにする
+      if (err instanceof Error && err.message === "Summary not found") {
+        // 別のタブなどで版が破棄されている。下書きを残しても保存先がないため、編集欄を閉じる
+        closeCorrectionEditor();
+        const message = `${versions.length > 1 ? `第${versionNumberOf(editingVersion)}版` : "この版"}は破棄されています。訂正は保存していません`;
+        setVersionMessage(message);
+        toast.error(message);
+      } else {
+        toast.error("訂正を保存できませんでした");
+      }
     } finally {
       setIsSavingCorrection(false);
     }
@@ -683,7 +705,10 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             </div>
           )}
 
-          {/* 利用者の訂正: AI生成文は書き換えず、見出し・ラベル・枠線でAI生成文と区別する（色だけに頼らない） */}
+          {/*
+            利用者の訂正: AI生成文は書き換えず、見出し・ラベル・枠線でAI生成文と区別する（色だけに頼らない）。
+            「なぜ読むべきか」タブでも訂正の存在に気づけるようタブの外に置き、対象が要約本文であることを見出しで示す
+          */}
           {adoptedVersion?.userCorrection && (
             <section
               aria-labelledby={correctionHeadingId}
@@ -696,7 +721,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                   tabIndex={-1}
                   className="text-xs font-bold outline-none"
                 >
-                  利用者の訂正
+                  利用者の訂正（要約本文への訂正）
                 </h4>
                 <Badge variant="outline">AI生成ではありません</Badge>
               </div>
@@ -741,10 +766,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 maxLength={SUMMARY_CORRECTION_MAX_LENGTH}
                 rows={4}
                 aria-describedby={correctionHintId}
+                readOnly={isSavingCorrection}
                 className="w-full rounded-md border bg-transparent p-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <p id={correctionHintId} className="text-xs text-muted-foreground">
-                {editingCorrection.draft.length} / {SUMMARY_CORRECTION_MAX_LENGTH}
+                {editingCorrection.draft.trim().length} / {SUMMARY_CORRECTION_MAX_LENGTH}
                 文字。「利用者の訂正」としてAIの要約と分けて表示します。空にして保存すると訂正を削除します。
               </p>
               <div className="flex gap-2">
@@ -757,7 +783,14 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                   {isSavingCorrection && <Loader2 className="h-4 w-4 animate-spin" />}
                   訂正を保存
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={handleCancelCorrection}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancelCorrection}
+                  aria-disabled={isSavingCorrection || undefined}
+                  className={busyButtonClassName}
+                >
                   取消
                 </Button>
               </div>
@@ -868,7 +901,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                       )}
                       {version.userCorrection && (
                         <div className="space-y-1 rounded border-2 border-dashed p-2">
-                          <p className="text-xs font-bold">利用者の訂正（AI生成ではありません）</p>
+                          <h5 className="text-xs font-bold">
+                            利用者の訂正（要約本文への訂正。AI生成ではありません）
+                          </h5>
                           <p className="text-xs whitespace-pre-wrap">
                             {version.userCorrection.text}
                           </p>
@@ -930,6 +965,10 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                   ? "採用中の版のため、残りの版のうち最新の版を採用します。"
                   : "保存済みの版がなくなります。")}
               {pendingDiscard?.userCorrection && "この版に付けた利用者の訂正も削除されます。"}
+              {pendingDiscard !== null &&
+                editingCorrection?.versionId === pendingDiscard.id &&
+                editingCorrection.draft !== (pendingDiscard.userCorrection?.text ?? "") &&
+                "編集中の訂正の未保存の下書きも失われます。"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
