@@ -8,6 +8,7 @@
 
 import { hc } from "hono/client";
 import type { AppType } from "@/api/app";
+import { SummaryApiError, toSummaryStageErrorCode } from "@/client/lib/summaryErrors";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { SearchRequest, SyncPeriod } from "@/shared/schemas/index";
 
@@ -592,8 +593,11 @@ export const summaryApi = async (
   );
 
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error("error" in error ? error.error : "要約生成に失敗しました");
+    // 応答の error（旧形式では上流のエラー文）は表示に使わず、code から案内文を作る
+    const body: { code?: unknown; retryable?: unknown } | null = await res.json().catch(() => null);
+    const code = toSummaryStageErrorCode(body?.code);
+    const retryable = typeof body?.retryable === "boolean" ? body.retryable : code !== "auth";
+    throw new SummaryApiError(code, retryable);
   }
 
   // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される

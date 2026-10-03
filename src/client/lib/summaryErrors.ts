@@ -34,6 +34,25 @@ export const toSummaryStageErrorCode = (code: unknown): SummaryStageErrorCode =>
   STAGE_ERROR_CODES.find((known) => known === code) ?? "upstream";
 
 /**
+ * 要約APIの全体の失敗（要約の工程、または説明文のみの生成の失敗）
+ *
+ * メッセージは分類から作り、上流のエラー文は含めない。
+ */
+export class SummaryApiError extends Error {
+  /** 失敗の分類 */
+  readonly code: SummaryStageErrorCode;
+  /** 再試行で解決しうるか */
+  readonly retryable: boolean;
+
+  constructor(code: SummaryStageErrorCode, retryable: boolean) {
+    super(STAGE_ERROR_GUIDANCE[code]);
+    this.name = "SummaryApiError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+/**
  * 要約は保存できたが、説明文の生成だけが失敗したことを表すエラー
  *
  * 再試行では説明文だけを生成する（generateTarget: "explanation"）。要約は再生成しない。
