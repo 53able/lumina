@@ -54,11 +54,33 @@ const mockPapers = Array.from({ length: 10 }, (_, index) => ({
   embedding: [],
 }));
 
+const mockRetryLoad = vi.fn(async () => {});
+let mockPaperState: {
+  papers: typeof mockPapers;
+  isLoading: boolean;
+  loadStatus: "idle" | "loading" | "ready" | "error";
+  loadedCount: number;
+  totalCount: number | null;
+  loadError: Error | null;
+  retryLoad: typeof mockRetryLoad;
+};
+
+const createPaperState = (
+  overrides: Partial<typeof mockPaperState> = {}
+): typeof mockPaperState => ({
+  papers: mockPapers,
+  isLoading: false,
+  loadStatus: "ready",
+  loadedCount: mockPapers.length,
+  totalCount: mockPapers.length,
+  loadError: null,
+  retryLoad: mockRetryLoad,
+  ...overrides,
+});
+
 vi.mock("../stores/paperStore", () => ({
-  usePaperStore: () => ({
-    papers: mockPapers,
-    isLoading: false,
-  }),
+  usePaperStore: <T,>(selector: (state: typeof mockPaperState) => T) => selector(mockPaperState),
+  whenPapersReady: () => Promise.resolve(),
 }));
 
 vi.mock("../stores/settingsStore", () => ({
@@ -78,6 +100,7 @@ describe("StatsPage", () => {
     mockIsSyncingFromDate = false;
     mockSyncFromDateTarget = null;
     syncFromDateHookOptions = undefined;
+    mockPaperState = createPaperState();
     mockSyncFromDate.mockResolvedValue({
       addedCount: 0,
       totalFetched: 0,
@@ -201,5 +224,63 @@ describe("StatsPage", () => {
     renderWithRouter(<StatsPage />);
 
     expect(screen.getByText("2026-01-10以前の論文を取得中...")).toBeInTheDocument();
+  });
+
+  it("読み込み失敗時は再試行を表示し、空状態と途中までの集計を出さない", async () => {
+    const user = userEvent.setup();
+    mockPaperState = createPaperState({
+      papers: mockPapers.slice(0, 3),
+      loadStatus: "error",
+      loadedCount: 3,
+      totalCount: 10,
+      loadError: new Error("IndexedDB が開けません"),
+    });
+
+    renderWithRouter(<StatsPage />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("保存済みの論文を読み込めませんでした");
+    expect(
+      screen.queryByText("キャッシュに論文がありません。同期すると表示されます。")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("paper-cache-bar-chart")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "キャッシュが少ない日の一覧" })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "再試行" }));
+    expect(mockRetryLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("論文0件で読み込みに失敗したときも空状態を出さない", () => {
+    mockPaperState = createPaperState({
+      papers: [],
+      loadStatus: "error",
+      loadedCount: 0,
+      totalCount: null,
+      loadError: new Error("IndexedDB が開けません"),
+    });
+
+    renderWithRouter(<StatsPage />);
+
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(
+      screen.queryByText("キャッシュに論文がありません。同期すると表示されます。")
+    ).not.toBeInTheDocument();
+  });
+
+  it("読み込み中は読み込み中表示だけを出す", () => {
+    mockPaperState = createPaperState({
+      papers: mockPapers.slice(0, 3),
+      isLoading: true,
+      loadStatus: "loading",
+      loadedCount: 3,
+      totalCount: 10,
+    });
+
+    renderWithRouter(<StatsPage />);
+
+    expect(screen.getByText("読み込み中...")).toBeInTheDocument();
+    expect(screen.queryByTestId("paper-cache-bar-chart")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

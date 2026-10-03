@@ -17,6 +17,7 @@ import {
   EmbeddingRateLimitError,
   getRecommendedConcurrency as getApiRecommendedConcurrency,
 } from "./api";
+import { hasPaperEmbedding } from "./paperIndex/core";
 
 /** runBackfillEmbeddings の依存（テストで注入可能） */
 export interface BackfillEmbeddingsDeps {
@@ -55,7 +56,7 @@ export const runBackfillEmbeddings = async (
   papers: Paper[],
   deps: BackfillEmbeddingsDeps
 ): Promise<BackfillEmbeddingsResult> => {
-  const toProcess = papers.filter((p) => !p.embedding || p.embedding.length === 0);
+  const toProcess = papers.filter((p) => !hasPaperEmbedding(p));
   if (toProcess.length === 0) return { rateLimited: false };
 
   const { fetchEmbedding, addPaper, onProgress, fetchEmbeddingBatch } = deps;

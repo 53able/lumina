@@ -118,15 +118,24 @@ const mockPapers = [
   },
 ];
 
-vi.mock("@/client/stores/paperStore", () => ({
-  usePaperStore: vi.fn((selector) => {
-    const state = {
-      papers: mockPapers,
-      addPapers: vi.fn(),
-    };
-    return selector ? selector(state) : state;
-  }),
-}));
+vi.mock("@/client/stores/paperStore", () => {
+  // mockPapers は vi.mock の巻き上げ後に初期化されるため、参照は呼び出し時に行う
+  const getState = () => ({
+    papers: mockPapers,
+    addPapers: vi.fn(),
+    loadStatus: "ready",
+  });
+  return {
+    usePaperStore: Object.assign(
+      vi.fn((selector) => {
+        const state = getState();
+        return selector ? selector(state) : state;
+      }),
+      { getState }
+    ),
+    whenPapersReady: () => Promise.resolve(),
+  };
+});
 
 // usePaperFilterをモック（searchQuery: null で「検索未実行」にし、一覧表示になる）
 vi.mock("@/client/hooks/usePaperFilter", () => ({

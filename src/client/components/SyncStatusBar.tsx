@@ -3,6 +3,7 @@ import type { FC } from "react";
 import { useEffect, useState } from "react";
 import { getApiResumeHint, SyncRateLimitError } from "../lib/api";
 import type { EmbeddingBackfillOutcome } from "../lib/embeddingBackfillOutcome";
+import { hasPaperEmbedding } from "../lib/paperIndex/core";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
@@ -163,7 +164,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
 
   const paperCount = usePaperStore((state) => state.papers.length);
   const papersWithoutEmbeddingCount = usePaperStore(
-    (state) => state.papers.filter((p) => !p.embedding || p.embedding.length === 0).length
+    (state) => state.papers.filter((p) => !hasPaperEmbedding(p)).length
   );
   // 補完中は前回の結果を出さない
   const visibleOutcome = isEmbeddingBackfilling ? null : embeddingBackfillOutcome;

@@ -18,6 +18,7 @@ export type EmptySearchMessageKind =
  * @param searchError - 検索時のエラー（OperationError は API キー復号失敗）
  * @param queryEmbedding - 現在のクエリ Embedding（null は API キー未設定の可能性）
  * @param isLoading - 検索処理中かどうか
+ * @param resultsReady - 結果が全件に対して確定したか（確定前は「該当なし」を出さない）
  * @returns 表示する ReactNode、または undefined（メッセージ不要な場合）
  */
 export const getEmptySearchMessage = (
@@ -25,7 +26,8 @@ export const getEmptySearchMessage = (
   resultCount: number,
   searchError: Error | null,
   queryEmbedding: number[] | null,
-  isLoading: boolean
+  isLoading: boolean,
+  resultsReady = true
 ): ReactNode => {
   // ローディング中はメッセージを表示しない
   if (isLoading) return undefined;
@@ -42,6 +44,23 @@ export const getEmptySearchMessage = (
       </>
     );
   }
+
+  if (searchError?.name === "PaperLoadError") {
+    return (
+      <>
+        <p className="text-lg text-muted-foreground">
+          保存済みの論文を読み込めないため検索できません
+        </p>
+        <p className="text-sm text-muted-foreground/70">
+          一覧の上の「再試行」で読み込み直してから、もう一度検索してください。
+        </p>
+        <p className="break-all text-xs text-muted-foreground/70">詳細: {searchError.message}</p>
+      </>
+    );
+  }
+
+  // 結果が確定する前（保存済み論文の読み込み中など）は「該当なし」を出さない
+  if (!resultsReady) return undefined;
 
   if (queryEmbedding === null) {
     return (

@@ -8,6 +8,7 @@ import type {
 import type { GenerateTarget } from "../lib/api";
 import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTextTerms";
 import { PaperExplorer } from "./PaperExplorer";
+import { PaperLoadStatus } from "./PaperLoadStatus";
 import { SearchHistory } from "./SearchHistory";
 import { SearchTextEditor } from "./SearchTextEditor";
 import { SyncStatusBar } from "./SyncStatusBar";
@@ -56,6 +57,8 @@ interface HomeMainProps {
   results: Array<{ paper: Paper; score: number }>;
   /** 検索ローディング中かどうか */
   isLoading: boolean;
+  /** 検索が保存済み論文の全件準備を待っているか */
+  isWaitingForPapers?: boolean;
   /** 選択中の論文 */
   selectedPaper: Paper | null;
   /** 詳細を閉じる */
@@ -133,6 +136,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   onSearchWithEditedText,
   results,
   isLoading,
+  isWaitingForPapers = false,
   selectedPaper,
   onCloseDetail,
   currentSummary,
@@ -232,6 +236,9 @@ const HomeMainInner: FC<HomeMainProps> = ({
               />
             )}
 
+            {/* 保存済み論文の読み込み状態（読み込み中の件数・失敗時の再試行） */}
+            <PaperLoadStatus />
+
             {/* 拡張クエリ情報の表示 - ロジック駆動: 関連要素は近くに */}
             {expandedQuery ? (
               <div className="mb-4 rounded-xl bg-muted/30 border-2 border-primary/30 p-6 backdrop-blur-sm shadow-lg shadow-primary/10">
@@ -307,7 +314,11 @@ const HomeMainInner: FC<HomeMainProps> = ({
               <div className="mt-12 grid place-items-center">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-12 w-12 animate-loading-bold rounded-full border-4 border-primary border-t-transparent" />
-                  <p className="text-sm text-muted-foreground font-bold">検索中...</p>
+                  <p className="text-sm text-muted-foreground font-bold">
+                    {isWaitingForPapers
+                      ? "保存済みの論文を読み込み中です。完了後に検索結果を表示します"
+                      : "検索中..."}
+                  </p>
                 </div>
               </div>
             ) : null}

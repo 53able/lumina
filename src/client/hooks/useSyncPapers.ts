@@ -17,8 +17,9 @@ import {
   EmbeddingApiKeyMissingError,
   type EmbeddingBackfillOutcome,
 } from "../lib/embeddingBackfillOutcome";
+import { hasPaperEmbedding } from "../lib/paperIndex/core";
 import { getNextStartToRequest, mergeRanges } from "../lib/syncPagingUtils";
-import { usePaperStore } from "../stores/paperStore";
+import { usePaperStore, whenPapersReady } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
 
@@ -235,7 +236,9 @@ export const useSyncPapers = (
     onSyncFromDateError?: (error: Error) => void;
   }
 ) => {
-  const { addPaper, addPapers, papers: storePapers } = usePaperStore();
+  // 論文配列は購読しない（同期処理は getStorePapers で最新を読む。一覧更新のたびに再描画しない）
+  const addPaper = usePaperStore((s) => s.addPaper);
+  const addPapers = usePaperStore((s) => s.addPapers);
   const { setLastSyncedAt } = useSettingsStore();
   const queryClient = useQueryClient();
 
@@ -269,9 +272,6 @@ export const useSyncPapers = (
 
   // 同期フラグ（レースコンディション防止用）。useState は非同期バッチ更新のため連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
-  /** effect 内で getState が使えない場合（テスト等）のフォールバック用。常に最新の storePapers を指す */
-  const storePapersRef = useRef(storePapers);
-  storePapersRef.current = storePapers;
   /** syncMore 用のレートリミット待機（現状は no-op） */
   const waitForRateLimitRef = useRef<() => Promise<void>>(async () => {});
 
@@ -282,12 +282,11 @@ export const useSyncPapers = (
   /** syncAll 中の追加件数合計（完了時に onSyncAllComplete で渡す） */
   const syncAllAccumulatedRef = useRef(0);
 
-  /** ストアの論文配列を取得（effect 内やテストで getState が使えない場合は ref を使用） */
-  const getStorePapers = useCallback((): Paper[] => {
-    return typeof usePaperStore.getState === "function"
-      ? usePaperStore.getState().papers
-      : storePapersRef.current;
-  }, []);
+  /**
+   * ストアの論文配列（既存論文）を取得する。
+   * 保存済み論文の全件準備完了（whenPapersReady）を待ってから呼ぶ（読み込み途中の部分集合を既存論文として使わない）
+   */
+  const getStorePapers = useCallback((): Paper[] => usePaperStore.getState().papers, []);
 
   /**
    * 同期成功時の共通処理: ストア更新・タイムスタンプ更新・onSuccess コールバック呼び出し
@@ -327,6 +326,8 @@ export const useSyncPapers = (
   const { isFetching, error, refetch } = useQuery({
     queryKey,
     queryFn: async ({ signal }): Promise<SyncResponse> => {
+      // 既存論文の ID を送るため、保存済み論文の全件準備完了を待つ
+      await whenPapersReady();
       // API key を復号化して取得（早期開始パターン）
       const apiKeyPromise = getDecryptedApiKey();
       const apiKey = await apiKeyPromise;
@@ -355,22 +356,26 @@ export const useSyncPapers = (
   /**
    * 初回同期成功時の反映処理。
    * 0件成功も正常系として扱い、totalResults/lastSyncedAt を更新する。
+   * 保存に失敗したら取得済みとして記録せず、同期エラーとして残して reject する。
    */
   const applyInitialSyncData = useCallback(
-    (response: SyncResponse): void => {
+    async (response: SyncResponse): Promise<void> => {
       const currentStorePapers = getStorePapers();
       const newPapers = filterNewPapers(response.papers, currentStorePapers);
 
       if (newPapers.length > 0) {
         // 保存が終わるまで一覧の0件表示を「取得中」にする（「論文がありません」を一瞬出さない）
         useSyncStore.getState().beginSavingSyncedPapers();
-        void Promise.resolve(addPapers(newPapers))
-          .catch((err: unknown) => {
-            console.error("Failed to save synced papers:", err);
-          })
-          .finally(() => {
-            useSyncStore.getState().endSavingSyncedPapers();
-          });
+        try {
+          await addPapers(newPapers);
+        } catch (err) {
+          const e = toError(err);
+          useSyncStore.getState().setLastSyncError(e, { kind: "initial" });
+          onErrorRef.current?.(e);
+          throw e;
+        } finally {
+          useSyncStore.getState().endSavingSyncedPapers();
+        }
       }
       commitSyncResult(response, 0, newPapers, true);
     },
@@ -396,10 +401,26 @@ export const useSyncPapers = (
     useSyncStore.getState().setIsFetching(isFetching);
   }, [isFetching]);
 
+  /**
+   * 実行中の初回同期。全件準備の待機中は isSyncing が false で同期ボタンを押せるため、
+   * 重ねて呼ばれても1回にまとめる
+   */
+  const initialSyncInFlightRef = useRef<Promise<void> | null>(null);
+
   // 同期実行関数（最初から取得）
   /** @param ignoreCache true なら5分キャッシュを使わず必ず API を叩く（失敗後の再試行用） */
-  const runInitialSync = useCallback(
+  const runInitialSyncOnce = useCallback(
     async ({ ignoreCache = false }: { ignoreCache?: boolean } = {}): Promise<void> => {
+      // 保存済み論文の全件準備完了を待つ（読み込み途中に既存論文を新規とみなして重複取得・上書きしない）
+      try {
+        await whenPapersReady();
+      } catch (err) {
+        const e = toError(err);
+        useSyncStore.getState().setLastSyncError(e, { kind: "initial" });
+        onErrorRef.current?.(e);
+        throw e;
+      }
+
       // キャッシュが新鮮（5分以内）かチェック
       const cachedData = queryClient.getQueryData<SyncResponse>(queryKey);
       const queryState = queryClient.getQueryState(queryKey);
@@ -408,7 +429,7 @@ export const useSyncPapers = (
 
       if (!ignoreCache && cachedData && !isStale) {
         // キャッシュが有効 → 再利用（APIを叩かない）。既存を除いた分だけストアに追加
-        applyInitialSyncData(cachedData);
+        await applyInitialSyncData(cachedData);
         return;
       }
 
@@ -420,10 +441,23 @@ export const useSyncPapers = (
         throw result.error;
       }
       if (result.data) {
-        applyInitialSyncData(result.data);
+        await applyInitialSyncData(result.data);
       }
     },
     [queryClient, queryKey, refetch, applyInitialSyncData]
+  );
+
+  /** 初回同期を実行する。実行中なら同じ Promise を返す */
+  const runInitialSync = useCallback(
+    (options?: { ignoreCache?: boolean }): Promise<void> => {
+      if (initialSyncInFlightRef.current) return initialSyncInFlightRef.current;
+      const running = runInitialSyncOnce(options).finally(() => {
+        initialSyncInFlightRef.current = null;
+      });
+      initialSyncInFlightRef.current = running;
+      return running;
+    },
+    [runInitialSyncOnce]
   );
 
   // 同期実行関数（最初から取得）
@@ -443,19 +477,29 @@ export const useSyncPapers = (
       if (isLoadingMoreRef.current) {
         return;
       }
+      // 全件準備の待機中に重ねて呼ばれても1回にまとめるため、待機前にフラグを立てる
+      isLoadingMoreRef.current = true;
+
+      try {
+        await whenPapersReady();
+      } catch (err) {
+        isLoadingMoreRef.current = false;
+        const e = toError(err);
+        useSyncStore.getState().setLastSyncError(e, { kind: "more" });
+        onErrorRef.current?.(e);
+        throw e;
+      }
 
       const syncState = useSyncStore.getState();
       const currentRanges = syncState.requestedRanges;
       const currentTotal = syncState.totalResults ?? 0;
-      const currentStorePapers = storePapersRef.current;
 
-      const effectiveStart = computeEffectiveStart(currentRanges, currentTotal, currentStorePapers);
+      const effectiveStart = computeEffectiveStart(currentRanges, currentTotal, getStorePapers());
       if (effectiveStart === null) {
+        isLoadingMoreRef.current = false;
         return;
       }
 
-      // 同期フラグを即座に立てる（レースコンディション防止）
-      isLoadingMoreRef.current = true;
       useSyncStore.getState().setIsLoadingMore(true);
 
       try {
@@ -467,7 +511,7 @@ export const useSyncPapers = (
         const apiKey = await apiKeyPromise;
 
         const existingPaperIds = buildExistingPaperIdsForRange(
-          storePapersRef.current,
+          getStorePapers(),
           effectiveStart,
           200
         );
@@ -487,10 +531,11 @@ export const useSyncPapers = (
         // 日付文字列を Date オブジェクトに正規化
         const response = normalizeSyncResponse(rawResponse);
 
-        // DBに既に存在する論文をスキップ（syncAll ループ内では storePapersRef が最新）
-        const newPapers = filterNewPapers(response.papers, storePapersRef.current);
+        // DBに既に存在する論文をスキップ
+        const newPapers = filterNewPapers(response.papers, getStorePapers());
+        // 保存に失敗したら取得済みの範囲として記録しない（下の catch で同期エラーとして残す）
         if (newPapers.length > 0) {
-          addPapers(newPapers);
+          await addPapers(newPapers);
         }
         commitSyncResult(response, effectiveStart, newPapers, false);
       } catch (err) {
@@ -507,7 +552,7 @@ export const useSyncPapers = (
         useSyncStore.getState().setIsLoadingMore(false);
       }
     },
-    [params, addPapers, commitSyncResult]
+    [params, addPapers, commitSyncResult, getStorePapers]
   );
 
   // まだ論文があるかどうか（ギャップがあればその補填も含む）
@@ -602,8 +647,17 @@ export const useSyncPapers = (
    * 保存済みの分は保持されるため、再実行すると未処理分だけが対象になる。
    */
   const runEmbeddingBackfill = useCallback(async (): Promise<void> => {
+    // 補完対象は全件の準備完了後に抽出する（読み込み失敗時は失敗として結果欄に残す）
+    try {
+      await whenPapersReady();
+    } catch (err) {
+      useSyncStore
+        .getState()
+        .setEmbeddingBackfillOutcome(createEmbeddingBackfillOutcome(0, 0, err));
+      return;
+    }
     const papers = getStorePapers();
-    const withoutEmbedding = papers.filter((p) => !p.embedding || p.embedding.length === 0);
+    const withoutEmbedding = papers.filter((p) => !hasPaperEmbedding(p));
     if (withoutEmbedding.length === 0) return;
     const total = withoutEmbedding.length;
     let completed = 0;
@@ -674,6 +728,8 @@ export const useSyncPapers = (
         let totalAdded = 0;
         let totalFetched = 0;
         try {
+          // 既存論文と照合するため、保存済み論文の全件準備完了を待つ（失敗は同期エラーとして記録する）
+          await whenPapersReady();
           await waitForRateLimitRef.current();
           const apiKey = await getDecryptedApiKey();
           let start = 0;

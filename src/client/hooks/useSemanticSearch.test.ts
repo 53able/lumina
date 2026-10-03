@@ -5,6 +5,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
+import type { PaperSearchSource } from "../lib/paperIndex/core";
+import { createTestSearchSource } from "../testing/paperStoreTestUtils";
 import { useSemanticSearch } from "./useSemanticSearch";
 
 // グローバルfetchのモック
@@ -88,7 +90,9 @@ describe("useSemanticSearch", () => {
 
   describe("初期状態", () => {
     it("初期状態ではローディングでなく、結果が空である", () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       expect(result.current.isLoading).toBe(false);
       expect(result.current.results).toEqual([]);
@@ -100,7 +104,9 @@ describe("useSemanticSearch", () => {
 
   describe("検索実行", () => {
     it("search関数を呼ぶと検索APIが呼ばれる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -130,7 +136,9 @@ describe("useSemanticSearch", () => {
             },
           }),
       });
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer", {
@@ -171,7 +179,9 @@ describe("useSemanticSearch", () => {
           )
       );
 
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       act(() => {
         result.current.search("transformer");
@@ -185,7 +195,9 @@ describe("useSemanticSearch", () => {
     });
 
     it("検索結果は類似度順にソートされる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -204,7 +216,9 @@ describe("useSemanticSearch", () => {
     });
 
     it("検索結果にはpaper情報とスコアが含まれる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -217,7 +231,9 @@ describe("useSemanticSearch", () => {
     });
 
     it("拡張クエリが取得できる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -227,7 +243,9 @@ describe("useSemanticSearch", () => {
     });
 
     it("queryEmbeddingが取得できる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -239,7 +257,9 @@ describe("useSemanticSearch", () => {
 
   describe("保存済みデータでの検索", () => {
     it("searchWithSavedDataでAPIリクエストなしで検索できる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.searchWithSavedData(
@@ -258,7 +278,9 @@ describe("useSemanticSearch", () => {
     });
 
     it("searchWithSavedDataで空のqueryEmbeddingの場合は結果が空になる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.searchWithSavedData(mockSearchResponse.expandedQuery, []);
@@ -276,7 +298,9 @@ describe("useSemanticSearch", () => {
         json: () => Promise.resolve({ error: "Internal Server Error" }),
       });
 
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -289,7 +313,9 @@ describe("useSemanticSearch", () => {
     it("ネットワークエラー時にerrorが設定される", async () => {
       mockFetch.mockRejectedValue(new Error("Network Error"));
 
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -301,7 +327,13 @@ describe("useSemanticSearch", () => {
 
   describe("オプション", () => {
     it("limitオプションでAPIに渡す件数を変更できる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers, limit: 50 }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({
+          papers: mockPapers,
+          limit: 50,
+          searchSource: createTestSearchSource(mockPapers),
+        })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -333,7 +365,12 @@ describe("useSemanticSearch", () => {
         },
       ];
 
-      const { result } = renderHook(() => useSemanticSearch({ papers: papersWithoutEmbedding }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({
+          papers: papersWithoutEmbedding,
+          searchSource: createTestSearchSource(papersWithoutEmbedding),
+        })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -360,7 +397,12 @@ describe("useSemanticSearch", () => {
         },
       ];
 
-      const { result } = renderHook(() => useSemanticSearch({ papers: papersWithOneExcluded }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({
+          papers: papersWithOneExcluded,
+          searchSource: createTestSearchSource(papersWithOneExcluded),
+        })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -388,9 +430,13 @@ describe("useSemanticSearch", () => {
     };
 
     const renderWithPapers = (initialPapers: Paper[]) =>
-      renderHook(({ papers }: { papers: Paper[] }) => useSemanticSearch({ papers }), {
-        initialProps: { papers: initialPapers },
-      });
+      renderHook(
+        ({ papers }: { papers: Paper[] }) =>
+          useSemanticSearch({ papers, searchSource: createTestSearchSource(papers) }),
+        {
+          initialProps: { papers: initialPapers },
+        }
+      );
 
     it("検索表示中にEmbeddingを補完すると、検索対象外から外れてスコアに応じて結果に入る", async () => {
       const { result, rerender } = renderWithPapers([...mockPapers, paperPendingEmbedding]);
@@ -402,8 +448,10 @@ describe("useSemanticSearch", () => {
       expect(result.current.results.map((r) => r.paper.id)).not.toContain("2401.00004");
       const totalBefore = result.current.totalMatchCount;
 
-      rerender({
-        papers: [...mockPapers, { ...paperPendingEmbedding, embedding: createMockEmbedding(1) }],
+      await act(async () => {
+        rerender({
+          papers: [...mockPapers, { ...paperPendingEmbedding, embedding: createMockEmbedding(1) }],
+        });
       });
 
       expect(result.current.papersExcludedFromSearch).toEqual([]);
@@ -419,7 +467,8 @@ describe("useSemanticSearch", () => {
       // 追加後の論文数（5件）が limit を下回るようにし、limit による切り捨ての影響を除く
       const limit = 10;
       const { result, rerender } = renderHook(
-        ({ papers }: { papers: Paper[] }) => useSemanticSearch({ papers, limit }),
+        ({ papers }: { papers: Paper[] }) =>
+          useSemanticSearch({ papers, limit, searchSource: createTestSearchSource(papers) }),
         { initialProps: { papers: mockPapers as Paper[] } }
       );
 
@@ -438,7 +487,9 @@ describe("useSemanticSearch", () => {
         id: "2401.00006",
         embedding: createMockEmbedding(1).map((v) => -v),
       };
-      rerender({ papers: [...mockPapers, similarPaper, dissimilarPaper] });
+      await act(async () => {
+        rerender({ papers: [...mockPapers, similarPaper, dissimilarPaper] });
+      });
 
       const idsAfter = result.current.results.map((r) => r.paper.id);
       expect(idsAfter).toContain("2401.00005");
@@ -450,7 +501,11 @@ describe("useSemanticSearch", () => {
     it("閾値を変更すると、検索APIを呼ばずに表示中の結果を再計算する", async () => {
       const { result, rerender } = renderHook(
         ({ scoreThreshold }: { scoreThreshold: number }) =>
-          useSemanticSearch({ papers: mockPapers, scoreThreshold }),
+          useSemanticSearch({
+            papers: mockPapers,
+            scoreThreshold,
+            searchSource: createTestSearchSource(mockPapers),
+          }),
         { initialProps: { scoreThreshold: 0.3 } }
       );
 
@@ -461,12 +516,16 @@ describe("useSemanticSearch", () => {
       expect(countAtDefault).toBeGreaterThan(1);
 
       // クエリと同一の Embedding を持つ論文（スコア≒1）だけが残る閾値
-      rerender({ scoreThreshold: 0.99 });
+      await act(async () => {
+        rerender({ scoreThreshold: 0.99 });
+      });
 
       expect(result.current.results.map((r) => r.paper.id)).toEqual(["2401.00001"]);
       expect(result.current.totalMatchCount).toBe(1);
 
-      rerender({ scoreThreshold: 0.3 });
+      await act(async () => {
+        rerender({ scoreThreshold: 0.3 });
+      });
 
       expect(result.current.results).toHaveLength(countAtDefault);
       expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -492,7 +551,9 @@ describe("useSemanticSearch", () => {
       expect(result.current.totalMatchCount).toBe(0);
 
       // 論文が更新されても空のまま
-      rerender({ papers: [...mockPapers, paperPendingEmbedding] });
+      await act(async () => {
+        rerender({ papers: [...mockPapers, paperPendingEmbedding] });
+      });
 
       expect(result.current.papersExcludedFromSearch).toEqual([]);
       expect(result.current.totalMatchCount).toBe(0);
@@ -509,8 +570,10 @@ describe("useSemanticSearch", () => {
       });
       expect(result.current.papersExcludedFromSearch).toHaveLength(1);
 
-      rerender({
-        papers: [...mockPapers, { ...paperPendingEmbedding, embedding: createMockEmbedding(1) }],
+      await act(async () => {
+        rerender({
+          papers: [...mockPapers, { ...paperPendingEmbedding, embedding: createMockEmbedding(1) }],
+        });
       });
 
       expect(result.current.papersExcludedFromSearch).toEqual([]);
@@ -528,8 +591,10 @@ describe("useSemanticSearch", () => {
         result.current.reset();
       });
 
-      rerender({
-        papers: [...mockPapers, { ...paperPendingEmbedding, embedding: createMockEmbedding(1) }],
+      await act(async () => {
+        rerender({
+          papers: [...mockPapers, { ...paperPendingEmbedding, embedding: createMockEmbedding(1) }],
+        });
       });
 
       expect(result.current.results).toEqual([]);
@@ -553,7 +618,9 @@ describe("useSemanticSearch", () => {
       act(() => {
         result.current.reset();
       });
-      rerender({ papers: [...mockPapers, paperPendingEmbedding] });
+      await act(async () => {
+        rerender({ papers: [...mockPapers, paperPendingEmbedding] });
+      });
 
       await act(async () => {
         resolveFetch({ ok: true, json: () => Promise.resolve(mockSearchResponse) });
@@ -568,7 +635,9 @@ describe("useSemanticSearch", () => {
 
   describe("reset機能", () => {
     it("reset関数で状態をクリアできる", async () => {
-      const { result } = renderHook(() => useSemanticSearch({ papers: mockPapers }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -584,6 +653,156 @@ describe("useSemanticSearch", () => {
       expect(result.current.expandedQuery).toBeNull();
       expect(result.current.queryEmbedding).toBeNull();
       expect(result.current.error).toBeNull();
+    });
+  });
+
+  describe("保存済み論文の読み込み中（#65）", () => {
+    /** 全件準備の完了・失敗をテストから制御できる検索の実行元 */
+    const createPendingSource = () => {
+      let ready = false;
+      let resolveReady!: () => void;
+      let rejectReady!: (error: Error) => void;
+      const readyPromise = new Promise<void>((resolve, reject) => {
+        resolveReady = () => {
+          ready = true;
+          resolve();
+        };
+        rejectReady = reject;
+      });
+      const base = createTestSearchSource(mockPapers);
+      const source: PaperSearchSource = {
+        isReady: () => ready,
+        whenReady: () => readyPromise,
+        search: base.search,
+      };
+      return { source, resolveReady, rejectReady };
+    };
+
+    it("全件の準備完了までは結果を確定せず、完了後に全件に対する結果を返す", async () => {
+      const pending = createPendingSource();
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: pending.source })
+      );
+
+      let searching!: Promise<unknown>;
+      act(() => {
+        searching = result.current.search("transformer");
+      });
+      await waitFor(() => expect(result.current.isWaitingForPapers).toBe(true));
+      expect(result.current.isLoading).toBe(true);
+      expect(result.current.resultsReady).toBe(false);
+      expect(result.current.results).toEqual([]);
+      expect(result.current.papersExcludedFromSearch).toEqual([]);
+      expect(result.current.totalMatchCount).toBe(0);
+
+      await act(async () => {
+        pending.resolveReady();
+        await searching;
+      });
+
+      expect(result.current.searchPhase).toBe("done");
+      expect(result.current.resultsReady).toBe(true);
+      expect(result.current.isWaitingForPapers).toBe(false);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.results[0]?.paper.id).toBe("2401.00001");
+      expect(result.current.totalMatchCount).toBeGreaterThan(0);
+    });
+
+    it("履歴からの検索も全件の準備完了まで結果を確定しない", async () => {
+      const pending = createPendingSource();
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: pending.source })
+      );
+
+      let searching!: Promise<unknown>;
+      act(() => {
+        searching = result.current.searchWithSavedData(
+          mockSearchResponse.expandedQuery,
+          mockSearchResponse.queryEmbedding
+        );
+      });
+      expect(result.current.isWaitingForPapers).toBe(true);
+      expect(result.current.resultsReady).toBe(false);
+
+      await act(async () => {
+        pending.resolveReady();
+        await searching;
+      });
+      expect(result.current.resultsReady).toBe(true);
+      expect(result.current.results.length).toBeGreaterThan(0);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("再読み込み中の論文更新では索引を検索せず、準備完了で1回だけ再計算する", async () => {
+      let ready = true;
+      let resolveReady: () => void = () => {};
+      let readyPromise = Promise.resolve();
+      const base = createTestSearchSource(mockPapers);
+      const searchSpy = vi.fn(base.search);
+      const source: PaperSearchSource = {
+        isReady: () => ready,
+        whenReady: () => readyPromise,
+        search: searchSpy,
+      };
+      const { result, rerender } = renderHook(
+        ({ papers }: { papers: Paper[] }) => useSemanticSearch({ papers, searchSource: source }),
+        { initialProps: { papers: mockPapers as Paper[] } }
+      );
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      expect(searchSpy).toHaveBeenCalledTimes(1);
+
+      // 再試行で読み込み直している間に、バッチが届くたびに一覧が更新される
+      ready = false;
+      readyPromise = new Promise<void>((resolve) => {
+        resolveReady = () => {
+          ready = true;
+          resolve();
+        };
+      });
+      await act(async () => {
+        rerender({ papers: [...mockPapers] });
+      });
+      await act(async () => {
+        rerender({ papers: [...mockPapers] });
+      });
+      expect(searchSpy).toHaveBeenCalledTimes(1);
+      expect(result.current.searchPhase).toBe("done");
+      expect(result.current.results.length).toBeGreaterThan(0);
+
+      await act(async () => {
+        resolveReady();
+      });
+      await waitFor(() => expect(searchSpy).toHaveBeenCalledTimes(2));
+      expect(result.current.searchPhase).toBe("done");
+      expect(result.current.results[0]?.paper.id).toBe("2401.00001");
+    });
+
+    it("読み込みに失敗すると、検索をエラーにして結果を確定しない", async () => {
+      const pending = createPendingSource();
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: pending.source })
+      );
+
+      let searching!: Promise<unknown>;
+      act(() => {
+        searching = result.current.search("transformer");
+      });
+      await waitFor(() => expect(result.current.isWaitingForPapers).toBe(true));
+
+      const loadError = new Error("IndexedDB が開けません");
+      loadError.name = "PaperLoadError";
+      await act(async () => {
+        pending.rejectReady(loadError);
+        await searching;
+      });
+
+      expect(result.current.searchPhase).toBe("error");
+      expect(result.current.error?.name).toBe("PaperLoadError");
+      expect(result.current.resultsReady).toBe(false);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.results).toEqual([]);
     });
   });
 });

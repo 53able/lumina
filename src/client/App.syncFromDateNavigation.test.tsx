@@ -65,14 +65,22 @@ vi.mock("./hooks/useSyncPapers", () => ({
 
 vi.mock("./stores/paperStore", () => ({
   usePaperStore: vi.fn(
-    (selector?: (state: { papers: typeof mockPapers; isLoading: boolean }) => unknown) => {
+    (
+      selector?: (state: {
+        papers: typeof mockPapers;
+        isLoading: boolean;
+        loadStatus: "ready";
+      }) => unknown
+    ) => {
       const state = {
         papers: mockPapers,
         isLoading: false,
+        loadStatus: "ready" as const,
       };
       return selector ? selector(state) : state;
     }
   ),
+  whenPapersReady: () => Promise.resolve(),
 }));
 
 vi.mock("./stores/settingsStore", () => ({

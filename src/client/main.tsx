@@ -36,40 +36,60 @@ if (!rootElement) {
   throw new Error("Root element not found");
 }
 
+/** React を描画する（保存済み論文の読み込み完了を待たない） */
+const renderApp = () => {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <BrowserRouter>
+        <QueryClientProvider client={queryClient}>
+          <InteractionProvider>
+            <App />
+            <Toaster
+              position="bottom-right"
+              richColors
+              closeButton
+              toastOptions={{
+                className: "font-sans",
+                duration: 4000,
+              }}
+            />
+          </InteractionProvider>
+        </QueryClientProvider>
+      </BrowserRouter>
+    </StrictMode>
+  );
+};
+
+/**
+ * 小さいストア（要約・操作記録・検索履歴・設定）を初期化する。
+ * 失敗しても描画は止めない（白画面にしない）。失敗はログに残す。
+ */
+const initializeSmallStores = async (): Promise<void> => {
+  const results = await Promise.allSettled([
+    initializeSummaryStore(luminaDb),
+    initializeInteractionStore(luminaDb),
+    initializeSearchHistoryStore(luminaDb),
+    // 平文で保存されている API key を暗号化に移行
+    useSettingsStore
+      .getState()
+      .initializeStore(),
+  ]);
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("Failed to initialize store:", result.reason);
+    }
+  }
+};
+
 // アプリ起動前に Web Crypto を先にウォームアップしてから IndexedDB 初期化（リロード直後の検索で復号失敗しないよう）
+// 保存済み論文は Web Worker で段階的に読み込み、全件の完了を待たずに描画する（読み込み状態は画面で表示する）
 warmupCrypto()
   .catch(() => {})
-  .then(() =>
-    Promise.all([
-      initializePaperStore(luminaDb),
-      initializeSummaryStore(luminaDb),
-      initializeInteractionStore(luminaDb),
-      initializeSearchHistoryStore(luminaDb),
-      // 平文で保存されている API key を暗号化に移行
-      useSettingsStore
-        .getState()
-        .initializeStore(),
-    ])
-  )
   .then(() => {
-    createRoot(rootElement).render(
-      <StrictMode>
-        <BrowserRouter>
-          <QueryClientProvider client={queryClient}>
-            <InteractionProvider>
-              <App />
-              <Toaster
-                position="bottom-right"
-                richColors
-                closeButton
-                toastOptions={{
-                  className: "font-sans",
-                  duration: 4000,
-                }}
-              />
-            </InteractionProvider>
-          </QueryClientProvider>
-        </BrowserRouter>
-      </StrictMode>
-    );
-  });
+    void initializePaperStore(luminaDb);
+    return initializeSmallStores();
+  })
+  .catch((err: unknown) => {
+    console.error("Failed to initialize stores:", err);
+  })
+  .then(renderApp);

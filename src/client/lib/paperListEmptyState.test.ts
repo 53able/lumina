@@ -62,4 +62,44 @@ describe("getPaperListEmptyState", () => {
     ].map((s) => `${s.title}${s.description}`);
     expect(new Set(texts).size).toBe(4);
   });
+
+  describe("保存済み論文の読み込み状態（#65）", () => {
+    it("1件も読み込めずに失敗していれば、未同期・同期失敗より先に読み込みの再試行を返す", () => {
+      const state = getPaperListEmptyState(
+        input({
+          lastSyncError: new Error("Sync failed: 503"),
+          paperLoadStatus: "error",
+          paperLoadError: new Error("IndexedDB が開けません"),
+        })
+      );
+      expect(state.kind).toBe("load-failed");
+      expect(state.detail).toBe("IndexedDB が開けません");
+      expect(state.actions).toEqual(["retry-load"]);
+    });
+
+    it("一部を読み込めてから失敗し、条件に一致しないときは該当なしと解除操作を返す", () => {
+      const state = getPaperListEmptyState(
+        input({
+          storedPaperCount: 100,
+          paperLoadStatus: "error",
+          paperLoadError: new Error("IndexedDB が開けません"),
+        })
+      );
+      expect(state.kind).toBe("no-results");
+      expect(state.actions).toEqual(["clear-conditions"]);
+    });
+
+    it("読み込み中で読み込み済みの論文があれば、まだ一致がないことと解除操作を返す", () => {
+      const state = getPaperListEmptyState(
+        input({ storedPaperCount: 100, isLoading: true, paperLoadStatus: "loading" })
+      );
+      expect(state.kind).toBe("loading-stored");
+      expect(state.actions).toEqual(["clear-conditions"]);
+    });
+
+    it("読み込み中で論文がまだなければ、取得中として扱う（未同期と表示しない）", () => {
+      const state = getPaperListEmptyState(input({ isLoading: true, paperLoadStatus: "loading" }));
+      expect(state.kind).toBe("loading");
+    });
+  });
 });

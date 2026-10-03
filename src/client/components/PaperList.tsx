@@ -84,6 +84,7 @@ const LoadingSkeleton: FC = () => (
 const EMPTY_ACTION_LABELS: Record<PaperListEmptyAction, string> = {
   sync: "論文を同期",
   "retry-sync": "同期を再試行",
+  "retry-load": "読み込みを再試行",
   "open-settings": "設定を開く",
   "clear-conditions": "検索・絞り込みを解除",
 };
@@ -190,6 +191,9 @@ export const PaperList: FC<PaperListProps> = ({
   const storedPaperCount = usePaperStore((s) => s.papers.length);
   // IndexedDB からの初期読み込み中（initializePaperStore が true にする）
   const isPaperStoreLoading = usePaperStore((s) => s.isLoading);
+  const paperLoadStatus = usePaperStore((s) => s.loadStatus);
+  const paperLoadError = usePaperStore((s) => s.loadError);
+  const retryPaperLoad = usePaperStore((s) => s.retryLoad);
   const hasSynced = useSettingsStore((s) => s.lastSyncedAt !== null);
 
   // スクロールコンテナへの参照
@@ -257,6 +261,8 @@ export const PaperList: FC<PaperListProps> = ({
     <div className="space-y-4">
       {showCount && (
         <p className="text-sm text-muted-foreground/70">
+          {/* 読み込み中は全件の件数と誤解させない */}
+          {paperLoadStatus === "loading" && "読み込み済みの論文のうち "}
           <span className="font-bold text-foreground">{papers.length}</span>件の論文
         </p>
       )}
@@ -380,11 +386,14 @@ export const PaperList: FC<PaperListProps> = ({
                     isPaperStoreLoading,
                   lastSyncError: lastSyncError ?? null,
                   hasSynced,
+                  paperLoadStatus,
+                  paperLoadError,
                 })}
                 customMessage={emptyMessageProp}
                 handlers={{
                   sync: onSync,
                   "retry-sync": onRetrySync,
+                  "retry-load": () => void retryPaperLoad(),
                   "open-settings": onOpenSettings,
                   "clear-conditions": onClearConditions,
                 }}
@@ -404,8 +413,9 @@ export const PaperList: FC<PaperListProps> = ({
           </div>
         ) : isSyncing ? null : (
           // onRequestSync がない = 追加読み込み不可（検索/フィルタ中）の場合のみ表示
-          // 追加読み込みが可能な状態では、まだデータがあるかもしれないので表示しない
+          // 追加読み込みが可能な状態・保存済み論文の読み込み中は、まだデータがあるかもしれないので表示しない
           !onRequestSync &&
+          !isPaperStoreLoading &&
           papers.length > 50 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground/60">
               <CheckCircle2 className="h-5 w-5 text-primary" />

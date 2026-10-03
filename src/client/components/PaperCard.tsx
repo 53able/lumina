@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import type { Paper } from "../../shared/schemas/index";
 import { useInteraction } from "../contexts/InteractionContext";
 import { getCategoryDescription } from "../lib/categoryDescriptions";
+import { hasPaperEmbedding } from "../lib/paperIndex/core";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -195,7 +196,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
           {/* カテゴリバッジ（ツールチップ付き） */}
           <div className="relative z-10 mb-3 flex flex-wrap gap-2">
             {categoryBadges}
-            {(!paper.embedding || paper.embedding.length === 0) && (
+            {!hasPaperEmbedding(paper) && (
               <Badge
                 variant="outline"
                 className="relative z-10 inline-flex items-center gap-1 border-muted-foreground/40 bg-muted/50 text-muted-foreground font-normal text-xs px-2 py-0.5"
@@ -297,6 +298,6 @@ export const PaperCard = memo(PaperCardComponent, (prevProps, nextProps) => {
     prevProps.whyRead === nextProps.whyRead &&
     prevProps.index === nextProps.index &&
     prevProps.onClick === nextProps.onClick &&
-    (prevProps.paper.embedding?.length ?? 0) === (nextProps.paper.embedding?.length ?? 0)
+    hasPaperEmbedding(prevProps.paper) === hasPaperEmbedding(nextProps.paper)
   );
 });

@@ -10,6 +10,7 @@ import {
 } from "../../shared/utils/paperStats";
 import { BackToListLink } from "../components/BackToListLink";
 import { PaperCacheBarChart } from "../components/PaperCacheBarChart";
+import { PaperLoadStatus } from "../components/PaperLoadStatus";
 import { Button } from "../components/ui/button";
 import { useSyncPapers } from "../hooks/useSyncPapers";
 import { usePaperStore } from "../stores/paperStore";
@@ -38,7 +39,10 @@ const describeChart = (entries: DailyCountEntry[], threshold?: number): string =
  * 中央値以下の日は別色で表示し、必要に応じてその期間を追加同期できる。
  */
 export const StatsPage: FC = () => {
-  const { papers, isLoading } = usePaperStore();
+  const papers = usePaperStore((s) => s.papers);
+  const isLoading = usePaperStore((s) => s.isLoading);
+  // 読み込み失敗時は途中までの論文で集計しない（件数が少ない日を誤って示さないため）
+  const loadFailed = usePaperStore((s) => s.loadStatus === "error");
   const { selectedCategories, syncPeriodDays } = useSettingsStore();
   const [showAllLowDays, setShowAllLowDays] = useState(false);
   const [isStoppingSyncFromDate, setIsStoppingSyncFromDate] = useState(false);
@@ -63,7 +67,8 @@ export const StatsPage: FC = () => {
   const visibleLowDayEntries = showAllLowDays
     ? lowDayEntries
     : lowDayEntries.slice(0, LOW_DAYS_PREVIEW_MAX);
-  const emptyState = papers.length === 0 && !isLoading;
+  const emptyState = papers.length === 0 && !isLoading && !loadFailed;
+  const showStats = !isLoading && !loadFailed && !emptyState;
   const chartDescription = describeChart(dailyCounts, threshold);
 
   useEffect(() => {
@@ -127,7 +132,7 @@ export const StatsPage: FC = () => {
             公開日別の件数。棒が低い日＝キャッシュが少ない日。グラフ下の線は中央値。
           </p>
 
-          {!isLoading && !emptyState && dailyCounts.length > 0 && lowDayEntries.length > 0 && (
+          {showStats && dailyCounts.length > 0 && lowDayEntries.length > 0 && (
             <section
               className="mb-6 rounded-lg border border-border/60 bg-muted/30 p-4"
               aria-label="キャッシュが少ない日の一覧"
@@ -209,13 +214,15 @@ export const StatsPage: FC = () => {
             </section>
           )}
 
+          {loadFailed && <PaperLoadStatus />}
+
           {isLoading && (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               読み込み中...
             </div>
           )}
 
-          {!isLoading && emptyState && (
+          {emptyState && (
             <div className="flex flex-col items-center justify-center gap-6 py-12">
               <div className="rounded-full bg-muted/50 p-6">
                 <BarChart3 className="h-12 w-12 text-muted-foreground" />
@@ -229,7 +236,7 @@ export const StatsPage: FC = () => {
             </div>
           )}
 
-          {!isLoading && !emptyState && dailyCounts.length > 0 && (
+          {showStats && dailyCounts.length > 0 && (
             <figure className="min-w-0" role="img" aria-label={chartDescription}>
               <div className="overflow-x-auto">
                 <PaperCacheBarChart data={dailyCounts} threshold={threshold} />
@@ -238,7 +245,7 @@ export const StatsPage: FC = () => {
             </figure>
           )}
 
-          {!isLoading && !emptyState && dailyCounts.length === 0 && (
+          {showStats && dailyCounts.length === 0 && (
             <p className="text-sm text-muted-foreground py-4">集計結果がありません。</p>
           )}
         </div>

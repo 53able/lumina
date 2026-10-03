@@ -1,0 +1,258 @@
+import { describe, expect, it } from "vitest";
+import type { Paper } from "../../../shared/schemas/index";
+import {
+  createPaperEmbeddingIndex,
+  hasPaperEmbedding,
+  mergePapersDesc,
+  type PaperListItem,
+  toPaperListItem,
+  toStoredPaper,
+} from "./core";
+
+/** 再現可能な疑似乱数（線形合同法） */
+const createRandom = (seed: number) => {
+  let state = seed;
+  return () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    return state / 4294967296 - 0.5;
+  };
+};
+
+const createPaper = (id: string, publishedAt: string, embedding?: number[]): Paper => ({
+  id,
+  title: `Title ${id}`,
+  abstract: "Abstract",
+  authors: ["Author"],
+  categories: ["cs.AI"],
+  publishedAt: new Date(publishedAt),
+  updatedAt: new Date(publishedAt),
+  pdfUrl: `https://arxiv.org/pdf/${id}.pdf`,
+  arxivUrl: `https://arxiv.org/abs/${id}`,
+  ...(embedding ? { embedding } : {}),
+});
+
+/**
+ * 変更前（#65 以前）に画面側で行っていた検索計算（比較用の参照実装）
+ */
+const legacyComputeSearchResults = (
+  papers: Paper[],
+  queryEmbedding: number[],
+  scoreThreshold: number,
+  limit: number
+) => {
+  const cosineSimilarity = (a: number[], b: number[]): number => {
+    if (a.length !== b.length || a.length === 0) return 0;
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i += 1) {
+      const ai = a[i] ?? 0;
+      const bi = b[i] ?? 0;
+      dotProduct += ai * bi;
+      normA += ai * ai;
+      normB += bi * bi;
+    }
+    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+    return denominator === 0 ? 0 : dotProduct / denominator;
+  };
+  const matched: { id: string; score: number }[] = [];
+  for (const paper of papers) {
+    if (!paper.embedding || paper.embedding.length === 0) continue;
+    if (queryEmbedding.length === 0) continue;
+    const score = cosineSimilarity(queryEmbedding, paper.embedding);
+    if (score >= scoreThreshold) matched.push({ id: paper.id, score });
+  }
+  matched.sort((a, b) => b.score - a.score);
+  return { matches: matched.slice(0, limit), totalMatchCount: matched.length };
+};
+
+describe("createPaperEmbeddingIndex", () => {
+  it("1536次元で従来の画面側計算と同じ順位・件数になり、スコア差は 1e-6 以内", () => {
+    const random = createRandom(42);
+    const dims = 1536;
+    const randomVector = () => Array.from({ length: dims }, () => random());
+    const query = randomVector();
+    const papers = Array.from({ length: 300 }, (_, i) =>
+      createPaper(
+        `p${i}`,
+        "2024-01-01",
+        // 一部はクエリに寄せて閾値を超えるようにする
+        i % 3 === 0 ? query.map((q) => q + random() * 0.8) : randomVector()
+      )
+    );
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+
+    for (const [threshold, limit] of [
+      [0.3, 20],
+      [0.5, 5],
+      [-1, 1000],
+    ] as const) {
+      const expected = legacyComputeSearchResults(papers, query, threshold, limit);
+      const actual = index.search(query, threshold, limit);
+
+      expect(actual.totalMatchCount).toBe(expected.totalMatchCount);
+      expect(actual.matches.map((m) => m.id)).toEqual(expected.matches.map((m) => m.id));
+      actual.matches.forEach((match, i) => {
+        expect(Math.abs(match.score - (expected.matches[i]?.score ?? Number.NaN))).toBeLessThan(
+          1e-6
+        );
+      });
+    }
+  });
+
+  it("limit は適用後の一致だけを返し、totalMatchCount は適用前の件数", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert([
+      { id: "a", embedding: [1, 0] },
+      { id: "b", embedding: [0.9, 0.1] },
+      { id: "c", embedding: [0.8, 0.2] },
+    ]);
+
+    const result = index.search([1, 0], 0.5, 2);
+
+    expect(result.matches.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(result.totalMatchCount).toBe(3);
+  });
+
+  it("次元が異なる・ゼロベクトルの論文はスコア 0 として閾値と比べる（従来と同じ）", () => {
+    const papers = [
+      createPaper("mismatch", "2024-01-01", [1, 0, 0]),
+      createPaper("zero", "2024-01-01", [0, 0]),
+      createPaper("same", "2024-01-01", [1, 0]),
+    ];
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+
+    for (const threshold of [0, 0.1]) {
+      const expected = legacyComputeSearchResults(papers, [1, 0], threshold, 10);
+      const actual = index.search([1, 0], threshold, 10);
+      expect(actual.totalMatchCount).toBe(expected.totalMatchCount);
+      expect(actual.matches.map((m) => m.id).sort()).toEqual(
+        expected.matches.map((m) => m.id).sort()
+      );
+    }
+  });
+
+  it("Embedding がない・空の論文は索引に入れず、更新で Embedding が外れたら索引から外す", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert([
+      { id: "none" },
+      { id: "empty", embedding: [] },
+      { id: "has", embedding: [1, 0] },
+    ]);
+    expect(index.size).toBe(1);
+
+    index.upsert([{ id: "has", embedding: [] }]);
+    expect(index.size).toBe(0);
+    expect(index.search([1, 0], -1, 10)).toEqual({ matches: [], totalMatchCount: 0 });
+  });
+
+  it("空のクエリでは何も一致しない", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert([{ id: "a", embedding: [1, 0] }]);
+
+    expect(index.search([], -1, 10)).toEqual({ matches: [], totalMatchCount: 0 });
+  });
+});
+
+describe("一覧用の論文", () => {
+  it("toPaperListItem は Embedding 本体を除き、有無だけを残す", () => {
+    const item = toPaperListItem(createPaper("a", "2024-01-01", [0.1, 0.2]));
+
+    expect("embedding" in item).toBe(false);
+    expect(item.hasEmbedding).toBe(true);
+    expect(toPaperListItem(createPaper("b", "2024-01-01")).hasEmbedding).toBe(false);
+    // 一覧用の論文を変換し直しても有無を保つ
+    expect(toPaperListItem(item).hasEmbedding).toBe(true);
+  });
+
+  it("hasPaperEmbedding は一覧用・Embedding 付きの論文のどちらでも判定できる", () => {
+    const item = toPaperListItem(createPaper("a", "2024-01-01", [0.1]));
+
+    expect(hasPaperEmbedding(item)).toBe(true);
+    expect(hasPaperEmbedding(createPaper("b", "2024-01-01", [0.1]))).toBe(true);
+    expect(hasPaperEmbedding(createPaper("c", "2024-01-01", []))).toBe(false);
+    expect(hasPaperEmbedding({ ...toPaperListItem(createPaper("d", "2024-01-01")) })).toBe(false);
+    // 一覧用の論文に Embedding を付けた更新（補完）は Embedding ありとして扱う
+    expect(
+      hasPaperEmbedding({ ...toPaperListItem(createPaper("e", "2024-01-01")), embedding: [1] })
+    ).toBe(true);
+  });
+
+  it("toStoredPaper は画面用のフィールド hasEmbedding を除く", () => {
+    const stored = toStoredPaper({
+      ...toPaperListItem(createPaper("a", "2024-01-01")),
+      embedding: [0.1],
+    } as Paper);
+
+    expect("hasEmbedding" in stored).toBe(false);
+    expect(stored.embedding).toEqual([0.1]);
+  });
+});
+
+describe("mergePapersDesc", () => {
+  const item = (id: string, publishedAt: string, title = `Title ${id}`): PaperListItem => ({
+    ...toPaperListItem(createPaper(id, publishedAt)),
+    title,
+  });
+
+  /** 従来の統合（既存の後ろに追加し、公開日の降順で安定ソート） */
+  const legacyMerge = (existing: PaperListItem[], incoming: PaperListItem[]) => {
+    const map = new Map(existing.map((p) => [p.id, p]));
+    for (const p of incoming) map.set(p.id, p);
+    return [...map.values()].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+  };
+
+  it("公開日の降順を保って統合し、同日時は既存を先に置く", () => {
+    const existing = [item("e3", "2024-01-03"), item("e2", "2024-01-02"), item("e1", "2024-01-01")];
+    const incoming = [item("n4", "2024-01-04"), item("n2", "2024-01-02"), item("n0", "2023-12-31")];
+
+    const merged = mergePapersDesc(existing, incoming);
+
+    expect(merged.map((p) => p.id)).toEqual(["n4", "e3", "e2", "n2", "e1", "n0"]);
+    expect(merged).toEqual(legacyMerge(existing, incoming));
+  });
+
+  it("同じ ID は incoming で置き換え、件数を増やさない", () => {
+    const existing = [item("a", "2024-01-02"), item("b", "2024-01-01")];
+
+    const merged = mergePapersDesc(existing, [item("b", "2024-01-01", "Updated")]);
+
+    expect(merged.map((p) => p.id)).toEqual(["a", "b"]);
+    expect(merged[1]?.title).toBe("Updated");
+  });
+
+  it("公開日が変わった更新は新しい位置へ移す", () => {
+    const existing = [item("a", "2024-01-03"), item("b", "2024-01-02"), item("c", "2024-01-01")];
+
+    const merged = mergePapersDesc(existing, [item("c", "2024-01-04")]);
+
+    expect(merged.map((p) => p.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("ランダムな入力でも従来の統合（全件ソート）と一致する", () => {
+    const random = createRandom(7);
+    const day = () => `2024-01-${String(1 + Math.floor((random() + 0.5) * 20)).padStart(2, "0")}`;
+    const existing = legacyMerge(
+      [],
+      Array.from({ length: 200 }, (_, i) => item(`p${i}`, day()))
+    );
+    const incoming = Array.from({ length: 80 }, (_, i) => {
+      const id = `p${Math.floor((random() + 0.5) * 300)}`;
+      const existed = existing.find((p) => p.id === id);
+      // 既存の更新は公開日を保つ（同期・補完の更新と同じ）
+      return existed ? { ...existed, title: `Updated ${i}` } : item(id, day());
+    });
+    const uniqueIncoming = [...new Map(incoming.map((p) => [p.id, p])).values()];
+
+    expect(mergePapersDesc(existing, uniqueIncoming)).toEqual(
+      legacyMerge(existing, uniqueIncoming)
+    );
+  });
+
+  it("incoming が空なら既存の配列をそのまま返す", () => {
+    const existing = [item("a", "2024-01-01")];
+    expect(mergePapersDesc(existing, [])).toBe(existing);
+  });
+});

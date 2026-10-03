@@ -36,15 +36,27 @@ const mockPapers = vi.hoisted(() => [
   },
 ]);
 
-vi.mock("@/client/stores/paperStore", () => ({
-  usePaperStore: Object.assign(
-    vi.fn((selector?: (s: unknown) => unknown) => {
-      const state = { papers: mockPapers, isLoading: false, addPapers: vi.fn() };
-      return selector ? selector(state) : state;
-    }),
-    { getState: () => ({ papers: mockPapers }) }
-  ),
-}));
+vi.mock("@/client/stores/paperStore", async () => {
+  const { createPaperEmbeddingIndex } = await import("./lib/paperIndex/core");
+  const state = { papers: mockPapers, isLoading: false, loadStatus: "ready", addPapers: vi.fn() };
+  return {
+    usePaperStore: Object.assign(
+      vi.fn((selector?: (s: unknown) => unknown) => (selector ? selector(state) : state)),
+      { getState: () => state }
+    ),
+    whenPapersReady: () => Promise.resolve(),
+    // 保存済み論文は全件準備済みとして、mockPapers を索引で検索する
+    paperStoreSearchSource: {
+      isReady: () => true,
+      whenReady: () => Promise.resolve(),
+      search: async (queryEmbedding: number[], scoreThreshold: number, limit: number) => {
+        const index = createPaperEmbeddingIndex();
+        index.upsert(mockPapers);
+        return index.search(queryEmbedding, scoreThreshold, limit);
+      },
+    },
+  };
+});
 
 vi.mock("@/client/stores/interactionStore", () => ({
   useInteractionStore: vi.fn((selector?: (s: unknown) => unknown) => {

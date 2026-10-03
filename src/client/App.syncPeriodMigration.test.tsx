@@ -72,13 +72,21 @@ vi.mock("@/client/stores/searchHistoryStore", () => ({
   }),
 }));
 
-vi.mock("@/client/stores/paperStore", () => ({
-  usePaperStore: () => ({
+vi.mock("@/client/stores/paperStore", () => {
+  const state = {
     papers: [],
     addPapers: vi.fn(),
     isLoading: false,
-  }),
-}));
+    loadStatus: "ready",
+  };
+  return {
+    usePaperStore: Object.assign(
+      (selector?: (s: typeof state) => unknown) => (selector ? selector(state) : state),
+      { getState: () => state }
+    ),
+    whenPapersReady: () => Promise.resolve(),
+  };
+});
 
 vi.mock("@/client/hooks/usePaperFilter", () => ({
   usePaperFilter: () => ({

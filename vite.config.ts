@@ -27,6 +27,10 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
   },
+  // 論文索引の Web Worker（src/client/workers）は同一オリジンの別ファイル（ES モジュール）として出力する
+  worker: {
+    format: "es",
+  },
   test: {
     globals: true,
     environment: "node",
