@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
+import { PaperList } from "./PaperList";
 
 // InteractionContextをモック（PaperCardで使用される）
 vi.mock("@/client/contexts/InteractionContext", () => ({
@@ -109,7 +110,6 @@ describe("PaperList", () => {
 
   describe("レンダリング", () => {
     it("正常系: 論文リストが表示される", async () => {
-      const { PaperList } = await import("./PaperList");
       const papers = [
         createSamplePaper("2401.00001", "First Paper"),
         createSamplePaper("2401.00002", "Second Paper"),
@@ -124,7 +124,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 論文が未取得の場合は未同期の説明と「同期」「設定を開く」が表示される", async () => {
-      const { PaperList } = await import("./PaperList");
       const onSync = vi.fn();
       const onOpenSettings = vi.fn();
 
@@ -141,7 +140,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 論文が未取得で同期に失敗した場合は理由と「同期を再試行」が表示される", async () => {
-      const { PaperList } = await import("./PaperList");
       mockSyncStoreState = {
         isFetching: false,
         isLoadingMore: false,
@@ -169,7 +167,6 @@ describe("PaperList", () => {
       ["すべて取得", { isSyncingAll: true }],
       ["指定日以前の取得", { isSyncingFromDate: true }],
     ] as const)("正常系: 同期失敗の後に%sで再試行している間は取得中にし、再試行ボタンを出さない", async (_label, syncing) => {
-      const { PaperList } = await import("./PaperList");
       mockSyncStoreState = {
         isFetching: false,
         isLoadingMore: false,
@@ -184,7 +181,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 同期に成功して論文が0件の場合は同期期間・カテゴリの見直しを案内する", async () => {
-      const { PaperList } = await import("./PaperList");
       mockLastSyncedAt = "2026-10-01T00:00:00.000Z";
       const onOpenSettings = vi.fn();
 
@@ -197,8 +193,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 自動同期の予定中や取得した論文の保存中は「論文がありません」を出さず取得中にする", async () => {
-      const { PaperList } = await import("./PaperList");
-
       const { rerender } = renderWithRouter(
         <PaperList papers={[]} isSyncPending onSync={vi.fn()} />
       );
@@ -216,7 +210,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 論文が保存済みなら同期中でも検索0件の理由と解除操作を出す", async () => {
-      const { PaperList } = await import("./PaperList");
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
@@ -237,7 +230,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 論文は保存済みで検索・絞り込みが0件の場合は条件の説明と「検索・絞り込みを解除」が表示される", async () => {
-      const { PaperList } = await import("./PaperList");
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
@@ -268,7 +260,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 検索0件の理由（emptyMessage）があれば説明はそれを使い、解除操作は残す", async () => {
-      const { PaperList } = await import("./PaperList");
       mockPaperStoreState = {
         papers: [createSamplePaper("2401.00001", "Stored Paper")],
         isLoading: false,
@@ -287,8 +278,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 論文が未取得なら検索0件の理由より未同期の説明を優先する", async () => {
-      const { PaperList } = await import("./PaperList");
-
       renderWithRouter(
         <PaperList papers={[]} emptyMessage={<p>該当する論文がありませんでした</p>} />
       );
@@ -298,7 +287,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: 同期中で空の場合は「取得しています」が表示され検索向けメッセージは出ない", async () => {
-      const { PaperList } = await import("./PaperList");
       mockSyncStoreState = { isFetching: true, isLoadingMore: false };
 
       renderWithRouter(<PaperList papers={[]} />);
@@ -309,8 +297,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: ローディング中はスケルトンが表示される", async () => {
-      const { PaperList } = await import("./PaperList");
-
       renderWithRouter(<PaperList papers={[]} isLoading />);
 
       // ローディング中のスケルトン要素を確認
@@ -320,7 +306,6 @@ describe("PaperList", () => {
 
   describe("論文数の表示", () => {
     it("正常系: 論文数が表示される", async () => {
-      const { PaperList } = await import("./PaperList");
       const papers = [
         createSamplePaper("2401.00001", "Paper 1"),
         createSamplePaper("2401.00002", "Paper 2"),
@@ -336,7 +321,6 @@ describe("PaperList", () => {
 
   describe("whyReadMap伝播", () => {
     it("正常系: whyReadMapの内容がカードに表示される", async () => {
-      const { PaperList } = await import("./PaperList");
       const papers = [
         createSamplePaper("2401.00001", "Paper 1"),
         createSamplePaper("2401.00002", "Paper 2"),
@@ -353,7 +337,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: whyReadMapが空でもエラーにならない", async () => {
-      const { PaperList } = await import("./PaperList");
       const papers = [createSamplePaper("2401.00001", "Paper 1")];
 
       renderWithRouter(<PaperList papers={papers} whyReadMap={new Map()} />);
@@ -378,7 +361,6 @@ describe("PaperList", () => {
     };
 
     it("正常系: スクロール末尾に到達するとonRequestSyncが呼ばれる", async () => {
-      const { PaperList } = await import("./PaperList");
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
       );
@@ -399,7 +381,6 @@ describe("PaperList", () => {
     });
 
     it("正常系: isSyncingがtrueの場合はonRequestSyncが呼ばれない", async () => {
-      const { PaperList } = await import("./PaperList");
       mockSyncStoreState = { isFetching: true, isLoadingMore: false };
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
@@ -422,7 +403,6 @@ describe("PaperList", () => {
     });
 
     it("バグ修正: ページリロード直後はスクロールなしでonRequestSyncが発火しない", async () => {
-      const { PaperList } = await import("./PaperList");
       const papers = Array.from({ length: 50 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i + 1}`)
       );

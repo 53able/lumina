@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
+import { PaperCard } from "./PaperCard";
 
 // InteractionContextをモック
 const mockToggleLike = vi.fn();
@@ -65,7 +66,6 @@ describe("PaperCard", () => {
 
   describe("レンダリング", () => {
     it("正常系: 論文タイトルが表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -74,7 +74,6 @@ describe("PaperCard", () => {
     });
 
     it("正常系: 著者が表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -83,7 +82,6 @@ describe("PaperCard", () => {
     });
 
     it("正常系: カテゴリバッジが表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -93,7 +91,6 @@ describe("PaperCard", () => {
     });
 
     it("正常系: 公開日が表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -105,7 +102,6 @@ describe("PaperCard", () => {
 
   describe("インタラクション", () => {
     it("正常系: クリックでonClickが呼ばれる", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const user = userEvent.setup();
       const paper = createSamplePaper();
       const handleClick = vi.fn();
@@ -120,7 +116,6 @@ describe("PaperCard", () => {
     });
 
     it("正常系: いいねボタンクリックでtoggleLikeが呼ばれる", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const user = userEvent.setup();
       const paper = createSamplePaper();
 
@@ -133,7 +128,6 @@ describe("PaperCard", () => {
     });
 
     it("正常系: ブックマークボタンクリックでtoggleBookmarkが呼ばれる", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const user = userEvent.setup();
       const paper = createSamplePaper();
 
@@ -148,7 +142,6 @@ describe("PaperCard", () => {
 
   describe("状態表示", () => {
     it("正常系: いいね済みの状態が表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
       mockLikedPaperIds = new Set([paper.id]);
 
@@ -159,7 +152,6 @@ describe("PaperCard", () => {
     });
 
     it("正常系: ブックマーク済みの状態が表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
       mockBookmarkedPaperIds = new Set([paper.id]);
 
@@ -172,7 +164,6 @@ describe("PaperCard", () => {
 
   describe("Embedding状態表示", () => {
     it("embeddingが無い論文の場合、セマンティック検索に未対応のインジケータが表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
       // embedding を付けない（undefined）または空配列
       const paperWithoutEmbedding = { ...paper, embedding: undefined };
@@ -183,7 +174,6 @@ describe("PaperCard", () => {
     });
 
     it("embeddingが空配列の論文の場合もインジケータが表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper({ embedding: [] });
 
       renderWithRouter(<PaperCard paper={paper} />);
@@ -192,7 +182,6 @@ describe("PaperCard", () => {
     });
 
     it("embeddingがある論文の場合はそのインジケータが表示されない", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper({
         embedding: Array(1536).fill(0.1),
       });
@@ -205,7 +194,6 @@ describe("PaperCard", () => {
 
   describe("whyRead表示", () => {
     it("正常系: whyReadが指定された場合に表示される", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
       const whyRead = "機械学習モデルの効率的な学習方法を理解できます";
 
@@ -215,7 +203,6 @@ describe("PaperCard", () => {
     });
 
     it("正常系: whyReadにはAIの推奨であることを示すラベルが付く", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
       const whyRead = "機械学習モデルの効率的な学習方法を理解できます";
 
@@ -226,15 +213,12 @@ describe("PaperCard", () => {
     });
 
     it("正常系: whyReadが未指定の場合はAIの推奨ラベルを表示しない", async () => {
-      const { PaperCard } = await import("./PaperCard");
-
       renderWithRouter(<PaperCard paper={createSamplePaper()} />);
 
       expect(screen.queryByText("AIの推奨")).not.toBeInTheDocument();
     });
 
     it("正常系: whyReadが未指定の場合は表示されない", async () => {
-      const { PaperCard } = await import("./PaperCard");
       const paper = createSamplePaper();
 
       renderWithRouter(<PaperCard paper={paper} />);

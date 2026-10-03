@@ -4,6 +4,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SettingsDialog } from "./SettingsDialog";
 
 /**
  * SettingsDialog テスト
@@ -20,14 +21,12 @@ describe("SettingsDialog", () => {
 
   describe("ダイアログ表示", () => {
     it("開いた状態でダイアログが表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
 
     it("タイトルが表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       // ダイアログのタイトル（heading）を確認
@@ -35,7 +34,6 @@ describe("SettingsDialog", () => {
     });
 
     it("閉じた状態ではダイアログが表示されない", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open={false} onOpenChange={() => {}} />);
 
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -44,35 +42,30 @@ describe("SettingsDialog", () => {
 
   describe("タブ構造", () => {
     it("APIタブが表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /api/i })).toBeInTheDocument();
     });
 
     it("カテゴリタブが表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /カテゴリ/i })).toBeInTheDocument();
     });
 
     it("同期タブが表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /同期/i })).toBeInTheDocument();
     });
 
     it("検索タブが表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       expect(screen.getByRole("tab", { name: /検索/i })).toBeInTheDocument();
     });
 
     it("デフォルトでAPIタブが選択されている", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
       const apiTab = screen.getByRole("tab", { name: /api/i });
@@ -82,7 +75,6 @@ describe("SettingsDialog", () => {
 
   describe("タブ切り替え", () => {
     it("カテゴリタブをクリックするとカテゴリ設定が表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       const user = userEvent.setup();
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
@@ -93,7 +85,6 @@ describe("SettingsDialog", () => {
     });
 
     it("同期タブをクリックすると同期設定が表示される", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       const user = userEvent.setup();
       render(<SettingsDialog open onOpenChange={() => {}} />);
 
@@ -106,7 +97,6 @@ describe("SettingsDialog", () => {
 
   describe("ダイアログ操作", () => {
     it("閉じるボタンをクリックするとonOpenChangeが呼ばれる", async () => {
-      const { SettingsDialog } = await import("./SettingsDialog");
       const user = userEvent.setup();
       const handleOpenChange = vi.fn();
       render(<SettingsDialog open onOpenChange={handleOpenChange} />);

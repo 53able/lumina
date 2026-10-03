@@ -5,6 +5,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
+import { PaperDetail } from "./PaperDetail";
 
 // InteractionContextをモック
 const mockToggleLike = vi.fn();
@@ -55,7 +56,6 @@ describe("PaperDetail", () => {
 
   describe("論文情報の表示", () => {
     it("正常系: 論文タイトルが表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       // CardTitleはdivだがタイトルとして表示される
@@ -63,7 +63,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: 著者が全員表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       // 全著者が表示される（PaperCardは3人で省略するが、Detailは全員）
@@ -73,7 +72,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: アブストラクトが全文表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       // アブストラクトの一部が表示されることを確認
@@ -82,7 +80,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: カテゴリがバッジで表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       expect(screen.getByText("cs.CL")).toBeInTheDocument();
@@ -90,14 +87,12 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: 公開日が表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       expect(screen.getByText(/2024-01-01/)).toBeInTheDocument();
     });
 
     it("正常系: 更新日が表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       expect(screen.getByText(/2024-01-15/)).toBeInTheDocument();
@@ -106,7 +101,6 @@ describe("PaperDetail", () => {
 
   describe("リンク", () => {
     it("正常系: PDFへのリンクが表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       const pdfLink = screen.getByRole("link", { name: "PDF" });
@@ -115,7 +109,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: arXivページへのリンクが表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       const arxivLink = screen.getByRole("link", { name: "arXiv" });
@@ -126,8 +119,6 @@ describe("PaperDetail", () => {
 
   describe("インタラクション", () => {
     it("正常系: いいねボタンをクリックするとtoggleLikeが呼ばれる", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
-
       render(<PaperDetail paper={mockPaper} />);
 
       const user = userEvent.setup();
@@ -138,8 +129,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: ブックマークボタンをクリックするとtoggleBookmarkが呼ばれる", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
-
       render(<PaperDetail paper={mockPaper} />);
 
       const user = userEvent.setup();
@@ -154,7 +143,6 @@ describe("PaperDetail", () => {
 
   describe("状態表示", () => {
     it("正常系: いいね済み状態が反映される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       mockLikedPaperIds = new Set([mockPaper.id]);
 
       render(<PaperDetail paper={mockPaper} />);
@@ -164,7 +152,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: ブックマーク済み状態が反映される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       mockBookmarkedPaperIds = new Set([mockPaper.id]);
 
       render(<PaperDetail paper={mockPaper} />);
@@ -176,14 +163,12 @@ describe("PaperDetail", () => {
 
   describe("AI要約機能", () => {
     it("正常系: AI要約セクションが表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       expect(screen.getByText("AI要約")).toBeInTheDocument();
     });
 
     it("正常系: AI要約の参照範囲注記から原文（Abstract・PDF・arXivページ）へリンクする", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       expect(screen.getByText(/Abstractから生成。本文・図表は未参照/)).toBeInTheDocument();
@@ -204,7 +189,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: 要約生成ボタンが表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       render(<PaperDetail paper={mockPaper} />);
 
       // 「要約 + 説明文」ボタンが表示される
@@ -212,7 +196,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: 要約生成ボタンをクリックするとonGenerateSummaryが呼ばれる", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       const handleGenerateSummary = vi.fn();
 
       render(<PaperDetail paper={mockPaper} onGenerateSummary={handleGenerateSummary} />);
@@ -225,7 +208,6 @@ describe("PaperDetail", () => {
     });
 
     it("正常系: 要約がある場合は表示される", async () => {
-      const { PaperDetail } = await import("./PaperDetail");
       const mockSummary = {
         paperId: mockPaper.id,
         summary: "この論文はTransformerアーキテクチャを提案しています。",
