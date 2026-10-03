@@ -24,6 +24,8 @@ interface PaperDetailProps {
   summaryError?: Error | null;
   /** 直近に失敗した生成の対象（説明文だけの失敗を区別するため） */
   summaryFailedTarget?: GenerateTarget | null;
+  /** 生成中の生成の対象（押した生成ボタンだけに生成中を表示するため） */
+  summaryGeneratingTarget?: GenerateTarget | null;
   /** 選択中の言語 */
   selectedSummaryLanguage?: "ja" | "en";
   /** 言語切替時のコールバック */
@@ -55,6 +57,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   isSummaryLoading = false,
   summaryError = null,
   summaryFailedTarget = null,
+  summaryGeneratingTarget = null,
   selectedSummaryLanguage = "ja",
   onSummaryLanguageChange,
   autoGenerateSummary = false,
@@ -115,6 +118,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             isLoading={isSummaryLoading}
             error={summaryError}
             failedTarget={summaryFailedTarget}
+            generatingTarget={summaryGeneratingTarget}
             onGenerate={onGenerateSummary}
             onLanguageChange={onSummaryLanguageChange}
             autoGenerate={autoGenerateSummary}

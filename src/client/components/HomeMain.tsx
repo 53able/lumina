@@ -75,6 +75,8 @@ interface HomeMainProps {
   summaryError: Error | null;
   /** 直近に失敗した生成の対象（説明文だけの失敗を区別するため） */
   summaryFailedTarget: GenerateTarget | null;
+  /** 生成中の生成の対象（押した生成ボタンだけに生成中を表示するため） */
+  summaryGeneratingTarget: GenerateTarget | null;
   /** 選択中のサマリー言語 */
   summaryLanguage: "ja" | "en";
   /** サマリー言語変更ハンドラー */
@@ -147,6 +149,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   isSummaryLoading,
   summaryError,
   summaryFailedTarget,
+  summaryGeneratingTarget,
   summaryLanguage,
   onSummaryLanguageChange,
   autoGenerateSummary,
@@ -183,6 +186,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 isSummaryLoading={isSummaryLoading}
                 summaryError={summaryError}
                 summaryFailedTarget={summaryFailedTarget}
+                summaryGeneratingTarget={summaryGeneratingTarget}
                 selectedSummaryLanguage={summaryLanguage}
                 onSummaryLanguageChange={onSummaryLanguageChange}
                 autoGenerateSummary={autoGenerateSummary}

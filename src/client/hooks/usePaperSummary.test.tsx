@@ -91,6 +91,25 @@ describe("usePaperSummary", () => {
     expect(mockSummaryApi).toHaveBeenCalledTimes(1);
   });
 
+  it("正常系: generatingTarget は生成中の生成の対象を返し、完了すると null に戻る", async () => {
+    const generation = createDeferred<unknown>();
+    mockSummaryApi.mockReturnValueOnce(generation.promise);
+    const { result } = renderUsePaperSummary();
+    expect(result.current.generatingTarget).toBeNull();
+
+    act(() => {
+      void result.current.generateSummary(undefined, "explanation");
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(result.current.generatingTarget).toBe("explanation");
+
+    await act(async () => {
+      generation.resolve(createSummaryResponse("2401.00001"));
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.generatingTarget).toBeNull();
+  });
+
   it("正常系: Aの生成中にBで生成してからAに戻ると、Aは生成中のまま", async () => {
     const generationA = createDeferred<unknown>();
     mockSummaryApi.mockReturnValueOnce(generationA.promise);

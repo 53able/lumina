@@ -172,6 +172,7 @@ const HomePage: FC = () => {
     isLoading: isSummaryLoading,
     error: summaryError,
     failedTarget: summaryFailedTarget,
+    generatingTarget: summaryGeneratingTarget,
     generateSummary,
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
@@ -385,6 +386,7 @@ const HomePage: FC = () => {
                     isSummaryLoading={isSummaryLoading}
                     summaryError={summaryError}
                     summaryFailedTarget={summaryFailedTarget}
+                    summaryGeneratingTarget={summaryGeneratingTarget}
                     selectedSummaryLanguage={summaryLanguage}
                     onSummaryLanguageChange={handleSummaryLanguageChange}
                     autoGenerateSummary={autoGenerateSummary}
@@ -408,6 +410,7 @@ const HomePage: FC = () => {
         isSummaryLoading={isSummaryLoading}
         summaryError={summaryError}
         summaryFailedTarget={summaryFailedTarget}
+        summaryGeneratingTarget={summaryGeneratingTarget}
         summaryLanguage={summaryLanguage}
         onSummaryLanguageChange={handleSummaryLanguageChange}
         autoGenerateSummary={autoGenerateSummary}

@@ -65,6 +65,8 @@ interface PaperSummaryProps {
   error?: Error | null;
   /** 直近に失敗した生成の対象（"explanation" なら説明文だけの生成が失敗した） */
   failedTarget?: GenerateTarget | null;
+  /** 生成中の生成の対象（押した生成ボタンだけに生成中を表示する。不明なら null） */
+  generatingTarget?: GenerateTarget | null;
   /** 要約生成時のコールバック */
   onGenerate?: (paperId: string, language: "ja" | "en", target: GenerateTarget) => void;
   /** 言語切替時のコールバック */
@@ -107,6 +109,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   isLoading = false,
   error = null,
   failedTarget = null,
+  generatingTarget = null,
   onGenerate,
   onLanguageChange,
   autoGenerate = false,
@@ -129,8 +132,12 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   );
   /** 生成中だった論文・言語（完了・失敗を同じ論文・言語でだけ通知するため） */
   const loadingKeyRef = useRef<string | null>(null);
-  /** 生成開始時にフォーカスしていた要素（完了で押したボタンが消えた場合にフォーカスを戻すため） */
+  /**
+   * 生成開始時にこのコンポーネント内でフォーカスしていた要素（押した生成ボタン）。
+   * 完了でそのボタンが消えた場合にフォーカスを戻すため。外の要素は記録しない
+   */
   const focusedAtLoadingRef = useRef<Element | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const generationKey = `${paperId}:${selectedLanguage}`;
 
   // 保存済みの版（古い順）のうちの採用版
@@ -190,7 +197,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   useEffect(() => {
     if (isLoading) {
       loadingKeyRef.current = generationKey;
-      focusedAtLoadingRef.current = document.activeElement;
+      const active = document.activeElement;
+      focusedAtLoadingRef.current = active && rootRef.current?.contains(active) ? active : null;
       setGenerationResult(null);
       setVersionMessage(null);
       return;
@@ -296,17 +304,15 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   };
 
   /** 生成中の表示（押したボタンの隣に出す。読み上げは live region が担う） */
-  const loadingText = isLoading ? (
-    <span className="text-xs text-muted-foreground">生成中...</span>
-  ) : null;
+  const loadingText = <span className="text-xs text-muted-foreground">生成中...</span>;
+  /** 説明文だけを生成中か（それ以外の生成中は、要約があれば「再生成」で始めたものとして表示する） */
+  const isGeneratingExplanation = isLoading && generatingTarget === "explanation";
+  const isRegenerating = isLoading && !isGeneratingExplanation;
   /**
-   * 生成ボタンの生成中の状態。disabled にするとフォーカスが外れるため、
-   * フォーカスを残したまま aria-disabled / aria-busy で無効を伝える
+   * 生成中の生成ボタン。disabled にするとフォーカスが外れるため、
+   * フォーカスを残したまま aria-disabled で無効を伝える
    */
-  const generateButtonBusyProps = {
-    "aria-disabled": isLoading || undefined,
-    "aria-busy": isLoading || undefined,
-  };
+  const generateButtonDisabledProps = { "aria-disabled": isLoading || undefined };
   const busyButtonClassName = "aria-disabled:opacity-50 aria-disabled:pointer-events-none";
 
   /** 版を採用する */
@@ -354,7 +360,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4">
       {/* セクションタイトルと言語切替 */}
       <div className="flex items-center justify-between">
         <h3
@@ -426,7 +432,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         <div className="flex flex-col items-center justify-center py-6 gap-3">
           <Button
             onClick={() => handleGenerate("both")}
-            {...generateButtonBusyProps}
+            {...generateButtonDisabledProps}
             className={cn("gap-2", busyButtonClassName)}
           >
             {isLoading ? (
@@ -436,7 +442,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             )}
             要約 + 説明文
           </Button>
-          {loadingText}
+          {isLoading && loadingText}
           <p className="text-xs text-muted-foreground text-center">
             要約: Abstractの記述を簡潔にまとめます
             <br />
@@ -445,9 +451,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         </div>
       )}
 
-      {/* 要約ありの状態（生成中も要約と生成ボタンを残す） */}
+      {/* 要約ありの状態（生成中も要約と生成ボタンを残し、ブロックを更新中として伝える） */}
       {summary && (
-        <div className="space-y-4">
+        <div className="space-y-4" aria-busy={isLoading || undefined}>
           {/* コンテンツモード切り替え（説明文がある場合のみ表示） */}
           {hasExplanation && (
             <Tabs value={contentMode} onValueChange={handleContentModeChange}>
@@ -467,28 +473,31 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
           {/* 要約モード */}
           {contentMode === "summary" && (
             <div className="space-y-4">
-              <p className="text-sm leading-relaxed">{summary.summary}</p>
+              {/* 再生成中は、置き換わる前の採用版であることを薄く表示して示す */}
+              <div className={cn("space-y-4 transition-opacity", isRegenerating && "opacity-50")}>
+                <p className="text-sm leading-relaxed">{summary.summary}</p>
 
-              {summary.keyPoints.length > 0 ? (
-                <div>
-                  <h4 className="text-xs text-muted-foreground mb-2">キーポイント</h4>
-                  <ul className="space-y-1">
-                    {summary.keyPoints.map((point) => (
-                      <li key={point} className="text-sm flex items-start gap-2">
-                        <span className="text-primary">•</span>
-                        <span>{point}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+                {summary.keyPoints.length > 0 ? (
+                  <div>
+                    <h4 className="text-xs text-muted-foreground mb-2">キーポイント</h4>
+                    <ul className="space-y-1">
+                      {summary.keyPoints.map((point) => (
+                        <li key={point} className="text-sm flex items-start gap-2">
+                          <span className="text-primary">•</span>
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
 
               {/* 説明文がない場合、説明文のみ生成を促す */}
               {!hasExplanation && (
                 <div className="flex items-center gap-2 pt-2 border-t">
                   <Button
                     onClick={() => handleGenerate("explanation")}
-                    {...generateButtonBusyProps}
+                    {...generateButtonDisabledProps}
                     variant="ghost"
                     size="sm"
                     className={cn(
@@ -496,14 +505,14 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                       busyButtonClassName
                     )}
                   >
-                    {isLoading ? (
+                    {isGeneratingExplanation ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Target className="h-4 w-4" />
                     )}
                     なぜ読むべきかを生成
                   </Button>
-                  {loadingText}
+                  {isGeneratingExplanation && loadingText}
                 </div>
               )}
             </div>
@@ -511,7 +520,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
 
           {/* 説明文モード */}
           {contentMode === "explanation" && hasExplanation && (
-            <div className="space-y-4">
+            <div className={cn("space-y-4 transition-opacity", isRegenerating && "opacity-50")}>
               {/* 論文中の事実と区別するための注記 */}
               <p className="text-xs text-muted-foreground">
                 以下はAbstractをもとにしたAIの推奨です。論文中の記述ではありません。
@@ -556,16 +565,15 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 onClick={() => handleGenerate("both")}
                 disabled={!apiEnabled}
                 aria-describedby={apiEnabled ? undefined : regenerateDisabledReasonId}
-                {...generateButtonBusyProps}
+                {...generateButtonDisabledProps}
                 variant="outline"
                 size="sm"
                 className={cn("gap-2", busyButtonClassName)}
               >
-                <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                <RefreshCw className={cn("h-4 w-4", isRegenerating && "animate-spin")} />
                 再生成
               </Button>
-              {/* 説明文のみの生成中は、その生成ボタンの隣に出している */}
-              {hasExplanation && loadingText}
+              {isRegenerating && loadingText}
               {/* 版の破棄・比較は生成中は出さない（生成で版が増えるため） */}
               {!isLoading && adoptedVersion && onDiscardVersion && (
                 <Button
