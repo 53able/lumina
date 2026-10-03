@@ -33,6 +33,8 @@ const hasSavedEmbedding = (
  * - 入力からの検索: URL 更新 + API 検索
  * - 履歴からの再検索・URL 起点の検索: 保存済み Embedding があれば API なしで検索
  * - クリア: 実行中の検索を無効化し、URL 由来の検索も再開しない
+ * - 変換文の編集からの再検索: URL の q（元の入力）は変えず、編集文を Embedding して検索する。
+ *   履歴は元の入力をキーに、編集後の検索文と Embedding で上書きする
  *
  * URL の q は setSearchParams が render 時点の値から次の値を作るため、
  * 1つのハンドラー内で複数回更新しない（クリア時の q 削除は呼び出し元の clearSearchAndFilters が担う）。
@@ -119,6 +121,20 @@ export const useHomeSearch = ({
     [beginQuery, search, setSearchQuery]
   );
 
+  /**
+   * 確認・編集した変換文（Embedding に渡す検索文）で再検索する。
+   * 元の入力（URL の q・入力欄・表示クエリ）は保持し、クエリ拡張は行わない。
+   */
+  const handleSearchWithEditedText = useCallback(
+    (searchText: string) => {
+      const query = activeQueryRef.current;
+      if (query === null || expandedQuery === null) return;
+      beginQuery(query);
+      void search(query, { ...expandedQuery, searchText });
+    },
+    [beginQuery, expandedQuery, search]
+  );
+
   /** 検索をクリア（URL の q は呼び出し元がフィルターと合わせて消す） */
   const handleClearSearch = useCallback(() => {
     activeQueryRef.current = null;
@@ -153,5 +169,6 @@ export const useHomeSearch = ({
     handleSearch,
     handleClearSearch,
     handleReSearch,
+    handleSearchWithEditedText,
   };
 };

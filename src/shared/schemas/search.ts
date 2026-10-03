@@ -39,6 +39,9 @@ export type SearchHistory = z.infer<typeof SearchHistorySchema>;
 /** 検索クエリの最大長（SearchRequestSchema の query.max と一致） */
 export const MAX_QUERY_LENGTH = 500;
 
+/** Embedding に直接渡す検索文の最大長（EmbeddingRequestSchema の text.max と一致） */
+export const MAX_EMBEDDING_TEXT_LENGTH = 8000;
+
 /**
  * 検索リクエストのスキーマ
  */
@@ -49,6 +52,11 @@ export const SearchRequestSchema = z.object({
   limit: z.number().int().min(1).max(100).default(20),
   /** カテゴリフィルタ */
   categories: z.array(z.string()).optional(),
+  /**
+   * Embedding に直接渡す検索文（利用者が確認・編集した変換文）。
+   * 指定時はクエリ拡張（LLM呼び出し）を行わず、この文をそのまま Embedding する。
+   */
+  embeddingText: z.string().trim().min(1).max(MAX_EMBEDDING_TEXT_LENGTH).optional(),
 });
 
 export type SearchRequest = z.infer<typeof SearchRequestSchema>;

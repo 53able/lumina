@@ -8,6 +8,7 @@ import type {
 import type { GenerateTarget } from "../lib/api";
 import { PaperExplorer } from "./PaperExplorer";
 import { SearchHistory } from "./SearchHistory";
+import { SearchTextEditor } from "./SearchTextEditor";
 import { SyncStatusBar } from "./SyncStatusBar";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet.js";
 
@@ -48,6 +49,8 @@ interface HomeMainProps {
   renderExpandedDetail?: (paper: Paper) => ReactNode;
   /** 拡張クエリ */
   expandedQuery: ExpandedQuery | null;
+  /** 確認・編集した検索文（Embedding に渡す文）で再検索するハンドラー */
+  onSearchWithEditedText?: (searchText: string) => void;
   /** 検索結果 */
   results: Array<{ paper: Paper; score: number }>;
   /** 検索ローディング中かどうか */
@@ -126,6 +129,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   expandedPaperId,
   renderExpandedDetail,
   expandedQuery,
+  onSearchWithEditedText,
   results,
   isLoading,
   selectedPaper,
@@ -245,6 +249,15 @@ const HomeMainInner: FC<HomeMainProps> = ({
                   <p className="text-xs mt-2" style={{ opacity: 0.7 }}>
                     関連語: {expandedQuery.synonyms.join(", ")}
                   </p>
+                ) : null}
+                {onSearchWithEditedText ? (
+                  <SearchTextEditor
+                    // 検索文が変わったら（再検索の完了・別の検索）編集中の内容を表示中の検索文に戻す
+                    key={expandedQuery.searchText}
+                    expandedQuery={expandedQuery}
+                    onSubmit={onSearchWithEditedText}
+                    isLoading={isLoading}
+                  />
                 ) : null}
               </div>
             ) : null}

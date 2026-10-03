@@ -20,7 +20,20 @@ const generateStubExpandedQuery = (query: string): ExpandedQuery => {
 };
 
 /**
+ * 利用者が指定した検索文をそのまま Embedding に使う場合の拡張クエリ
+ * （クエリ拡張を行わないため、英訳・関連語は持たない）
+ */
+const toDirectExpandedQuery = (query: string, embeddingText: string): ExpandedQuery => ({
+  original: query,
+  english: query,
+  synonyms: [],
+  searchText: embeddingText,
+});
+
+/**
  * 検索 API アプリケーション
+ *
+ * embeddingText が指定された場合はクエリ拡張を省き、その文を Embedding に渡す。
  */
 export const searchApp = new Hono<{ Bindings: Env }>().post(
   "/search",
@@ -32,8 +45,11 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
     try {
       const config = getOpenAIConfig(c);
 
-      // 1. クエリ拡張
-      const expandedQuery = await expandQuery(body.query, config);
+      // 1. クエリ拡張（利用者が検索文を指定した場合は省く）
+      const expandedQuery =
+        body.embeddingText !== undefined
+          ? toDirectExpandedQuery(body.query, body.embeddingText)
+          : await expandQuery(body.query, config);
 
       // 2. 拡張クエリのEmbedding生成（searchTextを使用）
       const embeddingResult = await createEmbedding(expandedQuery.searchText, config);
@@ -50,7 +66,10 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
     } catch (error) {
       // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）
       if (error instanceof Error && error.message.includes("API key")) {
-        const expandedQuery = generateStubExpandedQuery(body.query);
+        const expandedQuery =
+          body.embeddingText !== undefined
+            ? toDirectExpandedQuery(body.query, body.embeddingText)
+            : generateStubExpandedQuery(body.query);
         return c.json(
           {
             results: [],
