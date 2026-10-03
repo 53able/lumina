@@ -377,7 +377,12 @@ describe("useSemanticSearch", () => {
     });
 
     it("検索表示中に論文が追加されると、閾値以上の論文だけが結果に入る", async () => {
-      const { result, rerender } = renderWithPapers(mockPapers);
+      // 追加後の論文数（5件）が limit を下回るようにし、limit による切り捨ての影響を除く
+      const limit = 10;
+      const { result, rerender } = renderHook(
+        ({ papers }: { papers: Paper[] }) => useSemanticSearch({ papers, limit }),
+        { initialProps: { papers: mockPapers as Paper[] } }
+      );
 
       await act(async () => {
         await result.current.search("transformer");
@@ -401,6 +406,57 @@ describe("useSemanticSearch", () => {
       expect(idsAfter).not.toContain("2401.00006");
       expect(idsAfter).toHaveLength(idsBefore.length + 1);
       expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("閾値を変更すると、検索APIを呼ばずに表示中の結果を再計算する", async () => {
+      const { result, rerender } = renderHook(
+        ({ scoreThreshold }: { scoreThreshold: number }) =>
+          useSemanticSearch({ papers: mockPapers, scoreThreshold }),
+        { initialProps: { scoreThreshold: 0.3 } }
+      );
+
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      const countAtDefault = result.current.results.length;
+      expect(countAtDefault).toBeGreaterThan(1);
+
+      // クエリと同一の Embedding を持つ論文（スコア≒1）だけが残る閾値
+      rerender({ scoreThreshold: 0.99 });
+
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(["2401.00001"]);
+      expect(result.current.totalMatchCount).toBe(1);
+
+      rerender({ scoreThreshold: 0.3 });
+
+      expect(result.current.results).toHaveLength(countAtDefault);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("キー復号失敗（OperationError）時は、Embeddingなし論文があっても結果・検索対象外・総数がすべて空", async () => {
+      // 復号失敗と同じ name の例外を検索経路で発生させる
+      // （jsdom の DOMException は instanceof Error にならないため、name を設定した Error を使う）
+      const decryptError = new Error("decrypt failed");
+      decryptError.name = "OperationError";
+      mockFetch.mockRejectedValue(decryptError);
+      const { result, rerender } = renderWithPapers([...mockPapers, paperPendingEmbedding]);
+
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+
+      // 空メッセージ表示用の stub が入り、検索済み扱いになる
+      expect(result.current.expandedQuery).not.toBeNull();
+      expect(result.current.error?.name).toBe("OperationError");
+      expect(result.current.results).toEqual([]);
+      expect(result.current.papersExcludedFromSearch).toEqual([]);
+      expect(result.current.totalMatchCount).toBe(0);
+
+      // 論文が更新されても空のまま
+      rerender({ papers: [...mockPapers, paperPendingEmbedding] });
+
+      expect(result.current.papersExcludedFromSearch).toEqual([]);
+      expect(result.current.totalMatchCount).toBe(0);
     });
 
     it("保存済みデータでの検索も論文更新に追従し、検索APIを呼ばない", async () => {

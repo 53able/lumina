@@ -28,9 +28,16 @@ interface UseSemanticSearchOptions {
  * useSemanticSearchの戻り値
  */
 interface UseSemanticSearchReturn {
-  /** 検索関数（結果を直接返す） */
+  /**
+   * 検索関数（結果を直接返す）。
+   * 返り値は呼び出し時点の papers で計算したスナップショットで、その後の論文更新には追従しない
+   * （追従する結果は results / papersExcludedFromSearch / totalMatchCount を参照する）。
+   */
   search: (query: string) => Promise<SearchResult[]>;
-  /** 保存済みデータで検索する関数（APIリクエストなし） */
+  /**
+   * 保存済みデータで検索する関数（APIリクエストなし）。
+   * 返り値は search と同じく呼び出し時点の papers によるスナップショット。
+   */
   searchWithSavedData: (
     expandedQuery: ExpandedQuery,
     queryEmbedding: number[]
@@ -246,7 +253,7 @@ export const useSemanticSearch = ({
         // queryEmbeddingを状態に保存（結果は queryEmbedding と papers から導出される）
         setQueryEmbedding(embedding.length > 0 ? embedding : null);
 
-        // 4. 呼び出し元へ返す結果を計算（queryEmbeddingがない場合は空）
+        // 4. 呼び出し元へ返す結果（呼び出し時点の papers によるスナップショット。queryEmbeddingがない場合は空）
         return computeSearchResults(papers, embedding, scoreThreshold, limit).results;
       } catch (e) {
         if (!isCurrent()) return [];
@@ -284,25 +291,18 @@ export const useSemanticSearch = ({
     ): Promise<SearchResult[]> => {
       // 実行中のAPI検索があれば無効化する（後から届いた応答で履歴の結果を上書きさせない）
       startGeneration();
-      // 検索開始時に前回の検索結果をクリア（検索中に「該当する論文がありませんでした」が表示されないようにする）
-      resetSearchState();
+      // 通信を伴わないため、前回のエラーとローディング状態だけを解除する
+      setError(null);
+      setIsLoading(false);
 
-      try {
-        // 保存済みデータを状態に設定（結果は queryEmbedding と papers から導出される）
-        setExpandedQuery(savedExpandedQuery);
-        setQueryEmbedding(savedQueryEmbedding);
+      // 保存済みデータを状態に設定（結果は queryEmbedding と papers から導出される）
+      setExpandedQuery(savedExpandedQuery);
+      setQueryEmbedding(savedQueryEmbedding);
 
-        // 呼び出し元へ返す結果を計算（queryEmbeddingがない場合は空）
-        return computeSearchResults(papers, savedQueryEmbedding, scoreThreshold, limit).results;
-      } catch (e) {
-        const err = e instanceof Error ? e : new Error("Unknown error");
-        setError(err);
-        return [];
-      } finally {
-        setIsLoading(false);
-      }
+      // 呼び出し元へ返す結果（呼び出し時点の papers によるスナップショット。queryEmbeddingがない場合は空）
+      return computeSearchResults(papers, savedQueryEmbedding, scoreThreshold, limit).results;
     },
-    [papers, limit, scoreThreshold, resetSearchState, startGeneration]
+    [papers, limit, scoreThreshold, startGeneration]
   );
 
   const reset = useCallback(() => {
