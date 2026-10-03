@@ -1,17 +1,30 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { type ComponentProps, useState } from "react";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Paper } from "../../shared/schemas/index";
+import { usePaperFilter } from "../hooks/usePaperFilter";
 import { PaperExplorer } from "./PaperExplorer";
 
-// InteractionContextをモック
-const mockToggleLike = vi.fn();
-const mockToggleBookmark = vi.fn();
+const {
+  mockToggleLike,
+  mockToggleBookmark,
+  mockClearAllFilters,
+  mockClearSearchAndFilters,
+  mediaState,
+} = vi.hoisted(() => ({
+  mockToggleLike: vi.fn(),
+  mockToggleBookmark: vi.fn(),
+  mockClearAllFilters: vi.fn(),
+  mockClearSearchAndFilters: vi.fn(),
+  mediaState: { isDesktop: true },
+}));
 
+// InteractionContextをモック
 vi.mock("@/client/contexts/InteractionContext", () => ({
   useInteractionContext: () => ({
     likedPaperIds: new Set<string>(),
@@ -27,25 +40,49 @@ vi.mock("@/client/contexts/InteractionContext", () => ({
   }),
 }));
 
-// usePaperFilterをモック
-const mockClearAllFilters = vi.fn();
-const mockToggleFilterMode = vi.fn();
-const mockToggleCategory = vi.fn();
+// usePaperFilter は実装をそのまま使い（URL を実際に更新する）、クリア系の呼び出しだけ記録する
+vi.mock("@/client/hooks/usePaperFilter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../hooks/usePaperFilter")>();
+  return {
+    ...actual,
+    usePaperFilter: () => {
+      const result = actual.usePaperFilter();
+      return {
+        ...result,
+        clearAllFilters: () => {
+          mockClearAllFilters();
+          result.clearAllFilters();
+        },
+        clearSearchAndFilters: () => {
+          mockClearSearchAndFilters();
+          result.clearSearchAndFilters();
+        },
+      };
+    },
+  };
+});
 
-vi.mock("@/client/hooks/usePaperFilter", () => ({
-  usePaperFilter: () => ({
-    filterMode: "all" as const,
-    selectedCategories: new Set<string>(),
-    toggleFilterMode: mockToggleFilterMode,
-    toggleCategory: mockToggleCategory,
-    clearAllFilters: mockClearAllFilters,
-    clearSearchAndFilters: vi.fn(),
-    filterPapers: (papers: unknown[]) => papers, // パススルー
+// デスクトップ／モバイルのレイアウトをテストごとに切り替える
+vi.mock("@/client/hooks/useMediaQuery", () => ({
+  useMediaQuery: () => mediaState.isDesktop,
+}));
+
+// jsdom はレイアウトを計算しないため、仮想スクロールは全件を1行で返す（PaperList.test.tsx と同じ方針）
+vi.mock("@/client/hooks/useGridVirtualizer", () => ({
+  useGridVirtualizer: (params: { items: Paper[] }) => ({
+    virtualRows:
+      params.items.length === 0
+        ? []
+        : [{ index: 0, start: 0, size: 300, items: params.items, isExpanded: false }],
+    totalSize: params.items.length * 300,
+    columnCount: Math.max(params.items.length, 1),
+    itemWidth: 300,
+    measureElement: () => undefined,
   }),
 }));
 
 // モック用の論文データ
-const mockPapers = [
+const mockPapers: Paper[] = [
   {
     id: "2401.00001",
     title: "Attention Is All You Need",
@@ -71,30 +108,89 @@ const mockPapers = [
   },
 ];
 
+/** 現在の location.search を表示する */
+const LocationSearch = () => {
+  const location = useLocation();
+  return <output data-testid="location-search">{location.search}</output>;
+};
+
 /**
  * MemoryRouterでラップしたレンダリングヘルパー
  */
-const renderWithRouter = (ui: ReactNode) => {
-  return render(<MemoryRouter>{ui}</MemoryRouter>);
+const renderExplorer = (props: ComponentProps<typeof PaperExplorer> = {}, initialRoute = "/") => {
+  return render(
+    <MemoryRouter initialEntries={[initialRoute]}>
+      <PaperExplorer {...props} />
+      <LocationSearch />
+    </MemoryRouter>
+  );
 };
 
+/**
+ * HomeMain + useHomeSearch の配線を模したハーネス
+ * - 検索開始で URL の q を更新し、検索中は isSearchLoading を true にする
+ * - クリア時は検索状態をリセットし、isSearchLoading を false に戻す
+ */
+const SearchHarness = ({ onSearch }: { onSearch: (query: string) => Promise<Paper[]> }) => {
+  const { setSearchQuery } = usePaperFilter();
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
+    setIsSearchLoading(true);
+    try {
+      return await onSearch(query);
+    } finally {
+      setIsSearchLoading(false);
+    }
+  };
+
+  return (
+    <PaperExplorer
+      onSearch={handleSearch}
+      onClear={() => setIsSearchLoading(false)}
+      isSearchLoading={isSearchLoading}
+    />
+  );
+};
+
+const renderSearchHarness = (onSearch: (query: string) => Promise<Paper[]>) => {
+  return render(
+    <MemoryRouter>
+      <SearchHarness onSearch={onSearch} />
+      <LocationSearch />
+    </MemoryRouter>
+  );
+};
+
+const getLocationSearch = () => screen.getByTestId("location-search").textContent;
+
 describe("PaperExplorer", () => {
+  beforeAll(() => {
+    // jsdom は Element#scrollTo を実装していない（PaperList が検索0件→一覧復帰時に呼ぶ）
+    Element.prototype.scrollTo = () => {};
+  });
+
+  beforeEach(() => {
+    mediaState.isDesktop = true;
+  });
+
   describe("初期表示", () => {
     it("検索ボックスが表示される", () => {
-      renderWithRouter(<PaperExplorer />);
+      renderExplorer();
 
       expect(screen.getByRole("searchbox")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /検索/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "検索" })).toBeInTheDocument();
     });
 
     it("論文がない場合は空メッセージが表示される", () => {
-      renderWithRouter(<PaperExplorer />);
+      renderExplorer();
 
       expect(screen.getByText(/論文が見つかりません/i)).toBeInTheDocument();
     });
 
     it("論文がある場合はリストが表示される", () => {
-      renderWithRouter(<PaperExplorer initialPapers={mockPapers} />);
+      renderExplorer({ initialPapers: mockPapers });
 
       expect(screen.getByText("Attention Is All You Need")).toBeInTheDocument();
       expect(
@@ -104,97 +200,177 @@ describe("PaperExplorer", () => {
   });
 
   describe("検索機能", () => {
-    it("検索実行中はローディング状態になる", async () => {
-      // Promiseを手動で制御できるようにする
-      let resolveSearch: (value: typeof mockPapers) => void;
-      const mockOnSearch = vi.fn().mockReturnValue(
-        new Promise((resolve) => {
-          resolveSearch = resolve;
-        })
-      );
+    it("isSearchLoading の間はローディング表示になり、検索欄が無効になる", () => {
+      renderExplorer({ isSearchLoading: true }, "/?q=transformer");
 
-      renderWithRouter(<PaperExplorer onSearch={mockOnSearch} />);
-
-      // delay: null で高速化
-      const user = userEvent.setup({ delay: null });
-      await user.type(screen.getByRole("searchbox"), "test");
-      await user.click(screen.getByRole("button", { name: /検索/i }));
-
-      // ローディング状態を確認
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
-
-      // クリーンアップ: Promiseを解決して完了を待つ
-      resolveSearch?.(mockPapers);
-      await waitFor(() => {
-        expect(screen.queryByTestId("paper-list-loading")).not.toBeInTheDocument();
-      });
+      expect(screen.getByRole("searchbox")).toBeDisabled();
+      expect(screen.getByRole("button", { name: "検索" })).toBeDisabled();
     });
 
     it("検索するとonSearchコールバックが呼ばれる", async () => {
       const mockOnSearch = vi.fn().mockResolvedValue(mockPapers);
 
-      renderWithRouter(<PaperExplorer onSearch={mockOnSearch} />);
+      renderExplorer({ onSearch: mockOnSearch });
 
       const user = userEvent.setup({ delay: null });
       await user.type(screen.getByRole("searchbox"), "transformer");
-      await user.click(screen.getByRole("button", { name: /検索/i }));
+      await user.click(screen.getByRole("button", { name: "検索" }));
 
       expect(mockOnSearch).toHaveBeenCalledWith("transformer");
     });
 
-    it("検索完了後、結果が表示される", async () => {
+    it("PaperExplorer 自身は URL の q を更新しない（更新は onSearch 側の責務）", async () => {
       const mockOnSearch = vi.fn().mockResolvedValue(mockPapers);
 
-      renderWithRouter(<PaperExplorer onSearch={mockOnSearch} />);
+      renderExplorer({ onSearch: mockOnSearch });
 
       const user = userEvent.setup({ delay: null });
       await user.type(screen.getByRole("searchbox"), "transformer");
-      await user.click(screen.getByRole("button", { name: /検索/i }));
+      await user.click(screen.getByRole("button", { name: "検索" }));
+
+      await waitFor(() => expect(mockOnSearch).toHaveBeenCalled());
+      expect(getLocationSearch()).toBe("");
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("論文を探す");
+    });
+
+    it("検索完了後、結果と件数が表示される", async () => {
+      renderSearchHarness(vi.fn().mockResolvedValue(mockPapers));
+
+      const user = userEvent.setup({ delay: null });
+      await user.type(screen.getByRole("searchbox"), "transformer");
+      await user.click(screen.getByRole("button", { name: "検索" }));
 
       await waitFor(() => {
         expect(screen.getByText("Attention Is All You Need")).toBeInTheDocument();
       });
+      expect(screen.getByText(/件の論文/)).toHaveTextContent("2件の論文");
+      expect(getLocationSearch()).toBe("?q=transformer");
     });
 
-    it("検索結果件数が表示される", async () => {
-      const mockOnSearch = vi.fn().mockResolvedValue(mockPapers);
-
-      renderWithRouter(<PaperExplorer onSearch={mockOnSearch} />);
+    it("検索中は入力が無効で、クリア後は入力できる", async () => {
+      // 検索が終わらない状態を作る
+      const pendingSearch = vi.fn(() => new Promise<Paper[]>(() => {}));
+      renderSearchHarness(pendingSearch);
 
       const user = userEvent.setup({ delay: null });
       await user.type(screen.getByRole("searchbox"), "transformer");
-      await user.click(screen.getByRole("button", { name: /検索/i }));
+      await user.click(screen.getByRole("button", { name: "検索" }));
 
-      await waitFor(() => {
-        // 件数と「件の論文」が表示されていることを確認
-        expect(screen.getByText("2")).toBeInTheDocument();
-        expect(screen.getByText(/件の論文/i)).toBeInTheDocument();
-      });
+      await waitFor(() => expect(screen.getByRole("searchbox")).toBeDisabled());
+      expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "クリア" }));
+
+      const searchbox = screen.getByRole("searchbox");
+      expect(searchbox).toBeEnabled();
+      expect(getLocationSearch()).toBe("");
+      await user.clear(searchbox);
+      await user.type(searchbox, "bert");
+      expect(searchbox).toHaveValue("bert");
+    });
+  });
+
+  describe("検索結果表示の判定（isExternalSearch）", () => {
+    it("URL の q と externalQuery が一致するときは initialPapers を検索結果として表示する", () => {
+      renderExplorer(
+        { initialPapers: mockPapers, externalQuery: "transformer" },
+        "/?q=transformer"
+      );
+
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+        '"transformer" の検索結果'
+      );
+      expect(screen.getByText("Attention Is All You Need")).toBeInTheDocument();
+      expect(screen.getByText(/件の論文/)).toHaveTextContent("2件の論文");
+    });
+
+    it("URL の q と externalQuery が一致しないときは initialPapers を表示しない", () => {
+      renderExplorer({ initialPapers: mockPapers, externalQuery: "bert" }, "/?q=transformer");
+
+      expect(screen.queryByText("Attention Is All You Need")).not.toBeInTheDocument();
+      expect(screen.queryByText(/件の論文/)).not.toBeInTheDocument();
+    });
+
+    it("検索結果が揃う前（externalQuery が null）は initialPapers を表示しない", () => {
+      renderExplorer({ initialPapers: mockPapers, externalQuery: null }, "/?q=transformer");
+
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+        '"transformer" の検索結果'
+      );
+      expect(screen.queryByText("Attention Is All You Need")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("クリア操作の配線", () => {
+    it("見出し横の「クリア」は検索語とフィルターをまとめて消す", async () => {
+      renderExplorer(
+        { initialPapers: mockPapers, externalQuery: "transformer" },
+        "/?q=transformer&cat=cs.CL&filter=liked"
+      );
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("button", { name: "クリア" }));
+
+      expect(mockClearSearchAndFilters).toHaveBeenCalledTimes(1);
+      expect(mockClearAllFilters).not.toHaveBeenCalled();
+      expect(getLocationSearch()).toBe("");
+    });
+
+    it("カテゴリ欄のクリアはフィルターだけを消し、検索語を残す", async () => {
+      renderExplorer(
+        { initialPapers: mockPapers, externalQuery: "transformer" },
+        "/?q=transformer&cat=cs.CL"
+      );
+
+      const user = userEvent.setup({ delay: null });
+      const categoryGroup = screen.getByRole("group", { name: "カテゴリで絞り込み" });
+      await user.click(within(categoryGroup).getByRole("button", { name: "" }));
+
+      expect(mockClearAllFilters).toHaveBeenCalledTimes(1);
+      expect(mockClearSearchAndFilters).not.toHaveBeenCalled();
+      expect(getLocationSearch()).toBe("?q=transformer");
+    });
+
+    it("モバイルの「絞り込みをクリア」はフィルターだけを消し、検索語を残す", async () => {
+      mediaState.isDesktop = false;
+      renderExplorer(
+        { initialPapers: mockPapers, externalQuery: "transformer" },
+        "/?q=transformer&cat=cs.CL"
+      );
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("button", { name: "絞り込みを開く" }));
+      await user.click(await screen.findByRole("button", { name: "絞り込みをクリア" }));
+
+      expect(mockClearAllFilters).toHaveBeenCalledTimes(1);
+      expect(mockClearSearchAndFilters).not.toHaveBeenCalled();
+      expect(getLocationSearch()).toBe("?q=transformer");
     });
   });
 
   describe("ユーザーインタラクション", () => {
     it("いいねボタンをクリックするとtoggleLikeが呼ばれる", async () => {
-      renderWithRouter(<PaperExplorer initialPapers={mockPapers} />);
+      renderExplorer({ initialPapers: mockPapers });
 
       const user = userEvent.setup({ delay: null });
-      const likeButtons = screen.getAllByRole("button", { name: /いいね/i });
-      expect(likeButtons[0]).toBeDefined();
-      if (likeButtons[0]) {
-        await user.click(likeButtons[0]);
+      const [firstLikeButton] = screen.getAllByRole("button", { name: "いいね" });
+      expect(firstLikeButton).toBeDefined();
+      if (firstLikeButton) {
+        await user.click(firstLikeButton);
       }
 
       expect(mockToggleLike).toHaveBeenCalledWith("2401.00001");
     });
 
     it("ブックマークボタンをクリックするとtoggleBookmarkが呼ばれる", async () => {
-      renderWithRouter(<PaperExplorer initialPapers={mockPapers} />);
+      renderExplorer({ initialPapers: mockPapers });
 
       const user = userEvent.setup({ delay: null });
-      const bookmarkButtons = screen.getAllByRole("button", { name: /ブックマーク/i });
-      expect(bookmarkButtons[0]).toBeDefined();
-      if (bookmarkButtons[0]) {
-        await user.click(bookmarkButtons[0]);
+      const [firstBookmarkButton] = screen.getAllByRole("button", { name: "ブックマーク" });
+      expect(firstBookmarkButton).toBeDefined();
+      if (firstBookmarkButton) {
+        await user.click(firstBookmarkButton);
       }
 
       expect(mockToggleBookmark).toHaveBeenCalledWith("2401.00001");
@@ -203,15 +379,13 @@ describe("PaperExplorer", () => {
     it("論文カードをクリックするとonPaperClickコールバックが呼ばれる", async () => {
       const mockOnPaperClick = vi.fn();
 
-      renderWithRouter(
-        <PaperExplorer initialPapers={mockPapers} onPaperClick={mockOnPaperClick} />
-      );
+      renderExplorer({ initialPapers: mockPapers, onPaperClick: mockOnPaperClick });
 
       const user = userEvent.setup({ delay: null });
-      const articles = screen.getAllByRole("article");
-      expect(articles[0]).toBeDefined();
-      if (articles[0]) {
-        await user.click(articles[0]);
+      const [firstArticle] = screen.getAllByRole("article");
+      expect(firstArticle).toBeDefined();
+      if (firstArticle) {
+        await user.click(firstArticle);
       }
 
       expect(mockOnPaperClick).toHaveBeenCalledWith(mockPapers[0]);
@@ -220,25 +394,17 @@ describe("PaperExplorer", () => {
 
   describe("タイトル表示", () => {
     it("検索前はデフォルトのタイトルが表示される", () => {
-      renderWithRouter(<PaperExplorer />);
+      renderExplorer();
 
       expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("論文を探す");
     });
 
-    it("検索後は検索クエリが含まれたタイトルが表示される", async () => {
-      const mockOnSearch = vi.fn().mockResolvedValue(mockPapers);
+    it("URL の q があるときは検索クエリが含まれたタイトルが表示される", () => {
+      renderExplorer({}, "/?q=transformer");
 
-      renderWithRouter(<PaperExplorer onSearch={mockOnSearch} />);
-
-      const user = userEvent.setup({ delay: null });
-      await user.type(screen.getByRole("searchbox"), "transformer");
-      await user.click(screen.getByRole("button", { name: /検索/i }));
-
-      await waitFor(() => {
-        expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
-          '"transformer" の検索結果'
-        );
-      });
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+        '"transformer" の検索結果'
+      );
     });
   });
 });
