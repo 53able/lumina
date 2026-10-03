@@ -51,6 +51,8 @@ interface PaperExplorerProps {
   isSyncPending?: boolean;
   /** 0件時の「設定を開く」 */
   onOpenSettings?: () => void;
+  /** 検索結果の件数の隣に置く操作（表示件数を受け取る。検索結果の表示中だけ使う） */
+  renderSearchResultTools?: (displayedCount: number) => ReactNode;
 }
 
 /**
@@ -79,6 +81,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   onRetrySync,
   isSyncPending,
   onOpenSettings,
+  renderSearchResultTools,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { likedPaperIds, bookmarkedPaperIds } = useInteractionContext();
@@ -425,12 +428,17 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         papers={filteredPapers}
         isLoading={isSearchLoading}
         isSearchLoading={isSearchLoading}
+        // 検索結果そのものが0件のときだけ検索の理由を出す。絞り込みで0件なら一覧の「条件に一致しない」に任せる
         emptyMessage={
-          hasSearched && !isSearchLoading && filteredPapers.length === 0
+          hasSearched &&
+          !isSearchLoading &&
+          filteredPapers.length === 0 &&
+          displayPapers.length === 0
             ? emptySearchMessage
             : undefined
         }
         showCount={hasSearched && !isSearchLoading && filteredPapers.length > 0}
+        renderCountAccessory={hasSearched && !isSearchLoading ? renderSearchResultTools : undefined}
         onPaperClick={onPaperClick}
         whyReadMap={whyReadMap}
         // 検索結果表示中、カテゴリフィルタ中、いいね/ブックマークフィルタ中は追加読み込みを無効化

@@ -118,23 +118,24 @@ interface ComputedSearchResults {
   totalMatchCount: number;
 }
 
+/** 類似度の計算結果（しきい値適用前） */
+interface ScoredPapers {
+  /** Embeddingのある論文と類似度（類似度の降順） */
+  scored: SearchResult[];
+  /** 検索対象外（Embeddingなし）の論文 */
+  excluded: Paper[];
+}
+
 /**
- * クエリEmbeddingと論文一覧から検索結果を計算する（APIリクエストなし）
+ * クエリEmbeddingと論文一覧の類似度を計算する（しきい値は適用しない）
  *
  * @param papers 検索対象の論文配列
- * @param queryEmbedding クエリのEmbeddingベクトル（空なら結果は空、対象外のみ算出）
- * @param scoreThreshold 類似度スコアの閾値
- * @param limit 取得件数
- * @returns 検索結果・検索対象外の論文・ヒット総数
+ * @param queryEmbedding クエリのEmbeddingベクトル（空なら類似度は計算せず、対象外のみ算出）
+ * @returns 類似度の降順に並べた論文と検索対象外の論文
  */
-const computeSearchResults = (
-  papers: Paper[],
-  queryEmbedding: number[],
-  scoreThreshold: number,
-  limit: number
-): ComputedSearchResults => {
+const scorePapers = (papers: Paper[], queryEmbedding: number[]): ScoredPapers => {
   const excluded: Paper[] = [];
-  const matchedResults: SearchResult[] = [];
+  const scored: SearchResult[] = [];
 
   for (const paper of papers) {
     const embedding = paper.embedding;
@@ -144,20 +145,45 @@ const computeSearchResults = (
     }
     if (queryEmbedding.length === 0) continue;
 
-    const score = cosineSimilarity(queryEmbedding, embedding);
-    if (score >= scoreThreshold) {
-      matchedResults.push({ paper, score });
-    }
+    scored.push({ paper, score: cosineSimilarity(queryEmbedding, embedding) });
   }
 
-  matchedResults.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score);
 
+  return { scored, excluded };
+};
+
+/**
+ * 類似度の計算結果にしきい値と取得件数を適用する
+ *
+ * @param scoredPapers scorePapers の結果
+ * @param scoreThreshold 類似度スコアの閾値
+ * @param limit 取得件数
+ * @returns 検索結果・検索対象外の論文・ヒット総数
+ */
+const applyScoreThreshold = (
+  { scored, excluded }: ScoredPapers,
+  scoreThreshold: number,
+  limit: number
+): ComputedSearchResults => {
+  const matchedResults = scored.filter(({ score }) => score >= scoreThreshold);
   return {
     results: matchedResults.slice(0, limit),
     excluded,
     totalMatchCount: matchedResults.length,
   };
 };
+
+/**
+ * クエリEmbeddingと論文一覧から検索結果を計算する（APIリクエストなし）
+ */
+const computeSearchResults = (
+  papers: Paper[],
+  queryEmbedding: number[],
+  scoreThreshold: number,
+  limit: number
+): ComputedSearchResults =>
+  applyScoreThreshold(scorePapers(papers, queryEmbedding), scoreThreshold, limit);
 
 const EMPTY_SEARCH_RESULTS: ComputedSearchResults = {
   results: [],
@@ -209,17 +235,23 @@ export const useSemanticSearch = ({
    * 検索結果は保存済みの queryEmbedding と現在の papers・閾値から導出する。
    * 検索表示中の論文追加・Embedding補完にも追従し、再計算に検索APIは使わない。
    * 検索が完了していない（expandedQuery が null）・失敗した場合は空とする。
+   * 類似度の計算は papers・queryEmbedding が変わったときだけ行い、しきい値の変更ではフィルタだけをやり直す。
    */
+  const isSearchSettled = expandedQuery !== null && error === null;
+  const scoredPapers = useMemo(
+    () => (isSearchSettled ? scorePapers(papers, queryEmbedding ?? []) : null),
+    [isSearchSettled, papers, queryEmbedding]
+  );
   const {
     results,
     excluded: papersExcludedFromSearch,
     totalMatchCount,
   } = useMemo(
     () =>
-      expandedQuery !== null && error === null
-        ? computeSearchResults(papers, queryEmbedding ?? [], scoreThreshold, limit)
+      scoredPapers !== null
+        ? applyScoreThreshold(scoredPapers, scoreThreshold, limit)
         : EMPTY_SEARCH_RESULTS,
-    [expandedQuery, error, papers, queryEmbedding, scoreThreshold, limit]
+    [scoredPapers, scoreThreshold, limit]
   );
 
   const search = useCallback(

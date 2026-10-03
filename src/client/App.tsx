@@ -335,7 +335,11 @@ const HomePage: FC = () => {
     results.length,
     searchError,
     queryEmbedding,
-    isLoading
+    isLoading,
+    {
+      scoreThreshold: searchScoreThreshold,
+      hasSearchablePapers: papers.length > papersExcludedFromSearch.length,
+    }
   );
 
   // 初期表示用の論文（検索後は検索結果＋検索対象外を常時可視化、それ以外はストアから）
@@ -402,6 +406,7 @@ const HomePage: FC = () => {
         expandedQuery={displayExpandedQuery}
         onSearchWithEditedText={handleSearchWithEditedText}
         results={results}
+        hasQueryEmbedding={queryEmbedding !== null}
         isLoading={isLoading}
         selectedPaper={selectedPaper}
         onCloseDetail={handleCloseDetail}

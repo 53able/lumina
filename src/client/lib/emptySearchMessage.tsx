@@ -18,6 +18,9 @@ export type EmptySearchMessageKind =
  * @param searchError - 検索時のエラー（OperationError は API キー復号失敗）
  * @param queryEmbedding - 現在のクエリ Embedding（null は API キー未設定の可能性）
  * @param isLoading - 検索処理中かどうか
+ * @param threshold - しきい値で0件になったかを判定する情報（省略時は判定しない）
+ * @param threshold.scoreThreshold - 現在の類似度しきい値
+ * @param threshold.hasSearchablePapers - Embeddingのある論文が1件以上あるか
  * @returns 表示する ReactNode、または undefined（メッセージ不要な場合）
  */
 export const getEmptySearchMessage = (
@@ -25,7 +28,8 @@ export const getEmptySearchMessage = (
   resultCount: number,
   searchError: Error | null,
   queryEmbedding: number[] | null,
-  isLoading: boolean
+  isLoading: boolean,
+  threshold?: { scoreThreshold: number; hasSearchablePapers: boolean }
 ): ReactNode => {
   // ローディング中はメッセージを表示しない
   if (isLoading) return undefined;
@@ -50,6 +54,23 @@ export const getEmptySearchMessage = (
         <p className="text-sm text-muted-foreground/70">
           設定でOpenAI APIキーを入力してください。別デバイスでは設定が同期されません。
         </p>
+      </>
+    );
+  }
+
+  // 検索対象の論文はあるが、どれも類似度がしきい値に届かない（しきい値を下げれば結果が出る）
+  if (threshold?.hasSearchablePapers) {
+    return (
+      <>
+        <p className="text-lg text-muted-foreground">
+          類似度がしきい値 {threshold.scoreThreshold.toFixed(2)} 以上の論文はありません
+        </p>
+        {/* しきい値が下限（0）ならこれ以上は下げられないため、下げる案内は出さない */}
+        {threshold.scoreThreshold > 0 ? (
+          <p className="text-sm text-muted-foreground/70">
+            しきい値を下げると、類似度の低い論文も表示されます。
+          </p>
+        ) : null}
       </>
     );
   }
