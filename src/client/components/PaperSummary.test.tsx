@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { createLuminaDb, type LuminaDB } from "../db/db";
 import { usePaperSummary } from "../hooks/usePaperSummary";
-import { ApiDisabledError } from "../lib/api";
+import { ApiDisabledError, getApiResumeHint } from "../lib/api";
 import { PartialSummaryError, SummaryApiError } from "../lib/summaryErrorTypes";
 import { useSettingsStore } from "../stores/settingsStore";
 import {
@@ -556,17 +556,33 @@ describe("PaperSummary", () => {
       ).toBeInTheDocument();
     });
 
-    it("異常系: API利用OFFによる失敗は従来の文言のまま（停止中の理由はトーストで伝える）", () => {
+    it("異常系: API利用OFFによる失敗は再試行ではなく再開方法を案内する（キー保存済み）", () => {
+      useSettingsStore.setState({ apiKey: "encrypted-key" });
       const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
 
       rerender(<PaperSummary paperId="2401.00001" error={new ApiDisabledError()} />);
 
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "要約を生成できませんでした。「要約 + 説明文」ボタンで再試行できます。"
+        "要約を生成できませんでした。設定の「利用可能」をONにすると再開できます。"
       );
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
       expect(
-        screen.getByText("生成できませんでした。「要約 + 説明文」で再試行できます。")
+        screen.getByText("生成できませんでした。設定の「利用可能」をONにすると再開できます。")
       ).toBeInTheDocument();
+    });
+
+    it("異常系: API利用OFFでキー未保存の場合は、キーの保存から案内する", () => {
+      useSettingsStore.setState({ apiKey: "" });
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      rerender(
+        <PaperSummary paperId="2401.00001" error={new ApiDisabledError(getApiResumeHint(false))} />
+      );
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "要約を生成できませんでした。設定でAPIキーを保存し、「利用可能」をONにすると再開できます。"
+      );
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
     });
 
     it("異常系: 全体の失敗は部分成功と異なる文言で表示する", () => {

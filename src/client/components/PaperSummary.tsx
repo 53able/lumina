@@ -12,7 +12,7 @@ import {
 import { type FC, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
-import { getApiResumeHint } from "../lib/api";
+import { ApiDisabledError, getApiResumeHint } from "../lib/api";
 import {
   getSummaryStageErrorGuidance,
   PartialSummaryError,
@@ -228,13 +228,18 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   /** 失敗時に再試行で押すボタン（要約があれば説明文のみの生成ボタンが出る） */
   const retryButtonLabel = summary ? "なぜ読むべきかを生成" : "要約 + 説明文";
   /**
-   * 再試行で解決しない失敗（auth など）の対処方法。トーストと同じ分類の案内文を使う
+   * 再試行で解決しない失敗の対処方法。トーストと同じ案内文を使う
    * （部分成功・全体の失敗・説明文のみの生成の失敗のいずれも）
+   * - API利用OFF: 再開方法
+   * - auth など retryable: false: 分類の案内文
    */
   const nonRetryableGuidance =
-    (error instanceof PartialSummaryError || error instanceof SummaryApiError) && !error.retryable
-      ? getSummaryStageErrorGuidance(error.code)
-      : null;
+    error instanceof ApiDisabledError
+      ? getApiResumeHint(hasApiKey())
+      : (error instanceof PartialSummaryError || error instanceof SummaryApiError) &&
+          !error.retryable
+        ? getSummaryStageErrorGuidance(error.code)
+        : null;
   /** 説明文工程の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
   const partialGuidance =
     nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
