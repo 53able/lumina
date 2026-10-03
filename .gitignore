@@ -35,3 +35,6 @@ src/**/*.js
 
 tmp/
 unsaved/
+
+# oh-my-claudecode のローカル状態
+.omc/

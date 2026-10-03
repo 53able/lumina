@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types/env";
 import {
   createEmbedding,
+  DEFAULT_MODELS,
   expandQuery,
   generateExplanation,
   generateSummary,
   getOpenAIConfig,
   type OpenAIConfig,
+  resolveModels,
 } from "./openai.js";
 
 // AI SDKをモック
@@ -116,6 +118,131 @@ describe("OpenAIサービス", () => {
       // Assert
       expect(result.original).toBe("machine learning");
       expect(result.english).toBe("machine learning");
+    });
+
+    it("configで指定したモデルを使う", async () => {
+      // Arrange
+      vi.mocked(generateText).mockResolvedValue({
+        text: JSON.stringify({ original: "q", english: "q", synonyms: [], searchText: "q" }),
+      } as Awaited<ReturnType<typeof generateText>>);
+
+      // Act
+      await expandQuery("q", { ...mockConfig, models: { queryExpansion: "gpt-4.1-mini" } });
+
+      // Assert
+      const callArgs = vi.mocked(generateText).mock.calls[0][0];
+      expect(callArgs.model.modelId).toBe("gpt-4.1-mini");
+    });
+
+    it("モデル未指定時はデフォルトモデルを使う", async () => {
+      // Arrange
+      vi.mocked(generateText).mockResolvedValue({
+        text: JSON.stringify({ original: "q", english: "q", synonyms: [], searchText: "q" }),
+      } as Awaited<ReturnType<typeof generateText>>);
+
+      // Act
+      await expandQuery("q", mockConfig);
+
+      // Assert
+      const callArgs = vi.mocked(generateText).mock.calls[0][0];
+      expect(callArgs.model.modelId).toBe(DEFAULT_MODELS.queryExpansion);
+    });
+  });
+
+  describe("サンプリング設定", () => {
+    const mockQueryResponse = () =>
+      vi.mocked(generateText).mockResolvedValue({
+        text: JSON.stringify({ original: "q", english: "q", synonyms: [], searchText: "q" }),
+      } as Awaited<ReturnType<typeof generateText>>);
+
+    it("gpt-6系ではreasoning effortをnoneにしてtemperatureを送る", async () => {
+      // Arrange
+      mockQueryResponse();
+
+      // Act
+      await expandQuery("q", { ...mockConfig, models: { queryExpansion: "gpt-6-luna" } });
+
+      // Assert
+      const callArgs = vi.mocked(generateText).mock.calls[0][0];
+      expect(callArgs.temperature).toBe(0.2);
+      expect(callArgs.providerOptions).toEqual({ openai: { reasoningEffort: "none" } });
+    });
+
+    it("gpt-6系以外ではreasoning effortを指定しない", async () => {
+      // Arrange
+      mockQueryResponse();
+
+      // Act
+      await expandQuery("q", { ...mockConfig, models: { queryExpansion: "gpt-4.1-nano" } });
+
+      // Assert
+      const callArgs = vi.mocked(generateText).mock.calls[0][0];
+      expect(callArgs.temperature).toBe(0.2);
+      expect(callArgs.providerOptions).toBeUndefined();
+    });
+
+    it("fine-tunedのgpt-6系もreasoning effortをnoneにする", async () => {
+      // Arrange
+      mockQueryResponse();
+
+      // Act
+      await expandQuery("q", {
+        ...mockConfig,
+        models: { queryExpansion: "ft:gpt-6-luna:org::abc" },
+      });
+
+      // Assert
+      const callArgs = vi.mocked(generateText).mock.calls[0][0];
+      expect(callArgs.providerOptions).toEqual({ openai: { reasoningEffort: "none" } });
+    });
+
+    it("要約・説明文生成でもgpt-6系の設定を適用する", async () => {
+      // Arrange
+      vi.mocked(generateText)
+        .mockResolvedValueOnce({
+          text: JSON.stringify({ summary: "s", keyPoints: [] }),
+        } as Awaited<ReturnType<typeof generateText>>)
+        .mockResolvedValueOnce({
+          text: JSON.stringify({ explanation: "e", targetAudience: "t", whyRead: "w" }),
+        } as Awaited<ReturnType<typeof generateText>>);
+
+      // Act
+      await generateSummary("abstract", "ja", mockConfig);
+      await generateExplanation("abstract", "ja", mockConfig);
+
+      // Assert
+      const [summaryArgs] = vi.mocked(generateText).mock.calls[0];
+      const [explanationArgs] = vi.mocked(generateText).mock.calls[1];
+      expect(summaryArgs.temperature).toBe(0.3);
+      expect(summaryArgs.providerOptions).toEqual({ openai: { reasoningEffort: "none" } });
+      expect(explanationArgs.temperature).toBe(0.4);
+      expect(explanationArgs.providerOptions).toEqual({ openai: { reasoningEffort: "none" } });
+    });
+  });
+
+  describe("resolveModels", () => {
+    it("環境変数未設定ならデフォルトモデルを返す", () => {
+      expect(resolveModels({})).toEqual(DEFAULT_MODELS);
+      expect(resolveModels(undefined)).toEqual(DEFAULT_MODELS);
+    });
+
+    it("環境変数でタスクごとにモデルを上書きできる", () => {
+      const result = resolveModels({
+        OPENAI_MODEL_SUMMARY: "gpt-4.1-mini",
+        OPENAI_MODEL_EXPLANATION: " gpt-4.1 ",
+      });
+
+      expect(result).toEqual({
+        queryExpansion: DEFAULT_MODELS.queryExpansion,
+        summary: "gpt-4.1-mini",
+        explanation: "gpt-4.1",
+      });
+    });
+
+    it("空文字はデフォルトモデルにフォールバックする", () => {
+      expect(resolveModels({ OPENAI_MODEL_QUERY_EXPANSION: "  " }).queryExpansion).toBe(
+        DEFAULT_MODELS.queryExpansion
+      );
     });
   });
 

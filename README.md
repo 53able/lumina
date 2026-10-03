@@ -303,6 +303,13 @@ vercel deploy
 **必要な環境変数**:
 - `OPENAI_API_KEY` - OpenAI API キー
 
+**任意の環境変数**（生成タスクごとの使用モデル。未設定時は `gpt-6-luna`。`gpt-6` 系は reasoning effort `none` で呼び出す）:
+- `OPENAI_MODEL_QUERY_EXPANSION` - クエリ拡張（英訳・同義語）
+- `OPENAI_MODEL_SUMMARY` - 要約生成
+- `OPENAI_MODEL_EXPLANATION` - 説明文生成
+
+Embedding モデル（`text-embedding-3-small`）は保存済みベクトルとの互換性のため固定です。
+
 **デプロイメント保護**:
 - Vercel Password Protection を使用してデプロイメント全体を保護することを推奨します（Enterprise プラン、または Pro プラン + Advanced Deployment Protection アドオン）
 - Vercel Dashboard > Settings > Deployment Protection から設定可能
