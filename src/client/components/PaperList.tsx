@@ -2,9 +2,17 @@ import { CheckCircle2, Loader2, Search } from "lucide-react";
 import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import type { Paper } from "../../shared/schemas/index";
 import { useGridVirtualizer } from "../hooks/useGridVirtualizer";
+import {
+  getPaperListEmptyState,
+  type PaperListEmptyAction,
+  type PaperListEmptyState,
+} from "../lib/paperListEmptyState";
 import { cn } from "../lib/utils";
+import { usePaperStore } from "../stores/paperStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { useSyncStore } from "../stores/syncStore";
 import { PaperCard } from "./PaperCard";
+import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 
 /** カードの最小幅（px） */
@@ -29,7 +37,7 @@ interface PaperListProps {
   isLoading?: boolean;
   /** 検索処理中のローディング状態（useSemanticSearchのisLoading） */
   isSearchLoading?: boolean;
-  /** 0件時に表示するメッセージ（未指定時はデフォルトの「論文が見つかりません」） */
+  /** 検索0件時に表示するメッセージ（未指定時は状態に応じたデフォルト。論文が未取得のときは使わない） */
   emptyMessage?: ReactNode;
   /** 論文数を表示するか */
   showCount?: boolean;
@@ -43,6 +51,16 @@ interface PaperListProps {
   expandedPaperId?: string | null;
   /** 展開中の論文の詳細コンテンツをレンダリング */
   renderExpandedDetail?: (paper: Paper) => ReactNode;
+  /** 0件時の「論文を同期」 */
+  onSync?: () => void;
+  /** 0件時の「同期を再試行」（失敗した同期を同じ処理でやり直す） */
+  onRetrySync?: () => void;
+  /** 初回の自動同期を予定している（論文がこれから届くので0件の説明を「取得中」にする） */
+  isSyncPending?: boolean;
+  /** 0件時の「設定を開く」 */
+  onOpenSettings?: () => void;
+  /** 0件時の「検索・絞り込みを解除」 */
+  onClearConditions?: () => void;
 }
 
 /**
@@ -62,38 +80,74 @@ const LoadingSkeleton: FC = () => (
   </div>
 );
 
+/** 0件表示の操作ボタンの文言 */
+const EMPTY_ACTION_LABELS: Record<PaperListEmptyAction, string> = {
+  sync: "論文を同期",
+  "retry-sync": "同期を再試行",
+  "open-settings": "設定を開く",
+  "clear-conditions": "検索・絞り込みを解除",
+};
+
 /**
  * 空の状態メッセージ - Super Centered
- * @param customMessage 未指定時は文脈に応じてデフォルトメッセージを表示
- * @param isSyncing 同期中の場合、検索向けメッセージではなく「取得中」を表示する
+ * 未同期・同期失敗・条件に一致しない、を区別し、状態に合う操作を並べる。
+ * @param customMessage 検索0件時の理由（APIキー未設定など）。論文が保存済みのときだけ使う
+ * @param handlers 操作ごとのハンドラ（未指定の操作はボタンを出さない）
  */
-const EmptyMessage: FC<{ customMessage?: ReactNode; isSyncing?: boolean }> = ({
-  customMessage,
-  isSyncing = false,
-}) => (
-  <div className="grid place-items-center min-h-[300px]">
-    <div className="flex flex-col items-center gap-3 text-center">
-      <div className="h-16 w-16 rounded-full bg-muted/50 grid place-items-center">
-        {isSyncing ? (
-          <Loader2 className="h-8 w-8 text-muted-foreground/50 animate-loading-bold" />
-        ) : (
-          <Search className="h-8 w-8 text-muted-foreground/50" />
-        )}
-      </div>
-      <div className="space-y-1">
-        {customMessage ??
-          (isSyncing ? (
-            <p className="text-lg text-muted-foreground">論文を取得しています...</p>
+const EmptyMessage: FC<{
+  state: PaperListEmptyState;
+  customMessage?: ReactNode;
+  handlers: Partial<Record<PaperListEmptyAction, () => void>>;
+}> = ({ state, customMessage, handlers }) => {
+  const actions = state.actions.filter((action) => handlers[action]);
+  return (
+    <div className="grid place-items-center min-h-[300px]">
+      <div
+        className="flex flex-col items-center gap-3 text-center"
+        data-testid="paper-list-empty"
+        data-kind={state.kind}
+      >
+        <div className="h-16 w-16 rounded-full bg-muted/50 grid place-items-center">
+          {state.kind === "loading" ? (
+            <Loader2 className="h-8 w-8 text-muted-foreground/50 animate-loading-bold" />
+          ) : (
+            <Search className="h-8 w-8 text-muted-foreground/50" />
+          )}
+        </div>
+        <div className="space-y-1">
+          {state.kind === "no-results" && customMessage ? (
+            customMessage
           ) : (
             <>
-              <p className="text-lg text-muted-foreground">論文が見つかりません</p>
-              <p className="text-sm text-muted-foreground/70">検索条件を変更してお試しください</p>
+              <p className="text-lg text-muted-foreground">{state.title}</p>
+              {state.description ? (
+                <p className="text-sm text-muted-foreground/70">{state.description}</p>
+              ) : null}
+              {state.detail ? (
+                <p className="break-all text-xs text-muted-foreground/70">詳細: {state.detail}</p>
+              ) : null}
             </>
-          ))}
+          )}
+        </div>
+        {actions.length > 0 ? (
+          <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
+            {actions.map((action, i) => (
+              <Button
+                key={action}
+                variant={i === 0 ? "default" : "outline"}
+                size="sm"
+                onClick={handlers[action]}
+                className="min-h-[44px] h-auto px-3 py-2"
+              >
+                {EMPTY_ACTION_LABELS[action]}
+              </Button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * PaperList - 論文リストコンポーネント（仮想スクロール対応）
@@ -120,10 +174,23 @@ export const PaperList: FC<PaperListProps> = ({
   onRequestSync,
   expandedPaperId = null,
   renderExpandedDetail,
+  onSync,
+  onRetrySync,
+  isSyncPending = false,
+  onOpenSettings,
+  onClearConditions,
 }) => {
   const isFetching = useSyncStore((s) => s.isFetching);
   const isLoadingMore = useSyncStore((s) => s.isLoadingMore);
   const isSyncing = isFetching || isLoadingMore;
+  const lastSyncError = useSyncStore((s) => s.lastSyncError);
+  const isSavingSyncedPapers = useSyncStore((s) => (s.savingSyncedPapersCount ?? 0) > 0);
+  const isSyncingAll = useSyncStore((s) => s.isSyncingAll);
+  const isSyncingFromDate = useSyncStore((s) => s.isSyncingFromDate);
+  const storedPaperCount = usePaperStore((s) => s.papers.length);
+  // IndexedDB からの初期読み込み中（initializePaperStore が true にする）
+  const isPaperStoreLoading = usePaperStore((s) => s.isLoading);
+  const hasSynced = useSettingsStore((s) => s.lastSyncedAt !== null);
 
   // スクロールコンテナへの参照
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -301,7 +368,27 @@ export const PaperList: FC<PaperListProps> = ({
           {/* ローディング中は EmptyMessage を表示しない（ローディングインジケータと重複しないように） */}
           {papers.length === 0 && !isLoading && !isSearchLoading ? (
             <div className="absolute inset-0 pointer-events-none">
-              <EmptyMessage customMessage={emptyMessageProp} isSyncing={isSyncing} />
+              <EmptyMessage
+                state={getPaperListEmptyState({
+                  storedPaperCount,
+                  isLoading:
+                    isSyncing ||
+                    Boolean(isSyncingAll) ||
+                    Boolean(isSyncingFromDate) ||
+                    isSyncPending ||
+                    isSavingSyncedPapers ||
+                    isPaperStoreLoading,
+                  lastSyncError: lastSyncError ?? null,
+                  hasSynced,
+                })}
+                customMessage={emptyMessageProp}
+                handlers={{
+                  sync: onSync,
+                  "retry-sync": onRetrySync,
+                  "open-settings": onOpenSettings,
+                  "clear-conditions": onClearConditions,
+                }}
+              />
             </div>
           ) : null}
         </div>

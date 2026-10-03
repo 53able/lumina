@@ -7,6 +7,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SyncRateLimitError } from "../lib/api";
 import type { EmbeddingBackfillOutcome } from "../lib/embeddingBackfillOutcome";
 
 // SyncStatusBar が依存するストア・フックをモック（スタブのみ。実装ロジックは書かない）
@@ -58,7 +59,8 @@ const mockSyncStoreState = {
   embeddingBackfillProgress: null,
   embeddingBackfillOutcome: null as EmbeddingBackfillOutcome | null,
   setEmbeddingBackfillOutcome: vi.fn(),
-  lastSyncError: null,
+  lastSyncError: null as Error | null,
+  setLastSyncError: vi.fn(),
 };
 
 vi.mock("../stores/syncStore", () => ({
@@ -83,6 +85,84 @@ describe("SyncStatusBar", () => {
     mockSyncStoreState.lastSyncError = null;
     mockApiEnabled = true;
     mockHasApiKey = true;
+  });
+
+  describe("同期エラーの表示", () => {
+    it("同期に失敗すると理由を一覧のそばに残し、再試行できる", async () => {
+      mockSyncStoreState.lastSyncError = new Error("Sync failed: 500");
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      const onRetrySync = vi.fn();
+
+      render(<SyncStatusBar onRetrySync={onRetrySync} />);
+
+      const notice = screen.getByTestId("sync-error");
+      expect(notice).toHaveTextContent("論文の同期に失敗しました");
+      expect(notice).toHaveTextContent("Sync failed: 500");
+
+      await userEvent.click(screen.getByRole("button", { name: "同期を再試行" }));
+      expect(onRetrySync).toHaveBeenCalledTimes(1);
+    });
+
+    it("同期中は再試行ボタンを無効にし、閉じるでエラー表示を消せる", async () => {
+      mockSyncStoreState.lastSyncError = new Error("Sync failed: 500");
+      mockSyncStoreState.isFetching = true;
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      render(<SyncStatusBar compact onRetrySync={vi.fn()} />);
+
+      expect(screen.getByRole("button", { name: "同期を再試行" })).toBeDisabled();
+      await userEvent.click(screen.getByRole("button", { name: "閉じる" }));
+      expect(mockSyncStoreState.setLastSyncError).toHaveBeenCalledWith(null);
+    });
+
+    it("isSyncingAll / isSyncingFromDate の間も再試行ボタンを無効にする", async () => {
+      mockSyncStoreState.lastSyncError = new Error("Sync failed: 500");
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      mockSyncStoreState.isSyncingAll = true;
+      const { rerender } = render(<SyncStatusBar onRetrySync={vi.fn()} />);
+      expect(screen.getByRole("button", { name: "同期を再試行" })).toBeDisabled();
+
+      mockSyncStoreState.isSyncingAll = false;
+      mockSyncStoreState.isSyncingFromDate = true;
+      rerender(<SyncStatusBar onRetrySync={vi.fn()} />);
+      expect(screen.getByRole("button", { name: "同期を再試行" })).toBeDisabled();
+    });
+
+    it("429 はレート制限のメッセージを表示し、待ってから再試行するよう案内する", async () => {
+      mockSyncStoreState.lastSyncError = new SyncRateLimitError();
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      const onRetrySync = vi.fn();
+
+      render(<SyncStatusBar onRetrySync={onRetrySync} />);
+
+      const notice = screen.getByTestId("sync-error");
+      expect(notice).toHaveTextContent(new SyncRateLimitError().message);
+      expect(notice).not.toHaveTextContent("論文の同期に失敗しました");
+      expect(notice).toHaveTextContent("しばらく待ってから「同期を再試行」を押してください。");
+      await userEvent.click(screen.getByRole("button", { name: "同期を再試行" }));
+      expect(onRetrySync).toHaveBeenCalledTimes(1);
+    });
+
+    it("論文が0件のときは一覧の空表示に任せ、ここでは重ねて表示しない", async () => {
+      mockSyncStoreState.lastSyncError = new Error("Sync failed: 500");
+      const saved = mockPapersWithEmbeddingMissing.splice(0);
+      try {
+        const { SyncStatusBar } = await import("./SyncStatusBar");
+        render(<SyncStatusBar onRetrySync={vi.fn()} />);
+        expect(screen.queryByTestId("sync-error")).not.toBeInTheDocument();
+      } finally {
+        mockPapersWithEmbeddingMissing.push(...saved);
+      }
+    });
+
+    it("同期エラーがなければ表示しない", async () => {
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+
+      render(<SyncStatusBar onRetrySync={vi.fn()} />);
+
+      expect(screen.queryByTestId("sync-error")).not.toBeInTheDocument();
+    });
   });
 
   describe("Embedding補完の結果表示", () => {

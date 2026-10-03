@@ -43,6 +43,14 @@ interface PaperExplorerProps {
   emptySearchMessage?: ReactNode;
   /** 検索処理中のローディング状態（useSemanticSearchのisLoading） */
   isSearchLoading?: boolean;
+  /** 0件時の「論文を同期」 */
+  onSync?: () => void;
+  /** 0件時の「同期を再試行」 */
+  onRetrySync?: () => void;
+  /** 初回の自動同期を予定しているか */
+  isSyncPending?: boolean;
+  /** 0件時の「設定を開く」 */
+  onOpenSettings?: () => void;
 }
 
 /**
@@ -67,6 +75,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   renderExpandedDetail,
   emptySearchMessage,
   isSearchLoading = false,
+  onSync,
+  onRetrySync,
+  isSyncPending,
+  onOpenSettings,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { likedPaperIds, bookmarkedPaperIds } = useInteractionContext();
@@ -429,6 +441,11 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         // インライン展開
         expandedPaperId={expandedPaperId}
         renderExpandedDetail={renderExpandedDetail}
+        onSync={onSync}
+        onRetrySync={onRetrySync}
+        isSyncPending={isSyncPending}
+        onOpenSettings={onOpenSettings}
+        onClearConditions={hasSearched || activeFilterCount > 0 ? handleClear : undefined}
       />
     </div>
   );

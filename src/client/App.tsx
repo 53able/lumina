@@ -228,6 +228,7 @@ const HomePage: FC = () => {
   // 同期処理（React Query useQuery + 5分キャッシュ）
   const {
     sync: syncPapers,
+    retrySync,
     syncMore,
     syncAll,
     stopSync,
@@ -305,6 +306,9 @@ const HomePage: FC = () => {
       syncPapers();
     }
   }, [papers.length, isPapersLoading, isSyncing, shouldAutoSync, syncPapers]);
+
+  // 論文0件で自動同期を始める直前（effect 実行前の描画）に「論文がありません」を出さない
+  const isAutoSyncPending = !hasAutoSyncedRef.current && !isPapersLoading && papers.length === 0;
 
   // 検索履歴を削除
   const handleDeleteHistory = useCallback(
@@ -400,6 +404,10 @@ const HomePage: FC = () => {
         onSyncAll={syncAll}
         onRunEmbeddingBackfill={runEmbeddingBackfill}
         onStopSync={handleStopSync}
+        onSync={syncPapers}
+        onRetrySync={retrySync}
+        isSyncPending={isAutoSyncPending}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Footer */}

@@ -176,6 +176,12 @@ interface ActiveSyncFromDateTask {
 let activeSyncFromDateTask: ActiveSyncFromDateTask | null = null;
 
 /**
+ * 処理済みの初回同期エラー。React Query はエラーをキャッシュに残すため、
+ * 一覧へ戻って再マウントしたときに同じエラーで通知・表示を復活させない
+ */
+const handledInitialSyncErrors = new WeakSet<object>();
+
+/**
  * クエリキーを生成する
  * @param params - 同期パラメータ
  * @returns クエリキー配列
@@ -356,7 +362,15 @@ export const useSyncPapers = (
       const newPapers = filterNewPapers(response.papers, currentStorePapers);
 
       if (newPapers.length > 0) {
-        void addPapers(newPapers);
+        // 保存が終わるまで一覧の0件表示を「取得中」にする（「論文がありません」を一瞬出さない）
+        useSyncStore.getState().beginSavingSyncedPapers();
+        void Promise.resolve(addPapers(newPapers))
+          .catch((err: unknown) => {
+            console.error("Failed to save synced papers:", err);
+          })
+          .finally(() => {
+            useSyncStore.getState().endSavingSyncedPapers();
+          });
       }
       commitSyncResult(response, 0, newPapers, true);
     },
@@ -366,11 +380,14 @@ export const useSyncPapers = (
   // エラー時の処理（query の error を保持し、onError コールバックを呼ぶ）
   // ユーザーが停止した場合（AbortError）はエラー表示しない
   useEffect(() => {
-    if (!error) return;
+    if (!error || typeof error !== "object" || handledInitialSyncErrors.has(error)) return;
+    handledInitialSyncErrors.add(error);
     const isAbort = error instanceof DOMException && error.name === "AbortError";
     if (isAbort) return;
     const err = toError(error);
-    useSyncStore.getState().setLastSyncError(err);
+    // syncAll 経由の失敗は syncAll 側で記録・通知済み（発生元を all のまま残し、通知を重ねない）
+    if (useSyncStore.getState().lastSyncError === err) return;
+    useSyncStore.getState().setLastSyncError(err, { kind: "initial" });
     onErrorRef.current?.(err);
   }, [error]);
 
@@ -380,30 +397,34 @@ export const useSyncPapers = (
   }, [isFetching]);
 
   // 同期実行関数（最初から取得）
-  const runInitialSync = useCallback(async (): Promise<void> => {
-    // キャッシュが新鮮（5分以内）かチェック
-    const cachedData = queryClient.getQueryData<SyncResponse>(queryKey);
-    const queryState = queryClient.getQueryState(queryKey);
-    const isStale =
-      !queryState?.dataUpdatedAt || timestamp() - queryState.dataUpdatedAt > SYNC_STALE_TIME;
+  /** @param ignoreCache true なら5分キャッシュを使わず必ず API を叩く（失敗後の再試行用） */
+  const runInitialSync = useCallback(
+    async ({ ignoreCache = false }: { ignoreCache?: boolean } = {}): Promise<void> => {
+      // キャッシュが新鮮（5分以内）かチェック
+      const cachedData = queryClient.getQueryData<SyncResponse>(queryKey);
+      const queryState = queryClient.getQueryState(queryKey);
+      const isStale =
+        !queryState?.dataUpdatedAt || timestamp() - queryState.dataUpdatedAt > SYNC_STALE_TIME;
 
-    if (cachedData && !isStale) {
-      // キャッシュが有効 → 再利用（APIを叩かない）。既存を除いた分だけストアに追加
-      applyInitialSyncData(cachedData);
-      return;
-    }
+      if (!ignoreCache && cachedData && !isStale) {
+        // キャッシュが有効 → 再利用（APIを叩かない）。既存を除いた分だけストアに追加
+        applyInitialSyncData(cachedData);
+        return;
+      }
 
-    // キャッシュが古いか存在しない → APIを叩く
-    useSyncStore.getState().setRequestedRanges([]);
-    useSyncStore.getState().setTotalResults(null);
-    const result = await refetch();
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.data) {
-      applyInitialSyncData(result.data);
-    }
-  }, [queryClient, queryKey, refetch, applyInitialSyncData]);
+      // キャッシュが古いか存在しない → APIを叩く
+      useSyncStore.getState().setRequestedRanges([]);
+      useSyncStore.getState().setTotalResults(null);
+      const result = await refetch();
+      if (result.error) {
+        throw result.error;
+      }
+      if (result.data) {
+        applyInitialSyncData(result.data);
+      }
+    },
+    [queryClient, queryKey, refetch, applyInitialSyncData]
+  );
 
   // 同期実行関数（最初から取得）
   const sync = useCallback((): void => {
@@ -477,7 +498,7 @@ export const useSyncPapers = (
         const isAbort = err instanceof DOMException && err.name === "AbortError";
         if (!isAbort) {
           const e = toError(err);
-          useSyncStore.getState().setLastSyncError(e);
+          useSyncStore.getState().setLastSyncError(e, { kind: "more" });
           onErrorRef.current?.(e);
           throw e;
         }
@@ -537,8 +558,10 @@ export const useSyncPapers = (
           await syncMore(ac.signal);
         } catch (syncMoreErr) {
           const e = toError(syncMoreErr);
-          useSyncStore.getState().setLastSyncError(e);
-          onErrorRef.current?.(e);
+          // syncMore が記録・通知済みなら、発生元だけ all に変えて通知は重ねない
+          const alreadyReported = useSyncStore.getState().lastSyncError === e;
+          useSyncStore.getState().setLastSyncError(e, { kind: "all" });
+          if (!alreadyReported) onErrorRef.current?.(e);
           break;
         }
         await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
@@ -547,8 +570,10 @@ export const useSyncPapers = (
       const isAbort = err instanceof DOMException && err.name === "AbortError";
       if (!isAbort) {
         const e = toError(err);
-        useSyncStore.getState().setLastSyncError(e);
-        onErrorRef.current?.(e);
+        // 初回同期の失敗を effect が先に記録・通知していたら、発生元だけ all に変えて通知は重ねない
+        const alreadyReported = useSyncStore.getState().lastSyncError === e;
+        useSyncStore.getState().setLastSyncError(e, { kind: "all" });
+        if (!alreadyReported) onErrorRef.current?.(e);
       }
     } finally {
       const totalAdded = syncAllAccumulatedRef.current;
@@ -700,6 +725,8 @@ export const useSyncPapers = (
           }
 
           setLastSyncedAt(now());
+          // 通常の同期と同じく、成功したら発生元を問わず直近の同期エラーを消す（論文の取得経路が回復したため）
+          useSyncStore.getState().setLastSyncError(null);
           onSyncFromDateSuccessRef.current?.(totalAdded, totalFetched);
           return { addedCount: totalAdded, totalFetched, wasAborted: false };
         } catch (err) {
@@ -708,6 +735,7 @@ export const useSyncPapers = (
             return { addedCount: totalAdded, totalFetched, wasAborted: true };
           }
           const e = toError(err);
+          useSyncStore.getState().setLastSyncError(e, { kind: "from-date", date });
           onSyncFromDateErrorRef.current?.(e);
           throw e;
         } finally {
@@ -725,9 +753,30 @@ export const useSyncPapers = (
     [params.categories, getStorePapers, addPapers, setLastSyncedAt]
   );
 
+  /**
+   * 直近に失敗した同期を、同じ処理でやり直す（同期エラー表示の「同期を再試行」から呼ぶ）
+   * 初回同期の再試行は5分キャッシュを使わず API を叩く（通信せずに成功扱いにしない）
+   */
+  const retrySync = useCallback((): void => {
+    const source = useSyncStore.getState().lastSyncErrorSource;
+    const run =
+      source?.kind === "more"
+        ? syncMore()
+        : source?.kind === "all"
+          ? syncAll()
+          : source?.kind === "from-date"
+            ? syncFromDate(source.date)
+            : runInitialSync({ ignoreCache: true });
+    void run.catch(() => {
+      // エラーは各処理が lastSyncError / onError に記録する
+    });
+  }, [syncMore, syncAll, syncFromDate, runInitialSync]);
+
   return {
     /** 同期を実行する関数（最初から取得） */
     sync,
+    /** 直近に失敗した同期を同じ処理でやり直す関数 */
+    retrySync,
     /** 追加同期を実行する関数（次のページを取得） */
     syncMore,
     /** 同期期間内の論文をすべて取得する関数 */
