@@ -1,7 +1,7 @@
 import { type FC, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
-import type { Paper, PaperSummary } from "../shared/schemas/index";
+import type { Paper } from "../shared/schemas/index";
 import { HomeFooter } from "./components/HomeFooter";
 import { HomeHeader } from "./components/HomeHeader";
 import { HomeMain } from "./components/HomeMain";
@@ -15,7 +15,7 @@ import { showSummaryErrorToast } from "./lib/summaryErrors";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
-import { useSummaryStore } from "./stores/summaryStore";
+import { getAdoptedSummaries, useSummaryStore } from "./stores/summaryStore";
 
 // 動的インポート（バンドルサイズ最適化）
 const PaperDetail = lazy(() =>
@@ -186,14 +186,10 @@ const HomePage: FC = () => {
   // whyReadMap を生成（論文ID → whyRead のマップ）
   // summaryLanguage に合わせた言語の whyRead を取得
   // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
-  // 同じ論文に複数の版がある場合は最新の版（最後に追加されたもの）の whyRead を使う
+  // 同じ論文に複数の版がある場合は採用版の whyRead を使う
   const whyReadMap = useMemo(() => {
-    const latestByPaperId = new Map<string, PaperSummary>();
-    for (const s of summaries) {
-      if (s.language === summaryLanguage) latestByPaperId.set(s.paperId, s);
-    }
     const map = new Map<string, string>();
-    for (const [paperId, s] of latestByPaperId) {
+    for (const [paperId, s] of getAdoptedSummaries(summaries, summaryLanguage)) {
       if (s.whyRead) map.set(paperId, s.whyRead);
     }
     return map;

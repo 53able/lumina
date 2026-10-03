@@ -56,6 +56,11 @@ export const PaperSummarySchema = z.object({
   language: z.enum(["ja", "en"]),
   /** 作成日時 */
   createdAt: z.coerce.date(),
+  /**
+   * 採用版か（同じ論文・言語の版のうち、表示に使う1件だけが true）
+   * 未指定の版しかない既存データは、最新の版を採用版とみなす
+   */
+  adopted: z.boolean().optional(),
 });
 
 export type PaperSummary = z.infer<typeof PaperSummarySchema>;

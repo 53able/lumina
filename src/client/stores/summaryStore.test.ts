@@ -183,6 +183,154 @@ describe("summaryStore", () => {
     });
   });
 
+  describe("版の採用・破棄", () => {
+    /** 同じ論文・言語の版を古い順に追加し、Store の版を返す */
+    const addVersions = async (texts: string[]) => {
+      const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+      await initializeSummaryStore(mockDb);
+      for (const text of texts) {
+        await useSummaryStore.getState().addSummary(createSampleSummary({ summary: text }));
+      }
+      return useSummaryStore;
+    };
+
+    /** IndexedDB から読み直す（再読込の代わり） */
+    const reload = async () => {
+      const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+      useSummaryStore.setState({ summaries: [] });
+      await initializeSummaryStore(mockDb);
+      return useSummaryStore.getState();
+    };
+
+    it("正常系: 再生成した版を採用版にし、旧版は採用を外して残す", async () => {
+      await addVersions(["旧版", "新版"]);
+
+      const dbSummaries = await mockDb.paperSummaries.toArray();
+      expect(dbSummaries.map((s) => [s.summary, s.adopted])).toEqual([
+        ["旧版", false],
+        ["新版", true],
+      ]);
+      expect((await reload()).getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe(
+        "新版"
+      );
+    });
+
+    it("正常系: 旧版を採用すると表示版が切り替わり、再読込後も維持される", async () => {
+      const store = await addVersions(["旧版", "新版"]);
+      const [oldVersion] = store.getState().summaries;
+
+      await store.getState().adoptSummary(oldVersion.id);
+
+      expect(store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe(
+        "旧版"
+      );
+      const reloaded = await reload();
+      expect(reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe("旧版");
+      expect(reloaded.summaries).toHaveLength(2);
+    });
+
+    it("正常系: 採用版でない版を破棄しても採用版は変わらない", async () => {
+      const store = await addVersions(["第1版", "第2版", "第3版"]);
+      const [first] = store.getState().summaries;
+
+      await store.getState().discardSummary(first.id);
+
+      const reloaded = await reload();
+      expect(reloaded.summaries.map((s) => s.summary)).toEqual(["第2版", "第3版"]);
+      expect(reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe("第3版");
+    });
+
+    it("正常系: 採用版を破棄すると、残りの版のうち最新の版を採用し、再読込後も維持される", async () => {
+      const store = await addVersions(["第1版", "第2版", "第3版"]);
+      const [first, second, third] = store.getState().summaries;
+      // 第1版 → 第3版の順に採用してから第3版を破棄する。
+      // 直前に採用していた第1版ではなく、残りの版のうち最新の第2版が採用版になる
+      await store.getState().adoptSummary(first.id);
+      await store.getState().adoptSummary(third.id);
+
+      await store.getState().discardSummary(third.id);
+
+      expect(store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.id).toBe(
+        second.id
+      );
+      const reloaded = await reload();
+      expect(reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe("第2版");
+      const dbSummaries = await mockDb.paperSummaries.toArray();
+      expect(dbSummaries.filter((s) => s.adopted).map((s) => s.summary)).toEqual(["第2版"]);
+    });
+
+    it("正常系: 最後の版を破棄すると要約がなくなる", async () => {
+      const store = await addVersions(["唯一の版"]);
+      const [only] = store.getState().summaries;
+
+      await store.getState().discardSummary(only.id);
+
+      expect(store.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")).toBeUndefined();
+      expect(await mockDb.paperSummaries.count()).toBe(0);
+    });
+
+    it("正常系: 採用指定のない既存データは最新の版を採用版とみなし、旧版を採用できる", async () => {
+      // 採用指定（adopted）を持たない、本変更前に保存された版
+      await mockDb.paperSummaries.add(createSampleSummary({ summary: "既存の旧版" }));
+      await mockDb.paperSummaries.add(createSampleSummary({ summary: "既存の新版" }));
+
+      const loaded = await reload();
+      expect(loaded.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe("既存の新版");
+
+      await loaded.adoptSummary(loaded.summaries[0].id);
+      expect((await reload()).getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe(
+        "既存の旧版"
+      );
+    });
+
+    it("正常系: 説明文のみの更新は採用版に入り、他の版は変更しない", async () => {
+      const store = await addVersions(["旧版", "新版"]);
+      await store.getState().adoptSummary(store.getState().summaries[0].id);
+
+      await store.getState().updateSummary("2401.00001", "ja", { whyRead: "理由" });
+
+      const reloaded = await reload();
+      expect(reloaded.summaries.map((s) => [s.summary, s.whyRead])).toEqual([
+        ["旧版", "理由"],
+        ["新版", undefined],
+      ]);
+    });
+
+    it("正常系: 他の論文・言語の採用版には影響しない", async () => {
+      const store = await addVersions(["ja旧版", "ja新版"]);
+      await store.getState().addSummary(createSampleSummary({ language: "en", summary: "en版" }));
+      await store
+        .getState()
+        .addSummary(createSampleSummary({ paperId: "other", summary: "別論文" }));
+
+      await store.getState().adoptSummary(store.getState().summaries[0].id);
+
+      const reloaded = await reload();
+      expect(reloaded.getSummaryByPaperIdAndLanguage("2401.00001", "en")?.summary).toBe("en版");
+      expect(reloaded.getSummaryByPaperIdAndLanguage("other", "ja")?.summary).toBe("別論文");
+    });
+
+    it("正常系: getAdoptedSummaries は論文ごとの採用版を返す（一覧の whyRead 用）", async () => {
+      const { getAdoptedSummaries } = await import("./summaryStore");
+      const base = { keyPoints: [], createdAt: now() };
+      const adopted = getAdoptedSummaries(
+        [
+          { ...base, id: 1, paperId: "a", language: "ja", summary: "a1", adopted: true },
+          { ...base, id: 2, paperId: "a", language: "ja", summary: "a2", adopted: false },
+          { ...base, id: 3, paperId: "b", language: "ja", summary: "b1" },
+          { ...base, id: 4, paperId: "b", language: "ja", summary: "b2" },
+          { ...base, id: 5, paperId: "a", language: "en", summary: "a-en" },
+        ],
+        "ja"
+      );
+
+      expect([...adopted].map(([paperId, s]) => [paperId, s.summary])).toEqual([
+        ["a", "a1"],
+        ["b", "b2"],
+      ]);
+    });
+  });
+
   describe("要約の取得", () => {
     it("正常系: 論文IDと言語で要約を取得できる", async () => {
       const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
