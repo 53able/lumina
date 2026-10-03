@@ -5,6 +5,7 @@ import type {
   PaperSummary,
   SearchHistory as SearchHistoryType,
 } from "../../shared/schemas/index";
+import type { SearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import type { GenerateTarget } from "../lib/api";
 import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTextTerms";
 import type { SummaryVersion } from "../stores/summaryStore";
@@ -96,8 +97,8 @@ interface HomeMainProps {
   recentHistories: SearchHistoryType[];
   /** 再検索ハンドラー */
   onReSearch: (history: SearchHistoryType) => void;
-  /** 履歴削除ハンドラー */
-  onDeleteHistory: (id: string) => void;
+  /** 履歴の削除と取り消し（操作と結果） */
+  historyUndo?: SearchHistoryUndo;
   /** まだ取得可能な論文があるか */
   hasMore?: boolean;
   /** 同期期間の論文をすべて取得する */
@@ -162,7 +163,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   onDiscardSummaryVersion,
   recentHistories,
   onReSearch,
-  onDeleteHistory,
+  historyUndo,
   hasMore,
   onSyncAll,
   onRunEmbeddingBackfill,
@@ -232,7 +233,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
               <SearchHistory
                 histories={recentHistories}
                 onReSearch={onReSearch}
-                onDelete={onDeleteHistory}
+                undo={historyUndo}
                 compact
               />
             </Suspense>

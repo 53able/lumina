@@ -282,7 +282,7 @@ describe("App", () => {
       renderWithProviders(<App />);
 
       // 削除ボタンをクリック
-      const deleteButton = screen.getByRole("button", { name: "削除" });
+      const deleteButton = screen.getByRole("button", { name: "「強化学習」を削除" });
       await user.click(deleteButton);
 
       expect(mockDeleteHistory).toHaveBeenCalledWith("history-1");

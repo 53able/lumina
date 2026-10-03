@@ -8,6 +8,7 @@ import { HomeMain } from "./components/HomeMain";
 import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
+import { useSearchHistoryUndo } from "./hooks/useSearchHistoryUndo";
 import { useSyncPapers } from "./hooks/useSyncPapers";
 import { SyncRateLimitError } from "./lib/api";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
@@ -111,7 +112,9 @@ const HomePage: FC = () => {
   // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
   const autoGenerateSummary = autoGenerateSummarySetting && apiEnabled;
   // 検索履歴（searchHistoryStore経由で永続化）
-  const { histories, addHistory, getRecentHistories, deleteHistory } = useSearchHistoryStore();
+  const { histories, addHistory, getRecentHistories } = useSearchHistoryStore();
+  // 個別削除と取り消し（削除の実行と結果の表示を同じ出どころから渡す）
+  const historyUndo = useSearchHistoryUndo();
   const recentHistories = getRecentHistories(10);
   const findSavedHistory = useCallback(
     (query: string) => histories.find((h) => h.originalQuery === query),
@@ -318,14 +321,6 @@ const HomePage: FC = () => {
   // 論文0件で自動同期を始める直前（effect 実行前の描画）に「論文がありません」を出さない
   const isAutoSyncPending = !hasAutoSyncedRef.current && !isPapersLoading && papers.length === 0;
 
-  // 検索履歴を削除
-  const handleDeleteHistory = useCallback(
-    (id: string) => {
-      deleteHistory(id);
-    },
-    [deleteHistory]
-  );
-
   // 検索結果の論文リスト（関連度順）。results.paper は useSemanticSearch 内で papers から解決されるためストア由来
   const searchResultPapers = results.map((r) => r.paper);
 
@@ -424,7 +419,7 @@ const HomePage: FC = () => {
         onDiscardSummaryVersion={discardSummaryVersion}
         recentHistories={recentHistories}
         onReSearch={handleReSearch}
-        onDeleteHistory={handleDeleteHistory}
+        historyUndo={historyUndo}
         hasMore={hasMorePapers}
         onSyncAll={syncAll}
         onRunEmbeddingBackfill={runEmbeddingBackfill}
