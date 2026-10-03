@@ -146,6 +146,31 @@ describe("useHomeSearch", () => {
       expect(mockSearchApi).toHaveBeenCalledTimes(1);
     });
 
+    it("URL 起点の検索後に論文追加・Embedding補完があると、検索APIを呼ばずに結果へ反映する（#45）", async () => {
+      mockSearchApi.mockResolvedValue(response("transformer"));
+      const pendingPaper: Paper = {
+        ...(papers[0] as Paper),
+        id: "2401.00002",
+        embedding: undefined,
+      };
+      const { result, rerender, addHistory } = renderHomeSearch({
+        initialUrl: "/?q=transformer",
+        initialPapers: [...papers, pendingPaper],
+      });
+      await waitFor(() => expect(result.current.home.completedQuery).toBe("transformer"));
+      expect(result.current.home.papersExcludedFromSearch.map((p) => p.id)).toEqual(["2401.00002"]);
+
+      const addedPaper: Paper = { ...(papers[0] as Paper), id: "2401.00003" };
+      rerender({ papers: [...papers, { ...pendingPaper, embedding }, addedPaper] });
+
+      expect(result.current.home.papersExcludedFromSearch).toEqual([]);
+      expect(result.current.home.results.map((r) => r.paper.id)).toEqual(
+        expect.arrayContaining(["2401.00001", "2401.00002", "2401.00003"])
+      );
+      expect(mockSearchApi).toHaveBeenCalledTimes(1);
+      expect(addHistory).toHaveBeenCalledTimes(1);
+    });
+
     it("保存済みEmbeddingの履歴再検索は URL を更新しても検索APIを呼ばない", async () => {
       const { result } = renderHomeSearch();
       const history: SearchHistory = {
