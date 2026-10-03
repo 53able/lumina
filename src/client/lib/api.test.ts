@@ -15,6 +15,7 @@ import {
   summaryApi,
   syncApi,
 } from "./api";
+import { SummaryApiError } from "./summaryErrorTypes";
 
 // 既定は API 利用 ON・キー未設定
 vi.mock("@/client/stores/settingsStore", () => ({
@@ -426,5 +427,86 @@ describe("API利用OFF時の実行境界", () => {
 
     const body = await readRequestBody(mockFetch.mock.calls[0]);
     expect(body).not.toHaveProperty("skipEmbedding");
+  });
+});
+
+describe("summaryApi のエラー応答", () => {
+  const mockFetch = vi.fn();
+  const upstreamMessage = "Incorrect API key provided: sk-proj-abcd...wxyz";
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  const respond = (status: number, body: unknown) =>
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(body), { status, headers: new Headers() })
+    );
+
+  const captureError = async (): Promise<SummaryApiError> => {
+    const error = await summaryApi("2401.00001", { language: "ja", abstract: "abstract" }).catch(
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(SummaryApiError);
+    return error as SummaryApiError;
+  };
+
+  it.each([
+    [401, "auth", false, "APIキーの設定を確認してください。"],
+    [429, "rate_limit", true, "AIの利用上限に達しました。時間をおいて再試行してください。"],
+    [500, "upstream", true, "AIサービスでエラーが発生しました。再試行してください。"],
+  ] as const)("%s の code（%s）から案内文を作る", async (status, code, retryable, message) => {
+    respond(status, { error: "要約の生成に失敗しました", code, retryable });
+
+    const error = await captureError();
+
+    expect(error.code).toBe(code);
+    expect(error.retryable).toBe(retryable);
+    expect(error.message).toBe(message);
+  });
+
+  it("応答の error に上流のエラー文があってもメッセージに含めない（旧形式の応答）", async () => {
+    respond(500, { error: upstreamMessage });
+
+    const error = await captureError();
+
+    expect(error.code).toBe("upstream");
+    expect(error.retryable).toBe(true);
+    expect(error.message).not.toContain("sk-");
+    expect(error.message).not.toContain("Incorrect API key");
+  });
+
+  it.each([
+    [429, "rate_limit", true],
+    [401, "auth", false],
+    [403, "auth", false],
+  ] as const)("JSON でない %s（ミドルウェアのプレーンテキストなど）はステータスから %s として扱う", async (status, code, retryable) => {
+    mockFetch.mockResolvedValueOnce(
+      new Response("Too many requests, please try again later.", {
+        status,
+        headers: new Headers({ "Content-Type": "text/plain" }),
+      })
+    );
+
+    const error = await captureError();
+
+    expect(error.code).toBe(code);
+    expect(error.retryable).toBe(retryable);
+  });
+
+  it("JSON でない応答（ゲートウェイのエラーページなど）も upstream として扱う", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response("<html>Bad Gateway</html>", { status: 502, headers: new Headers() })
+    );
+
+    const error = await captureError();
+
+    expect(error.code).toBe("upstream");
+    expect(error.retryable).toBe(true);
   });
 });

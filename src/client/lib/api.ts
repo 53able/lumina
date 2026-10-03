@@ -10,6 +10,7 @@ import { hc } from "hono/client";
 import type { AppType } from "@/api/app";
 import { useSettingsStore } from "@/client/stores/settingsStore";
 import type { SearchRequest, SyncPeriod } from "@/shared/schemas/index";
+import { SummaryApiError, toSummaryStageErrorCode } from "./summaryErrorTypes";
 
 /**
  * APIクライアントのベースURL
@@ -592,8 +593,22 @@ export const summaryApi = async (
   );
 
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error("error" in error ? error.error : "要約生成に失敗しました");
+    // 応答の error（旧形式では上流のエラー文）は表示に使わず、code から案内文を作る
+    // code がない応答（hono-rate-limiter のプレーンテキストの 429、旧形式、ゲートウェイのエラーページ）はステータスから補う
+    const body: { code?: unknown; retryable?: unknown } | null = await res.json().catch(() => null);
+    // RPC の型はサーバーが返すステータスだけに絞られるため、ミドルウェア・ゲートウェイの値も扱えるよう number で受ける
+    const status: number = res.status;
+    const code =
+      body?.code !== undefined
+        ? toSummaryStageErrorCode(body.code)
+        : status === 429
+          ? "rate_limit"
+          : status === 401 || status === 403
+            ? "auth"
+            : "upstream";
+    // retryable がない場合の既定は、サーバーの toStageError（summary.ts）と同じく auth だけ再試行不可とする
+    const retryable = typeof body?.retryable === "boolean" ? body.retryable : code !== "auth";
+    throw new SummaryApiError(code, retryable);
   }
 
   // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される
