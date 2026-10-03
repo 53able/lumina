@@ -428,8 +428,12 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         papers={filteredPapers}
         isLoading={isSearchLoading}
         isSearchLoading={isSearchLoading}
+        // 検索結果そのものが0件のときだけ検索の理由を出す。絞り込みで0件なら一覧の「条件に一致しない」に任せる
         emptyMessage={
-          hasSearched && !isSearchLoading && filteredPapers.length === 0
+          hasSearched &&
+          !isSearchLoading &&
+          filteredPapers.length === 0 &&
+          displayPapers.length === 0
             ? emptySearchMessage
             : undefined
         }

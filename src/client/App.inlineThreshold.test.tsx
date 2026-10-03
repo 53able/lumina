@@ -24,12 +24,17 @@ vi.mock("sonner", () => ({
 }));
 
 /** テスト用の論文（embedding が null のものは検索対象外） */
-const createPaper = (id: string, title: string, embedding: number[] | null) => ({
+const createPaper = (
+  id: string,
+  title: string,
+  embedding: number[] | null,
+  categories: string[] = ["cs.AI"]
+) => ({
   id,
   title,
   abstract: `Abstract of ${title}.`,
   authors: ["Author One"],
-  categories: ["cs.AI"],
+  categories,
   publishedAt: new Date("2024-01-01"),
   updatedAt: new Date("2024-01-02"),
   pdfUrl: `https://arxiv.org/pdf/${id}`,
@@ -302,12 +307,70 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     expect(countSearchRequests()).toBe(1);
   });
 
+  it("しきい値が0で0件のときは、これ以上下げられないので下げる案内を出さない", async () => {
+    // クエリと逆向きで類似度が負（-1）の論文だけ
+    paperState.papers = [createPaper("2401.00005", "Opposite Paper", [-1, 0])];
+    useSettingsStore.getState().setSearchScoreThreshold(0);
+    await search();
+
+    expect(
+      await screen.findByText("類似度がしきい値 0.00 以上の論文はありません")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/しきい値を下げると/)).not.toBeInTheDocument();
+  });
+
+  it("絞り込みで0件のときは、しきい値の案内ではなく「条件に一致する論文がありません」を出す", async () => {
+    const restore = useDesktopViewport();
+    try {
+      // 検索対象外の論文だけ別カテゴリ（cs.CL）にし、cs.AI で絞り込む
+      paperState.papers = [
+        NEAR,
+        MID,
+        createPaper("2401.00004", "NoEmbedding Paper", null, ["cs.CL"]),
+      ];
+      const user = await search();
+      await user.click(screen.getByRole("button", { name: /cs\.AI/ }));
+      expect(screen.getByText("Mid Paper")).toBeInTheDocument();
+      expect(screen.queryByText("NoEmbedding Paper")).not.toBeInTheDocument();
+
+      // しきい値を最大にすると検索結果は0件。一覧には検索対象外（cs.CL）が残るが、cs.AI の絞り込みで0件になる
+      fireEvent.change(screen.getByRole("slider", { name: "類似度のしきい値" }), {
+        target: { value: "1" },
+      });
+      expect(await screen.findByText("条件に一致する論文がありません")).toBeInTheDocument();
+      expect(screen.queryByText(/以上の論文はありません/)).not.toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
+  it("スライダー以外（設定ダイアログ）での件数の変化は通知しない", async () => {
+    const user = await search();
+    fireEvent.change(await openSlider(user), { target: { value: "0.8" } });
+    const announcer = getAnnouncer();
+    await waitFor(() => expect(announcer).toHaveTextContent("しきい値 0.80: 2件の論文を表示"));
+
+    await user.click(screen.getByRole("button", { name: "設定" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("tab", { name: "検索" }));
+    fireEvent.change(within(dialog).getByRole("slider", { name: "類似度のしきい値" }), {
+      target: { value: "0" },
+    });
+    expect(screen.getByText("Far Paper")).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    expect(announcer).toHaveTextContent("しきい値 0.80: 2件の論文を表示");
+  });
+
   it("クエリEmbeddingがない検索では、スライダーを無効にして理由を表示する", async () => {
     mockFetch({ withEmbedding: false });
     const user = await search();
     const slider = await openSlider(user);
     expect(slider).toBeDisabled();
-    expect(slider).toHaveAccessibleDescription(/Embeddingがないため、しきい値を適用できません/);
+    expect(slider).toHaveAccessibleDescription(
+      "この検索では類似度を計算できないため（APIキー未設定など）、しきい値を適用できません。設定でAPIキーを入力して再検索すると調整できます。"
+    );
   });
 
   it("別の検索をすると、前の検索で出した件数の通知を残さない", async () => {

@@ -65,9 +65,12 @@ export const getEmptySearchMessage = (
         <p className="text-lg text-muted-foreground">
           類似度がしきい値 {threshold.scoreThreshold.toFixed(2)} 以上の論文はありません
         </p>
-        <p className="text-sm text-muted-foreground/70">
-          しきい値を下げると、類似度の低い論文も表示されます。
-        </p>
+        {/* しきい値が下限（0）ならこれ以上は下げられないため、下げる案内は出さない */}
+        {threshold.scoreThreshold > 0 ? (
+          <p className="text-sm text-muted-foreground/70">
+            しきい値を下げると、類似度の低い論文も表示されます。
+          </p>
+        ) : null}
       </>
     );
   }

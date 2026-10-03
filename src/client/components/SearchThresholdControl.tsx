@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { type FC, useEffect, useId, useState } from "react";
+import { type FC, useEffect, useId, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import { useSettingsStore } from "../stores/settingsStore";
 import { ScoreThresholdSlider } from "./ScoreThresholdSlider";
@@ -16,7 +16,10 @@ interface SearchThresholdControlProps {
   displayedCount: number;
   /** しきい値を適用できるか（クエリのEmbeddingがない検索では適用できない） */
   canApply: boolean;
-  /** 最初に開いた状態で表示するか（モバイルは閉じて一覧を優先する） */
+  /**
+   * 最初に開いた状態で表示するか（モバイルは閉じて一覧を優先する）。
+   * マウント時の1回だけ反映し、以降の画面幅の変化では開閉状態を変えない（利用者の開閉を優先する）。
+   */
   defaultOpen: boolean;
 }
 
@@ -26,7 +29,8 @@ interface SearchThresholdControlProps {
  * 設定ダイアログを開かずに結果を見ながらしきい値を変えられる。値は設定ダイアログと同じ store に保存し、
  * 結果は保存済みの queryEmbedding から再計算される（検索APIは呼ばない）。
  * 開閉トグルにも現在のしきい値を出し、閉じていても適用中の値がわかるようにする。
- * 調整後の件数は操作が落ち着いてから live region で控えめに通知する（調整前は通知しない）。
+ * 調整後の件数は、このスライダーを操作してから落ち着いた時点の件数だけを live region で控えめに通知する。
+ * 同期・Embedding補完・絞り込み・設定ダイアログでの変更による件数の変化は通知しない。
  * 検索が変わったら親が key を変えて再マウントし、通知状態をリセットする。
  */
 export const SearchThresholdControl: FC<SearchThresholdControlProps> = ({
@@ -39,17 +43,30 @@ export const SearchThresholdControl: FC<SearchThresholdControlProps> = ({
   const descriptionId = useId();
   const scoreThreshold = useSettingsStore((s) => s.searchScoreThreshold);
   const [isOpen, setIsOpen] = useState(defaultOpen);
-  const [hasAdjusted, setHasAdjusted] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const displayThreshold = scoreThreshold.toFixed(2);
 
-  useEffect(() => {
-    if (!hasAdjusted) return;
-    // しきい値を含めて毎回文言を変え、表示件数が変わらない調整でも適用を伝える
-    const message = `しきい値 ${displayThreshold}: ${displayedCount}件の論文を表示`;
-    const timer = setTimeout(() => setAnnouncement(message), ANNOUNCE_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [hasAdjusted, displayThreshold, displayedCount]);
+  // 通知の発火時点（操作から ANNOUNCE_DELAY_MS 後）の件数・しきい値を読むための参照
+  const latestRef = useRef({ displayedCount, displayThreshold });
+  latestRef.current = { displayedCount, displayThreshold };
+  const announceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (announceTimerRef.current) clearTimeout(announceTimerRef.current);
+    },
+    []
+  );
+
+  /** スライダー操作のたびに通知を先送りし、操作が落ち着いた時点の件数を1回だけ通知する */
+  const handleUserChange = () => {
+    if (announceTimerRef.current) clearTimeout(announceTimerRef.current);
+    announceTimerRef.current = setTimeout(() => {
+      const { displayedCount: count, displayThreshold: threshold } = latestRef.current;
+      // しきい値を含めて毎回文言を変え、表示件数が変わらない調整でも適用を伝える
+      setAnnouncement(`しきい値 ${threshold}: ${count}件の論文を表示`);
+    }, ANNOUNCE_DELAY_MS);
+  };
 
   return (
     <>
@@ -76,12 +93,12 @@ export const SearchThresholdControl: FC<SearchThresholdControlProps> = ({
           id={sliderId}
           describedBy={descriptionId}
           disabled={!canApply}
-          onUserChange={() => setHasAdjusted(true)}
+          onUserChange={handleUserChange}
         />
         <p id={descriptionId} className="text-xs text-muted-foreground/70">
           {canApply
             ? "この値未満の類似度の論文は表示しません。変更はすぐに結果へ反映され、再検索はしません。"
-            : "この検索にはクエリのEmbeddingがないため、しきい値を適用できません。検索が完了すると調整できます。"}
+            : "この検索では類似度を計算できないため（APIキー未設定など）、しきい値を適用できません。設定でAPIキーを入力して再検索すると調整できます。"}
         </p>
       </div>
       <output
