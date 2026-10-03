@@ -16,6 +16,7 @@ import {
   Fragment,
   type ReactNode,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -24,6 +25,10 @@ import {
   type PaperSummary as PaperSummaryType,
   SUMMARY_CORRECTION_MAX_LENGTH,
 } from "../../shared/schemas/index";
+import {
+  findConfirmedEvidenceIndices,
+  splitAbstractSentences,
+} from "../../shared/utils/abstractSentences";
 import { ApiDisabledError, getApiResumeHint } from "../lib/api";
 import {
   getSummaryStageErrorGuidance,
@@ -108,6 +113,13 @@ interface PaperSummaryProps {
   autoGenerate?: boolean;
   /** 原文Abstract表示要素のID（指定時は参照範囲の注記からリンクする） */
   abstractId?: string;
+  /** 表示中の原文Abstract（キーポイントの根拠が今のAbstractの文と一致するかの照合に使う） */
+  abstract?: string;
+  /**
+   * キーポイントの根拠をAbstractで表示する（sentenceIndices: 強調する文番号。空ならAbstractだけを表示）
+   * 渡された場合のみ、キーポイントごとに「根拠を見る」または「対応箇所未確認」を出す
+   */
+  onShowEvidence?: (sentenceIndices: number[]) => void;
   /** 論文PDFのURL */
   pdfUrl?: string;
   /** arXivページのURL */
@@ -149,6 +161,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   onLanguageChange,
   autoGenerate = false,
   abstractId,
+  abstract,
+  onShowEvidence,
   pdfUrl,
   arxivUrl,
   versions = NO_VERSIONS,
@@ -333,6 +347,12 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       onGenerate(paperId, selectedLanguage, "both");
     }
   }, [paperId, summary, isLoading, autoGenerate, onGenerate, selectedLanguage]);
+
+  /** 根拠の照合に使う表示中のAbstractの文（サーバーと同じ分割） */
+  const abstractSentences = useMemo(
+    () => (abstract ? splitAbstractSentences(abstract) : []),
+    [abstract]
+  );
 
   /** 外部リンクのクラス */
   const sourceLinkClassName = "underline hover:text-foreground";
@@ -632,13 +652,54 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 {summary.keyPoints.length > 0 ? (
                   <div>
                     <h4 className="text-xs text-muted-foreground mb-2">キーポイント</h4>
+                    {/* 文の対応は正しさの保証ではないため、原文との照合を促す */}
+                    {onShowEvidence && (
+                      <p className="text-xs text-muted-foreground mb-2">
+                        「根拠を見る」はAIが対応づけたAbstractの文を示します。要点が正しいことの保証ではないため、原文と照らして確認してください。
+                      </p>
+                    )}
                     <ul className="space-y-1">
-                      {summary.keyPoints.map((point) => (
-                        <li key={point} className="text-sm flex items-start gap-2">
-                          <span className="text-primary">•</span>
-                          <span>{point}</span>
-                        </li>
-                      ))}
+                      {summary.keyPoints.map((point, i) => {
+                        // 生成時に Abstract に実在した文のうち、今の Abstract でも同じ文だけを根拠として示す
+                        const evidenceIndices = findConfirmedEvidenceIndices(
+                          abstractSentences,
+                          summary.keyPointEvidence?.[i]
+                        );
+                        return (
+                          <li key={point} className="text-sm flex items-start gap-2">
+                            <span className="text-primary">•</span>
+                            <span>
+                              {point}
+                              {onShowEvidence &&
+                                (evidenceIndices.length > 0 ? (
+                                  <Button
+                                    variant="link"
+                                    size="sm"
+                                    className="ml-2 h-auto p-0 text-xs"
+                                    aria-label={`根拠を見る（キーポイント${i + 1}）`}
+                                    onClick={() => onShowEvidence(evidenceIndices)}
+                                  >
+                                    根拠を見る
+                                  </Button>
+                                ) : (
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    対応箇所未確認
+                                    {" ・ "}
+                                    <Button
+                                      variant="link"
+                                      size="sm"
+                                      className="h-auto p-0 text-xs text-muted-foreground"
+                                      aria-label={`Abstractを見る（キーポイント${i + 1}は対応箇所未確認）`}
+                                      onClick={() => onShowEvidence([])}
+                                    >
+                                      Abstractを見る
+                                    </Button>
+                                  </span>
+                                ))}
+                            </span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 ) : null}
@@ -697,7 +758,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 <div className="flex items-start gap-2 p-3 bg-primary/5 rounded-lg border border-primary/10">
                   <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                   <div>
-                    <h4 className="text-xs text-muted-foreground mb-1">読むと得られるもの</h4>
+                    <h4 className="text-xs text-muted-foreground mb-1">読むと得られること（AI）</h4>
                     <p className="text-sm">{summary.whyRead}</p>
                   </div>
                 </div>
