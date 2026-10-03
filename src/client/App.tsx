@@ -1,7 +1,7 @@
 import { type FC, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
-import type { Paper } from "../shared/schemas/index";
+import type { Paper, PaperSummary } from "../shared/schemas/index";
 import { HomeFooter } from "./components/HomeFooter";
 import { HomeHeader } from "./components/HomeHeader";
 import { HomeMain } from "./components/HomeMain";
@@ -9,8 +9,9 @@ import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
 import { useSyncPapers } from "./hooks/useSyncPapers";
-import { ApiDisabledError, SyncRateLimitError } from "./lib/api";
+import { SyncRateLimitError } from "./lib/api";
 import { getEmptySearchMessage } from "./lib/emptySearchMessage";
+import { showSummaryErrorToast } from "./lib/summaryErrors";
 import { usePaperStore } from "./stores/paperStore";
 import { useSearchHistoryStore } from "./stores/searchHistoryStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -165,18 +166,15 @@ const HomePage: FC = () => {
     setSummaryLanguage,
     isLoading: isSummaryLoading,
     error: summaryError,
+    failedTarget: summaryFailedTarget,
     generateSummary,
   } = usePaperSummary({
     paperId: selectedPaper?.id ?? "",
     abstract: selectedPaper?.abstract ?? "",
-    onError: (err, paperId) => {
+    onError: (err, paperId, target) => {
       console.error("Summary generation error:", err);
-      const message = err instanceof Error ? err.message : "要約の生成に失敗しました";
       // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
-      const title = papers.find((p) => p.id === paperId)?.title;
-      toast.error(err instanceof ApiDisabledError ? "AI要約を停止中" : "要約生成エラー", {
-        description: title ? `${title}: ${message}` : message,
-      });
+      showSummaryErrorToast(err, papers.find((p) => p.id === paperId)?.title, target);
     },
   });
 
@@ -186,15 +184,18 @@ const HomePage: FC = () => {
   // whyReadMap を生成（論文ID → whyRead のマップ）
   // summaryLanguage に合わせた言語の whyRead を取得
   // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
-  const whyReadMap = useMemo(
-    () =>
-      new Map(
-        summaries
-          .filter((s) => s.language === summaryLanguage && s.whyRead)
-          .map((s) => [s.paperId, s.whyRead as string])
-      ),
-    [summaries, summaryLanguage]
-  );
+  // 同じ論文に複数の版がある場合は最新の版（最後に追加されたもの）の whyRead を使う
+  const whyReadMap = useMemo(() => {
+    const latestByPaperId = new Map<string, PaperSummary>();
+    for (const s of summaries) {
+      if (s.language === summaryLanguage) latestByPaperId.set(s.paperId, s);
+    }
+    const map = new Map<string, string>();
+    for (const [paperId, s] of latestByPaperId) {
+      if (s.whyRead) map.set(paperId, s.whyRead);
+    }
+    return map;
+  }, [summaries, summaryLanguage]);
 
   // 論文クリックハンドラー（インライン展開のトグル）
   const handlePaperClick = useCallback((paper: Paper) => {
@@ -377,6 +378,7 @@ const HomePage: FC = () => {
                     onGenerateSummary={handleGenerateSummary}
                     isSummaryLoading={isSummaryLoading}
                     summaryError={summaryError}
+                    summaryFailedTarget={summaryFailedTarget}
                     selectedSummaryLanguage={summaryLanguage}
                     onSummaryLanguageChange={handleSummaryLanguageChange}
                     autoGenerateSummary={autoGenerateSummary}
@@ -394,6 +396,7 @@ const HomePage: FC = () => {
         onGenerateSummary={handleGenerateSummary}
         isSummaryLoading={isSummaryLoading}
         summaryError={summaryError}
+        summaryFailedTarget={summaryFailedTarget}
         summaryLanguage={summaryLanguage}
         onSummaryLanguageChange={handleSummaryLanguageChange}
         autoGenerateSummary={autoGenerateSummary}

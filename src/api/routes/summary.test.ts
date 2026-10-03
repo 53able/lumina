@@ -1,3 +1,4 @@
+import { RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 
@@ -157,6 +158,96 @@ describe("要約API", () => {
 
       // Assert
       expect(response.status).toBe(400);
+    });
+
+    describe("工程別の失敗（部分成功）", () => {
+      const postSummary = (generateTarget: "both" | "explanation") =>
+        app.request(
+          new Request("http://localhost/api/v1/summary/2401.12345", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-OpenAI-API-Key": openAIKeyHeader,
+            },
+            body: JSON.stringify({
+              language: "ja",
+              abstract: "This paper presents a new deep learning method...",
+              generateTarget,
+            }),
+          })
+        );
+
+      it("正常系: 説明文だけが失敗した場合は、成功済みの要約と explanationError を200で返す", async () => {
+        vi.mocked(generateExplanation).mockRejectedValueOnce(
+          new Error("upstream timeout: sk-secret-detail")
+        );
+
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.summary).toBe("これは深層学習に関する論文の要約です。");
+        expect(body.keyPoints).toHaveLength(3);
+        expect(body.explanationError).toEqual({ code: "upstream", retryable: true });
+        // 上流のエラー文は応答に含めない
+        expect(JSON.stringify(body)).not.toContain("sk-secret-detail");
+        expect(body).not.toHaveProperty("explanation");
+        expect(generateSummary).toHaveBeenCalledTimes(1);
+        expect(generateExplanation).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ["429", Object.assign(new Error("rate limited"), { statusCode: 429 }), "rate_limit", true],
+        [
+          "RetryError に包まれた429",
+          new RetryError({
+            message: "Failed after 3 attempts",
+            reason: "maxRetriesExceeded",
+            errors: [Object.assign(new Error("rate limited"), { statusCode: 429 })],
+          }),
+          "rate_limit",
+          true,
+        ],
+        ["401", Object.assign(new Error("invalid key"), { statusCode: 401 }), "auth", false],
+        ["JSONの解析失敗", new SyntaxError("Unexpected token"), "invalid_output", true],
+      ])("正常系: 説明文の失敗（%s）を安全な分類で返す", async (_label, error, code, retryable) => {
+        vi.mocked(generateExplanation).mockRejectedValueOnce(error);
+
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.explanationError).toEqual({ code, retryable });
+      });
+
+      it("正常系: 両方成功した場合は explanationError を含めない", async () => {
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.explanation).toBe("深層学習に関する説明文です。");
+        expect(body).not.toHaveProperty("explanationError");
+      });
+
+      it("異常系: 要約が失敗した場合は500を返し、説明文は生成しない", async () => {
+        vi.mocked(generateSummary).mockRejectedValueOnce(new Error("upstream timeout"));
+
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(500);
+        expect(generateExplanation).not.toHaveBeenCalled();
+      });
+
+      it("異常系: 説明文のみの生成（再試行）が失敗した場合は500を返し、要約は生成しない", async () => {
+        vi.mocked(generateExplanation).mockRejectedValueOnce(new Error("upstream timeout"));
+
+        const response = await postSummary("explanation");
+
+        expect(response.status).toBe(500);
+        const body = await response.json();
+        expect(body.error).toBe("upstream timeout");
+        expect(generateSummary).not.toHaveBeenCalled();
+      });
     });
 
     it("異常系: abstractありでAPIキーがない場合は500エラー", async () => {

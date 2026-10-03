@@ -19,9 +19,17 @@ interface SummaryState {
  * summaryStore のアクション型
  */
 interface SummaryActions {
-  /** 要約を追加する */
+  /**
+   * 要約を追加する（同じ論文・言語の既存の要約は旧版として残す。表示には最新の1件を使う）
+   */
   addSummary: (summary: PaperSummary) => Promise<void>;
-  /** 論文IDと言語で要約を取得する */
+  /** 論文・言語の最新の要約を部分更新する（説明文のみの生成で使う。要約は置き換えない） */
+  updateSummary: (
+    paperId: string,
+    language: "ja" | "en",
+    changes: Partial<Pick<PaperSummary, "explanation" | "targetAudience" | "whyRead">>
+  ) => Promise<void>;
+  /** 論文IDと言語で最新の要約を取得する */
   getSummaryByPaperIdAndLanguage: (
     paperId: string,
     language: "ja" | "en"
@@ -37,6 +45,21 @@ interface SummaryActions {
 }
 
 type SummaryStore = SummaryState & SummaryActions;
+
+/**
+ * 論文・言語の最新の要約（最後に追加されたもの）の位置を返す。なければ -1
+ * （ES2022 の lib には findLastIndex がないため、後ろから探す）
+ */
+const findLatestIndex = (
+  summaries: PaperSummary[],
+  paperId: string,
+  language: "ja" | "en"
+): number => {
+  for (let i = summaries.length - 1; i >= 0; i--) {
+    if (summaries[i].paperId === paperId && summaries[i].language === language) return i;
+  }
+  return -1;
+};
 
 /**
  * summaryStore - 論文要約の管理
@@ -65,8 +88,35 @@ export const useSummaryStore = create<SummaryStore>()(
         }));
       },
 
+      updateSummary: async (paperId, language, changes) => {
+        const db = get()._db;
+        if (!db) throw new Error("DB not initialized");
+
+        // 最新のレコード（主キーが最大）だけを更新する。旧版は変更しない
+        // （主キーは自動採番でスキーマ型に含まれないため、:id で指定する）
+        const keys = await db.paperSummaries
+          .where("[paperId+language]")
+          .equals([paperId, language])
+          .primaryKeys();
+        const latestKey = keys.at(-1);
+        if (latestKey === undefined) throw new Error("Summary not found");
+        await db.paperSummaries.where(":id").equals(latestKey).modify(changes);
+
+        // Storeを更新
+        set((state) => {
+          const index = findLatestIndex(state.summaries, paperId, language);
+          if (index === -1) return state;
+          const summaries = [...state.summaries];
+          summaries[index] = { ...summaries[index], ...changes };
+          return { summaries };
+        });
+      },
+
       getSummaryByPaperIdAndLanguage: (paperId, language) => {
-        return get().summaries.find((s) => s.paperId === paperId && s.language === language);
+        // 同じ論文・言語に複数の版がある場合は最新（最後に追加された）を返す
+        const { summaries } = get();
+        const index = findLatestIndex(summaries, paperId, language);
+        return index === -1 ? undefined : summaries[index];
       },
 
       getSummariesByPaperId: (paperId) => {
