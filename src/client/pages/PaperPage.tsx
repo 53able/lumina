@@ -5,16 +5,10 @@ import { BackToListLink } from "../components/BackToListLink";
 import { PaperDetail } from "../components/PaperDetail";
 import { Button } from "../components/ui/button";
 import { usePaperSummary } from "../hooks/usePaperSummary";
+import { ARXIV_ID_PATTERN } from "../lib/arxivId";
 import { showSummaryErrorToast } from "../lib/summaryErrors";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
-
-/**
- * arXiv ID の形式
- * 新形式: 2512.18131 / 2512.18131v2、旧形式: math.GT/0309136 / hep-th/9901001v1
- * 形だけを見る緩い判定で、年月の範囲やアーカイブ名の実在は確かめない（arXiv 側で404になりうる）。
- */
-const ARXIV_ID_PATTERN = /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/;
 
 /**
  * PaperPage - 論文単一ページ
