@@ -56,6 +56,8 @@ interface HomeMainProps {
   onSearchWithEditedText?: (searchText: string) => void;
   /** 検索結果 */
   results: Array<{ paper: Paper; score: number }>;
+  /** 表示中の検索にクエリEmbeddingがあるか（ない検索ではしきい値を適用できない） */
+  hasQueryEmbedding?: boolean;
   /** 検索ローディング中かどうか */
   isLoading: boolean;
   /** 選択中の論文 */
@@ -142,6 +144,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   expandedQuery,
   onSearchWithEditedText,
   results,
+  hasQueryEmbedding = false,
   isLoading,
   selectedPaper,
   onCloseDetail,
@@ -295,8 +298,6 @@ const HomeMainInner: FC<HomeMainProps> = ({
                     isLoading={isLoading}
                   />
                 ) : null}
-                {/* しきい値は結果を見ながら調整する（変更は検索APIを呼ばず表示中の結果に即時反映） */}
-                <SearchThresholdControl resultCount={results.length} />
               </div>
             ) : null}
 
@@ -320,6 +321,20 @@ const HomeMainInner: FC<HomeMainProps> = ({
               // インライン展開（デスクトップのみ）
               expandedPaperId={expandedPaperId}
               renderExpandedDetail={renderExpandedDetail}
+              // しきい値は件数の隣で結果を見ながら調整する（検索APIは呼ばず表示中の結果に即時反映）
+              renderSearchResultTools={
+                expandedQuery
+                  ? (displayedCount) => (
+                      <SearchThresholdControl
+                        // 検索が変わったら通知状態をリセットする
+                        key={`${expandedQuery.original}\n${expandedQuery.searchText}`}
+                        displayedCount={displayedCount}
+                        canApply={hasQueryEmbedding}
+                        defaultOpen={isDesktop}
+                      />
+                    )
+                  : undefined
+              }
             />
 
             {/* ローディング中の検索結果表示 */}

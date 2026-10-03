@@ -27,10 +27,16 @@ export const SearchSettings: FC = () => {
           </Tooltip>
         </div>
 
-        <ScoreThresholdSlider id="search-score-threshold" />
+        <ScoreThresholdSlider
+          id="search-score-threshold"
+          describedBy="search-score-threshold-description"
+        />
       </div>
 
-      <p className="text-xs text-muted-foreground/70 border-t pt-4">
+      <p
+        id="search-score-threshold-description"
+        className="text-xs text-muted-foreground/70 border-t pt-4"
+      >
         表示中の検索結果にも再検索なしで反映されます。検索結果の横からも調整できます。
       </p>
     </div>

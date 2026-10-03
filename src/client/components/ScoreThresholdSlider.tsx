@@ -14,6 +14,10 @@ const THRESHOLD_MAX = 1;
 interface ScoreThresholdSliderProps {
   /** input の id（ラベルの htmlFor と対応させる） */
   id: string;
+  /** 説明文の要素の id（aria-describedby） */
+  describedBy?: string;
+  /** 操作できない（しきい値を適用できない検索のとき） */
+  disabled?: boolean;
   /** 利用者がスライダーを操作したときに呼ぶ（store の更新後） */
   onUserChange?: () => void;
 }
@@ -24,8 +28,14 @@ interface ScoreThresholdSliderProps {
  * 設定ダイアログと検索結果の横で同じ store 値（searchScoreThreshold）を読み書きする。
  * 検索結果は useSemanticSearch がこの値から導出し直すため、変更は検索APIを呼ばずに即時反映される。
  */
-export const ScoreThresholdSlider: FC<ScoreThresholdSliderProps> = ({ id, onUserChange }) => {
-  const { searchScoreThreshold, setSearchScoreThreshold } = useSettingsStore();
+export const ScoreThresholdSlider: FC<ScoreThresholdSliderProps> = ({
+  id,
+  describedBy,
+  disabled = false,
+  onUserChange,
+}) => {
+  const searchScoreThreshold = useSettingsStore((s) => s.searchScoreThreshold);
+  const setSearchScoreThreshold = useSettingsStore((s) => s.setSearchScoreThreshold);
   const displayValue = searchScoreThreshold.toFixed(2);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,6 +48,7 @@ export const ScoreThresholdSlider: FC<ScoreThresholdSliderProps> = ({ id, onUser
 
   return (
     <div className="flex items-center gap-4">
+      {/* タッチ操作しやすいよう高さ 24px を確保する（トラックはブラウザ標準の描画） */}
       <input
         id={id}
         type="range"
@@ -46,8 +57,10 @@ export const ScoreThresholdSlider: FC<ScoreThresholdSliderProps> = ({ id, onUser
         step={THRESHOLD_STEP}
         value={searchScoreThreshold}
         onChange={handleChange}
-        className="flex-1 h-2 rounded-lg appearance-none bg-muted accent-primary cursor-pointer"
+        disabled={disabled}
+        className="h-6 flex-1 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-50"
         aria-valuetext={displayValue}
+        aria-describedby={describedBy}
       />
       <span className="min-w-[3ch] text-sm font-medium tabular-nums" aria-hidden="true">
         {displayValue}
