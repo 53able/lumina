@@ -131,6 +131,7 @@ const HomePage: FC = () => {
     isLoading,
     isWaitingForPapers,
     resultsReady,
+    resultsScoreThreshold,
     expandedQuery,
     queryEmbedding,
     error: searchError,
@@ -340,7 +341,8 @@ const HomePage: FC = () => {
     queryEmbedding,
     isLoading,
     {
-      scoreThreshold: searchScoreThreshold,
+      // 案内文は表示中の結果を計算したしきい値で出す（変更直後の再計算中に新しい値を付けない）
+      scoreThreshold: resultsScoreThreshold ?? searchScoreThreshold,
       hasSearchablePapers: papers.length > papersExcludedFromSearch.length,
     },
     resultsReady

@@ -90,6 +90,8 @@ interface UseSemanticSearchReturn {
   queryEmbedding: number[] | null;
   /** 直近の検索でヒットした総件数（limit適用前。履歴の結果件数表示用。確定前は 0） */
   totalMatchCount: number;
+  /** 表示中の結果の計算に使ったしきい値（しきい値を変えた直後の再計算中は変更前の値。未確定なら null） */
+  resultsScoreThreshold: number | null;
   /** 状態リセット関数（実行中の検索も無効化し、その応答を採用しない） */
   reset: () => void;
 }
@@ -438,6 +440,7 @@ export const useSemanticSearch = ({
     expandedQuery,
     queryEmbedding,
     totalMatchCount: settled?.totalMatchCount ?? 0,
+    resultsScoreThreshold: settled?.key.scoreThreshold ?? null,
     reset,
   };
 };

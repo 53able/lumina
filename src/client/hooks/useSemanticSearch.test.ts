@@ -514,6 +514,7 @@ describe("useSemanticSearch", () => {
       });
       const countAtDefault = result.current.results.length;
       expect(countAtDefault).toBeGreaterThan(1);
+      expect(result.current.resultsScoreThreshold).toBe(0.3);
 
       // クエリと同一の Embedding を持つ論文（スコア≒1）だけが残る閾値
       await act(async () => {
@@ -522,6 +523,8 @@ describe("useSemanticSearch", () => {
 
       expect(result.current.results.map((r) => r.paper.id)).toEqual(["2401.00001"]);
       expect(result.current.totalMatchCount).toBe(1);
+      // 表示中の結果を計算したしきい値（空状態の案内文に使う）
+      expect(result.current.resultsScoreThreshold).toBe(0.99);
 
       await act(async () => {
         rerender({ scoreThreshold: 0.3 });

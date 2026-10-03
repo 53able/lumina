@@ -128,6 +128,18 @@ describe("createPaperEmbeddingIndex", () => {
     }
   });
 
+  it("不正な値（NaN）を含む Embedding があっても、しきい値以上の一致を取りこぼさない", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert([
+      { id: "nan", embedding: [Number.NaN, 1] },
+      { id: "a", embedding: [1, 0] },
+      { id: "b", embedding: [0.9, 0.1] },
+    ]);
+    const result = index.search([1, 0], 0.5, 10);
+    expect(result.matches.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(result.totalMatchCount).toBe(2);
+  });
+
   it("索引を更新すると、同じクエリの再検索でも追加した論文を含める", () => {
     const index = createPaperEmbeddingIndex();
     index.upsert([{ id: "a", embedding: [1, 0] }]);

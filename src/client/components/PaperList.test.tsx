@@ -353,7 +353,7 @@ describe("PaperList", () => {
       expect(screen.getByRole("button", { name: "検索・絞り込みを解除" })).toBeInTheDocument();
     });
 
-    it("読み込み中は「すべての論文を表示しました」を出さない", async () => {
+    it("読み込み中・読み込み失敗時は「すべての論文を表示しました」を出さない", async () => {
       const { PaperList } = await import("./PaperList");
       const papers = Array.from({ length: 60 }, (_, i) =>
         createSamplePaper(`2401.${String(i).padStart(5, "0")}`, `Paper ${i}`)
@@ -365,6 +365,17 @@ describe("PaperList", () => {
         retryLoad: noopRetryLoad,
       };
 
+      renderWithRouter(<PaperList papers={papers} />);
+      expect(screen.queryByText("すべての論文を表示しました")).not.toBeInTheDocument();
+      cleanup();
+
+      // 一部だけ読み込んで失敗した場合も、すべてを表示したとは言わない
+      mockPaperStoreState = {
+        papers,
+        isLoading: false,
+        loadStatus: "error",
+        retryLoad: noopRetryLoad,
+      };
       renderWithRouter(<PaperList papers={papers} />);
       expect(screen.queryByText("すべての論文を表示しました")).not.toBeInTheDocument();
       cleanup();

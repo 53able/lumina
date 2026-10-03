@@ -421,9 +421,9 @@ export const PaperList: FC<PaperListProps> = ({
           </div>
         ) : isSyncing ? null : (
           // onRequestSync がない = 追加読み込み不可（検索/フィルタ中）の場合のみ表示
-          // 追加読み込みが可能な状態・保存済み論文の読み込み中は、まだデータがあるかもしれないので表示しない
+          // 追加読み込みが可能な状態・保存済み論文の読み込み中・読み込み失敗時は、まだデータがあるかもしれないので表示しない
           !onRequestSync &&
-          !isPaperStoreLoading &&
+          paperLoadStatus === "ready" &&
           papers.length > 50 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground/60">
               <CheckCircle2 className="h-5 w-5 text-primary" />

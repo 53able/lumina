@@ -208,7 +208,8 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
         }
         score = dotProduct / denominator;
       }
-      scored.push({ id, score });
+      // 不正な値（NaN・Infinity）を含む Embedding は並び順を壊すため 0 とみなす
+      scored.push({ id, score: Number.isFinite(score) ? score : 0 });
     }
     scored.sort((a, b) => b.score - a.score);
     return scored;
