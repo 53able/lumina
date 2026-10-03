@@ -193,6 +193,184 @@ describe("searchHistoryStore", () => {
     });
   });
 
+  describe("削除の取り消し（Undo）", () => {
+    it("正常系: 削除した履歴を元に戻すと、全フィールドが元のまま復元され再読み込み後も残る", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+
+      const older = createSampleHistory({
+        id: "older-id",
+        originalQuery: "古い検索",
+        createdAt: parseISO("2024-01-01T00:00:00Z"),
+      });
+      const target = createSampleHistory({
+        id: "target-id",
+        originalQuery: "強化学習",
+        expandedQuery: {
+          original: "強化学習",
+          english: "reinforcement learning",
+          synonyms: ["RL"],
+          searchText: "edited search text",
+          originalSearchText: "reinforcement learning RL",
+        },
+        queryEmbedding: Array.from({ length: 8 }, (_, i) => i / 10),
+        resultCount: 7,
+        createdAt: parseISO("2024-01-02T03:04:05Z"),
+      });
+      const newer = createSampleHistory({
+        id: "newer-id",
+        originalQuery: "新しい検索",
+        createdAt: parseISO("2024-01-03T00:00:00Z"),
+      });
+      for (const h of [older, target, newer]) {
+        await useSearchHistoryStore.getState().addHistory(h);
+      }
+
+      await useSearchHistoryStore.getState().deleteHistory("target-id");
+      expect(await mockDb.searchHistories.get("target-id")).toBeUndefined();
+      expect(useSearchHistoryStore.getState().deletedHistories).toEqual([target]);
+
+      await useSearchHistoryStore.getState().restoreHistory("target-id");
+
+      const state = useSearchHistoryStore.getState();
+      expect(state.deletedHistories).toEqual([]);
+      expect(state.histories.map((h) => h.id)).toEqual(["newer-id", "target-id", "older-id"]);
+      expect(state.histories[1]).toEqual(target);
+
+      // 再読み込み相当: DBから読み直しても同じレコードで並び順も保たれる
+      await initializeSearchHistoryStore(mockDb);
+      const reloaded = useSearchHistoryStore.getState().histories;
+      expect(reloaded.map((h) => h.id)).toEqual(["newer-id", "target-id", "older-id"]);
+      expect(reloaded[1]).toEqual(target);
+    });
+
+    it("正常系: 削除の退避は再読み込み（再初期化）で破棄される", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      await useSearchHistoryStore.getState().addHistory(createSampleHistory({ id: "test-id-1" }));
+      await useSearchHistoryStore.getState().deleteHistory("test-id-1");
+
+      await initializeSearchHistoryStore(mockDb);
+
+      expect(useSearchHistoryStore.getState().deletedHistories).toEqual([]);
+    });
+
+    it("異常系: DB削除に失敗すると履歴を残し、エラーを保持し、再試行で削除できる", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      await useSearchHistoryStore.getState().addHistory(createSampleHistory({ id: "test-id-1" }));
+      const deleteSpy = vi
+        .spyOn(mockDb.searchHistories, "delete")
+        .mockRejectedValueOnce(new Error("QuotaExceededError"));
+
+      await expect(
+        useSearchHistoryStore.getState().deleteHistory("test-id-1")
+      ).resolves.toBeUndefined();
+
+      let state = useSearchHistoryStore.getState();
+      expect(state.histories.map((h) => h.id)).toEqual(["test-id-1"]);
+      expect(state.deletedHistories).toEqual([]);
+      expect(state.historyErrors["test-id-1"]).toEqual({
+        kind: "delete",
+        message: "QuotaExceededError",
+      });
+      expect(state.pendingHistoryIds).toEqual([]);
+
+      // 再試行
+      await useSearchHistoryStore.getState().deleteHistory("test-id-1");
+
+      state = useSearchHistoryStore.getState();
+      expect(deleteSpy).toHaveBeenCalledTimes(2);
+      expect(state.histories).toEqual([]);
+      expect(state.historyErrors["test-id-1"]).toBeUndefined();
+      expect(await mockDb.searchHistories.get("test-id-1")).toBeUndefined();
+    });
+
+    it("異常系: 復元に失敗しても退避を破棄せず、再試行で復元できる", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      const history = createSampleHistory({ id: "test-id-1" });
+      await useSearchHistoryStore.getState().addHistory(history);
+      await useSearchHistoryStore.getState().deleteHistory("test-id-1");
+      vi.spyOn(mockDb.searchHistories, "add").mockRejectedValueOnce(new Error("DB closed"));
+
+      await useSearchHistoryStore.getState().restoreHistory("test-id-1");
+
+      let state = useSearchHistoryStore.getState();
+      expect(state.histories).toEqual([]);
+      expect(state.deletedHistories).toEqual([history]);
+      expect(state.historyErrors["test-id-1"]).toEqual({ kind: "restore", message: "DB closed" });
+
+      await useSearchHistoryStore.getState().restoreHistory("test-id-1");
+
+      state = useSearchHistoryStore.getState();
+      expect(state.histories).toEqual([history]);
+      expect(state.deletedHistories).toEqual([]);
+      expect(state.historyErrors["test-id-1"]).toBeUndefined();
+    });
+
+    it("競合: 削除後に同じクエリで再検索した履歴があると、元に戻しても新しい履歴を上書きしない", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      const original = createSampleHistory({
+        id: "original-id",
+        createdAt: parseISO("2024-01-01T00:00:00Z"),
+      });
+      await useSearchHistoryStore.getState().addHistory(original);
+      await useSearchHistoryStore.getState().deleteHistory("original-id");
+
+      const researched = createSampleHistory({
+        id: "researched-id",
+        resultCount: 99,
+        createdAt: parseISO("2024-02-01T00:00:00Z"),
+      });
+      await useSearchHistoryStore.getState().addHistory(researched);
+
+      expect(useSearchHistoryStore.getState().hasRestoreConflict("original-id")).toBe(true);
+
+      await useSearchHistoryStore.getState().restoreHistory("original-id");
+
+      let state = useSearchHistoryStore.getState();
+      expect(state.histories).toEqual([researched]);
+      expect(state.deletedHistories).toEqual([original]);
+      expect(await mockDb.searchHistories.toArray()).toEqual([researched]);
+
+      // 新しい履歴を残して復元を取りやめる
+      useSearchHistoryStore.getState().discardDeletedHistory("original-id");
+
+      state = useSearchHistoryStore.getState();
+      expect(state.deletedHistories).toEqual([]);
+      expect(state.histories).toEqual([researched]);
+    });
+
+    it("正常系: 同じ履歴の削除を連続で呼んでもDB削除は1回だけ", async () => {
+      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+        "./searchHistoryStore"
+      );
+      await initializeSearchHistoryStore(mockDb);
+      await useSearchHistoryStore.getState().addHistory(createSampleHistory({ id: "test-id-1" }));
+      const deleteSpy = vi.spyOn(mockDb.searchHistories, "delete");
+
+      await Promise.all([
+        useSearchHistoryStore.getState().deleteHistory("test-id-1"),
+        useSearchHistoryStore.getState().deleteHistory("test-id-1"),
+      ]);
+
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      expect(useSearchHistoryStore.getState().deletedHistories).toHaveLength(1);
+    });
+  });
+
   describe("全検索履歴のクリア", () => {
     it("正常系: 全検索履歴を削除できる", async () => {
       const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(

@@ -65,6 +65,12 @@ vi.mock("@/client/stores/searchHistoryStore", () => ({
       getRecentHistories: () => [],
       addHistory: vi.fn(),
       deleteHistory: vi.fn(),
+      deletedHistories: [],
+      pendingHistoryIds: [],
+      historyErrors: {},
+      restoreHistory: vi.fn(),
+      discardDeletedHistory: vi.fn(),
+      dismissHistoryError: vi.fn(),
     };
     return selector ? selector(state) : state;
   }),

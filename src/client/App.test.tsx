@@ -98,6 +98,12 @@ vi.mock("@/client/stores/searchHistoryStore", () => ({
       histories: mockSearchHistories,
       getRecentHistories: () => mockRecentHistories,
       deleteHistory: mockDeleteHistory,
+      deletedHistories: [],
+      pendingHistoryIds: [],
+      historyErrors: {},
+      restoreHistory: vi.fn(),
+      discardDeletedHistory: vi.fn(),
+      dismissHistoryError: vi.fn(),
     };
     return selector ? selector(state) : state;
   }),
@@ -282,7 +288,7 @@ describe("App", () => {
       renderWithProviders(<App />);
 
       // 削除ボタンをクリック
-      const deleteButton = screen.getByRole("button", { name: "削除" });
+      const deleteButton = screen.getByRole("button", { name: "「強化学習」を削除" });
       await user.click(deleteButton);
 
       expect(mockDeleteHistory).toHaveBeenCalledWith("history-1");
