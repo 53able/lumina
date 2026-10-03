@@ -1,5 +1,5 @@
 import type { MutableRefObject } from "react";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { toast } from "sonner";
 import { MAX_QUERY_LENGTH } from "../../shared/schemas/search";
 
@@ -8,7 +8,9 @@ import { MAX_QUERY_LENGTH } from "../../shared/schemas/search";
  * effect 内では URL を更新しない（読み取り専用）。
  *
  * 入力・履歴からの検索は activeQueryRef を更新してから URL を変えるため、ここでは再実行しない。
- * 検索関数の参照が論文更新で変わっても、同じクエリを再検索しない。
+ * 検索は urlQuery が変わったとき（と、マウント時）だけ判定する。startSearch は最新の参照を ref 経由で呼び、
+ * effect の依存に含めない。論文・履歴・閾値の更新で startSearch の参照が変わっても判定をやり直さないため、
+ * クリア直後（URL 更新の transition が未確定で q が残り、activeQueryRef だけ null の間）に再検索しない（#81）。
  *
  * @param urlQuery - 現在の URL クエリ（searchParams.get("q") ?? ""）
  * @param startSearch - URL 起点の検索を開始する関数（入力欄への反映も含む）
@@ -19,6 +21,11 @@ export const useSearchFromUrl = (
   startSearch: (query: string) => void,
   activeQueryRef: MutableRefObject<string | null>
 ): void => {
+  const startSearchRef = useRef(startSearch);
+  useLayoutEffect(() => {
+    startSearchRef.current = startSearch;
+  });
+
   useEffect(() => {
     const trimmed = urlQuery.trim();
     if (trimmed.length === 0) {
@@ -32,6 +39,6 @@ export const useSearchFromUrl = (
       toast.error("検索クエリは500文字以内で入力してください");
       return;
     }
-    startSearch(trimmed);
-  }, [urlQuery, startSearch, activeQueryRef]);
+    startSearchRef.current(trimmed);
+  }, [urlQuery, activeQueryRef]);
 };
