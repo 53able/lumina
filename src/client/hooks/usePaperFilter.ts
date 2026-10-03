@@ -35,8 +35,10 @@ interface UsePaperFilterResult {
   toggleFilterMode: (mode: FilterMode) => void;
   /** カテゴリの選択/解除をトグル */
   toggleCategory: (category: string) => void;
-  /** すべてのフィルターをクリア */
+  /** すべてのフィルターをクリア（検索クエリは保持） */
   clearAllFilters: () => void;
+  /** 検索クエリとすべてのフィルターをまとめてクリア */
+  clearSearchAndFilters: () => void;
   /** 論文をフィルタリング */
   filterPapers: (
     papers: Paper[],
@@ -164,9 +166,27 @@ export const usePaperFilter = (): UsePaperFilterResult => {
   );
 
   /**
-   * すべてのフィルターをクリア
+   * すべてのフィルターをクリア（検索クエリは保持）
    */
   const clearAllFilters = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(PARAM_KEYS.FILTER);
+        next.delete(PARAM_KEYS.CATEGORY);
+        return next;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
+
+  /**
+   * 検索クエリとすべてのフィルターをまとめてクリア
+   *
+   * setSearchParams は render 時点の値から次の値を作るため、
+   * clearAllFilters と setSearchQuery(null) を続けて呼ばず1回で更新する。
+   */
+  const clearSearchAndFilters = useCallback(() => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -214,6 +234,7 @@ export const usePaperFilter = (): UsePaperFilterResult => {
     toggleFilterMode,
     toggleCategory,
     clearAllFilters,
+    clearSearchAndFilters,
     filterPapers,
   };
 };

@@ -80,10 +80,10 @@ const renderHomeSearch = ({
     }),
     { wrapper, initialProps: { papers: initialPapers } }
   );
-  /** PaperExplorer の「クリア」と同じ操作（URL のフィルターを消してから onClear） */
+  /** PaperExplorer の「クリア」と同じ操作（URL の検索語・フィルターを消してから onClear） */
   const clear = () => {
     act(() => {
-      view.result.current.filter.clearAllFilters();
+      view.result.current.filter.clearSearchAndFilters();
       view.result.current.home.handleClearSearch();
     });
   };
@@ -237,6 +237,64 @@ describe("useHomeSearch", () => {
 
       const [, options] = mockSearchApi.mock.calls[0] as [unknown, { signal: AbortSignal }];
       expect(options.signal.aborted).toBe(true);
+    });
+  });
+
+  describe("絞り込みの解除（#46）", () => {
+    it("検索結果の表示中に絞り込みを解除しても、検索語・結果・見出しを維持する", async () => {
+      mockSearchApi.mockResolvedValue(response("transformer"));
+      const { result } = renderHomeSearch();
+      await act(async () => {
+        await result.current.home.handleSearch("transformer");
+      });
+      await waitFor(() => expect(result.current.home.completedQuery).toBe("transformer"));
+      act(() => {
+        result.current.filter.toggleCategory("quant-ph");
+      });
+
+      act(() => {
+        result.current.filter.clearAllFilters();
+      });
+
+      // 見出しは URL の q から作られる
+      expect(result.current.location.search).toBe("?q=transformer");
+      expect(result.current.filter.searchQuery).toBe("transformer");
+      expect(result.current.filter.selectedCategories.size).toBe(0);
+      expect(result.current.home.completedQuery).toBe("transformer");
+      expect(result.current.home.expandedQuery?.original).toBe("transformer");
+      expect(result.current.home.results).toHaveLength(1);
+      expect(mockSearchApi).toHaveBeenCalledTimes(1);
+    });
+
+    it("検索中に絞り込みを解除しても、応答後の検索語・結果・履歴が URL と一致する", async () => {
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+      const { result, addHistory } = renderHomeSearch({ initialUrl: "/?cat=quant-ph" });
+
+      act(() => {
+        result.current.home.setSearchInputValue("遅い検索");
+        void result.current.home.handleSearch("遅い検索");
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        result.current.filter.clearAllFilters();
+      });
+      expect(result.current.filter.searchQuery).toBe("遅い検索");
+      expect(result.current.home.isLoading).toBe(true);
+
+      await act(async () => {
+        pending.resolve(response("遅い検索"));
+        await pending.promise;
+      });
+
+      await waitFor(() => expect(result.current.home.completedQuery).toBe("遅い検索"));
+      expect(result.current.location.search).toBe(`?q=${encodeURIComponent("遅い検索")}`);
+      expect(result.current.home.searchInputValue).toBe("遅い検索");
+      expect(result.current.home.results).toHaveLength(1);
+      expect(addHistory).toHaveBeenCalledTimes(1);
+      expect(addHistory.mock.calls[0]?.[0].originalQuery).toBe("遅い検索");
+      expect(mockSearchApi).toHaveBeenCalledTimes(1);
     });
   });
 

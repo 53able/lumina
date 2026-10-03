@@ -35,7 +35,7 @@ const hasSavedEmbedding = (
  * - クリア: 実行中の検索を無効化し、URL 由来の検索も再開しない
  *
  * URL の q は setSearchParams が render 時点の値から次の値を作るため、
- * 1つのハンドラー内で複数回更新しない（クリア時の q 削除は呼び出し元の clearAllFilters が担う）。
+ * 1つのハンドラー内で複数回更新しない（クリア時の q 削除は呼び出し元の clearSearchAndFilters が担う）。
  */
 export const useHomeSearch = ({
   papers,
