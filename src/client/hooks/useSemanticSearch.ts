@@ -101,6 +101,14 @@ interface UseSemanticSearchReturn {
    * 新しい検索の成功結果と誤認させないよう、表示側で「前回の結果」と区別するために使う。
    */
   isShowingPreviousResults: boolean;
+  /**
+   * 確定した結果の再計算（論文の更新・しきい値の変更）の失敗（失敗していなければ null）。
+   * 新しい検索の失敗（error）とは別に持ち、表示中の結果はそのまま残す（前回の結果ではなく、更新できなかった現在の結果）。
+   * 失敗した入力（論文・しきい値・件数）のままでは自動で再計算しない（再試行は retryRecompute で行う。入力が変われば再計算する）。
+   */
+  recomputeError: Error | null;
+  /** 失敗した再計算だけをもう一度実行する（検索APIは呼ばない。再計算が失敗していなければ何もしない） */
+  retryRecompute: () => void;
   /** 実行中の検索を中止する（通信・計算を無効化して応答を採用しない。前回の結果は保持する） */
   cancel: () => void;
   /**
@@ -163,6 +171,18 @@ interface ComputedSearchResults {
   };
 }
 
+/**
+ * 失敗した再計算（どの結果を、どの入力で再計算して失敗したか）。
+ * base が表示中の計算結果と同じで、入力が現在の入力と同じ間だけ有効（その間は自動で再計算しない）
+ */
+interface RecomputeFailure {
+  error: Error;
+  base: ComputedSearchResults;
+  papers: Paper[];
+  scoreThreshold: number;
+  limit: number;
+}
+
 const NO_MATCHES: PaperSearchMatches = { matches: [], totalMatchCount: 0 };
 const EMPTY_RESULTS: SearchResult[] = [];
 const EMPTY_PAPERS: Paper[] = [];
@@ -195,6 +215,16 @@ export const useSemanticSearch = ({
   // （実行中・失敗時は前回の結果を保持する）
   const [shown, setShown] = useState<ShownSearch | null>(null);
   const [computed, setComputed] = useState<ComputedSearchResults | null>(null);
+  const [recomputeFailure, setRecomputeFailure] = useState<RecomputeFailure | null>(null);
+  // 表示中の結果を現在の入力で再計算して失敗したか（新しい検索の確定で base が変わる・入力が変わると無効になる）
+  const activeRecomputeFailure =
+    recomputeFailure !== null &&
+    recomputeFailure.base === computed &&
+    recomputeFailure.papers === papers &&
+    recomputeFailure.scoreThreshold === scoreThreshold &&
+    recomputeFailure.limit === limit
+      ? recomputeFailure
+      : null;
   const expandedQuery = shown?.expandedQuery ?? null;
   const queryEmbedding = shown?.queryEmbedding ?? null;
   /** 検索の実行元の準備完了を待って再計算するための合図（準備完了のたびに進める） */
@@ -356,6 +386,8 @@ export const useSemanticSearch = ({
    * 検索表示中の論文追加・Embedding補完にも追従し、再計算に検索APIは使わない。
    * 再計算中は確定済みの結果を表示したままにする（一覧をローディング表示に戻さない）。
    * 再読み込み中（実行元が準備完了でない間）はバッチごとに全件走査を積まず、準備完了で1回だけ再計算する。
+   * 再計算の失敗は新しい検索の失敗にせず（searchPhase は done のまま、表示中の結果を残す）recomputeFailure に記録し、
+   * 同じ入力では自動で再計算しない（失敗の繰り返しを防ぐ。再試行は retryRecompute、入力が変われば再計算する）。
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: sourceReadySignal は準備完了後に再計算するための依存
   useEffect(() => {
@@ -364,6 +396,14 @@ export const useSemanticSearch = ({
     if (key.papers === papers && key.scoreThreshold === scoreThreshold && key.limit === limit) {
       return;
     }
+    if (activeRecomputeFailure !== null) {
+      // 失敗した入力に戻った（A→B→A）ときは、途中の入力（B）で実行中の再計算の結果を採用しない
+      computeSeqRef.current += 1;
+      return;
+    }
+    const base = computed;
+    const fail = (e: unknown) =>
+      setRecomputeFailure({ error: toError(e), base, papers, scoreThreshold, limit });
     const generation = generationRef.current;
     const source = getSearchSource();
     if (!source.isReady()) {
@@ -374,8 +414,7 @@ export const useSemanticSearch = ({
         },
         (e: unknown) => {
           if (cancelled || generation !== generationRef.current) return;
-          setError(toError(e));
-          setSearchPhase("error");
+          fail(e);
         }
       );
       return () => {
@@ -390,14 +429,13 @@ export const useSemanticSearch = ({
         if (isCurrent()) setComputed(next);
       },
       (e: unknown) => {
-        if (!isCurrent()) return;
-        setError(toError(e));
-        setSearchPhase("error");
+        if (isCurrent()) fail(e);
       }
     );
   }, [
     searchPhase,
     computed,
+    activeRecomputeFailure,
     papers,
     scoreThreshold,
     limit,
@@ -547,6 +585,11 @@ export const useSemanticSearch = ({
     searchPhase === "computing";
   const isShowingPreviousResults = shownResults !== null && (isLoading || searchPhase === "error");
 
+  const retryRecompute = useCallback(() => {
+    // 失敗の記録を消すと、確定した結果の再計算（上の effect）が現在の入力でもう一度走る
+    setRecomputeFailure(null);
+  }, []);
+
   const cancel = useCallback(() => {
     startGeneration();
     // 中止した検索は再試行の対象にしない。前回の結果に戻るなら、その結果の条件を再試行の対象にする
@@ -574,6 +617,7 @@ export const useSemanticSearch = ({
     setSearchPhase("idle");
     setShown(null);
     setComputed(null);
+    setRecomputeFailure(null);
     setError(null);
   }, [startGeneration]);
 
@@ -598,6 +642,9 @@ export const useSemanticSearch = ({
     resultsScoreThreshold: settled?.key.scoreThreshold ?? null,
     resultQuery: shownResults !== null && shown !== null ? shown.query : null,
     isShowingPreviousResults,
+    recomputeError:
+      resultsReady && activeRecomputeFailure !== null ? activeRecomputeFailure.error : null,
+    retryRecompute,
     cancel,
     retry,
     reset,

@@ -137,6 +137,8 @@ const HomePage: FC = () => {
     expandedQuery,
     queryEmbedding,
     error: searchError,
+    recomputeError,
+    resultQuery,
     completedQuery,
     stoppedQuery,
     searchInputValue,
@@ -372,8 +374,13 @@ const HomePage: FC = () => {
   // しきい値の変更に追従せず、新しい検索の状態と混ざるため。前回の結果であることは検索欄の近くに出る）
   // previousResultsQuery === null は防御（resultsReady なら前回の結果の表示中ではないが、
   // 状態の定義が変わっても前回の結果に内訳を付けないため明示する）
+  // 確定した結果の再計算が失敗している間も出さない（表示中の結果は更新前の論文・しきい値で計算したもので、
+  // 現在のしきい値・論文の件数として読めないため。理由は検索欄の近くに出る）
   const hasComputedCandidates =
-    resultsReady && previousResultsQuery === null && queryEmbedding !== null;
+    resultsReady &&
+    previousResultsQuery === null &&
+    queryEmbedding !== null &&
+    recomputeError === null;
   const searchResultCounts = useMemo(
     () =>
       hasComputedCandidates
@@ -486,6 +493,16 @@ const HomePage: FC = () => {
               onCancel={handleCancelSearch}
               onRetry={handleRetrySearch}
               onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          ) : recomputeError !== null && resultQuery !== null ? (
+            // 確定した結果の再計算の失敗（新しい検索の失敗と区別し、再計算だけを再試行する）
+            <SearchStatusPanel
+              query={resultQuery}
+              isLoading={false}
+              error={recomputeError}
+              previousQuery={null}
+              isRecomputeFailure
+              onRetry={handleRetrySearch}
             />
           ) : null
         }

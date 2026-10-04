@@ -11,6 +11,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { InteractionProvider } from "./contexts/InteractionContext";
+import { RECOMPUTE_FAILURE_MESSAGES, RECOMPUTE_FAILURE_TITLE } from "./lib/searchErrors";
 import { useSettingsStore } from "./stores/settingsStore";
 
 const toastError = vi.hoisted(() => vi.fn());
@@ -38,6 +39,14 @@ const mockPapers = vi.hoisted(() => [
   },
 ]);
 
+/** 索引での計算を失敗させる（確定後の再計算の失敗の注入用。#100） */
+const indexControl = vi.hoisted(() => ({
+  failCompute: false,
+  searchCount: 0,
+  /** 設定すると、索引の検索結果の候補数（totalMatchCount）をこの値にする（再計算の反映の確認用） */
+  totalMatchCountOverride: null as number | null,
+}));
+
 vi.mock("@/client/stores/paperStore", async () => {
   const { createPaperEmbeddingIndex } = await import("./lib/paperIndex/core");
   return {
@@ -59,9 +68,14 @@ vi.mock("@/client/stores/paperStore", async () => {
       isReady: () => true,
       whenReady: () => Promise.resolve(),
       search: async (queryEmbedding: number[], scoreThreshold: number, limit: number) => {
+        indexControl.searchCount += 1;
+        if (indexControl.failCompute) throw new Error("worker crashed");
         const index = createPaperEmbeddingIndex();
         index.upsert(mockPapers);
-        return index.search(queryEmbedding, scoreThreshold, limit);
+        const found = index.search(queryEmbedding, scoreThreshold, limit);
+        return indexControl.totalMatchCountOverride === null
+          ? found
+          : { ...found, totalMatchCount: indexControl.totalMatchCountOverride };
       },
     },
   };
@@ -197,6 +211,9 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
 
   beforeEach(() => {
     searchHandlers = [];
+    indexControl.failCompute = false;
+    indexControl.searchCount = 0;
+    indexControl.totalMatchCountOverride = null;
     addHistory.mockClear();
     toastError.mockClear();
     fetchMock.mockReset();
@@ -552,5 +569,62 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
     await userEvent.setup().click(screen.getByRole("button", { name: "前結果を見る" }));
     await waitFor(() => expect(heading()).toHaveTextContent('"A" の検索結果'));
     expect(screen.getByRole("button", { name: /^しきい値/ })).toBeInTheDocument();
+  });
+
+  describe("確定した結果の再計算の失敗（#100）", () => {
+    /** A の結果を表示したまま、しきい値の変更による再計算を失敗させる */
+    const failRecomputeOfA = async () => {
+      await renderWithPreviousResult();
+      expect(screen.getByTestId("search-result-breakdown")).toBeInTheDocument();
+      indexControl.failCompute = true;
+      act(() => {
+        useSettingsStore.getState().setSearchScoreThreshold(0.5);
+      });
+      const alert = (await screen.findByText(RECOMPUTE_FAILURE_TITLE)).closest(
+        '[role="alert"]'
+      ) as HTMLElement;
+      return alert;
+    };
+
+    it("新しい検索の失敗と別の文言で示し、前結果を見る・件数の内訳は出さず、表示中の結果としきい値の操作は残す", async () => {
+      const alert = await failRecomputeOfA();
+
+      expect(alert).toHaveTextContent(RECOMPUTE_FAILURE_MESSAGES.compute);
+      expect(screen.queryByText(/を検索できませんでした/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/前回の結果/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "前結果を見る" })).not.toBeInTheDocument();
+      // 表示中の A の結果はそのまま（前回の結果ではなく、更新できなかった現在の結果）
+      expect(heading()).toHaveTextContent('"A" の検索結果');
+      expect(screen.getByText("Previous Result Paper")).toBeInTheDocument();
+      // 件数の内訳は更新前の条件の値なので出さない。しきい値の操作は残す（変えると再計算する）
+      expect(screen.queryByTestId("search-result-breakdown")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^しきい値/ })).toBeInTheDocument();
+
+      // 待っても自動で再計算・再検索しない
+      const computeCount = indexControl.searchCount;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(indexControl.searchCount).toBe(computeCount);
+      expect(searchCalls()).toHaveLength(1);
+    });
+
+    it("再試行で再計算だけをやり直し（検索APIは呼ばない）、成功すると失敗の表示と件数の内訳が戻る", async () => {
+      await failRecomputeOfA();
+      const computeCount = indexControl.searchCount;
+      indexControl.failCompute = false;
+      // 再計算の結果が反映されたことを件数の内訳で確かめるため、成功時の候補数を変える
+      indexControl.totalMatchCountOverride = 5;
+
+      await userEvent.setup().click(screen.getByRole("button", { name: "結果の更新を再試行" }));
+
+      // 再試行は失敗の記録を同期で消すため、再計算の結果（件数の内訳）が反映されるまで待つ
+      await waitFor(() =>
+        expect(screen.getByTestId("search-result-breakdown")).toHaveTextContent("候補 5")
+      );
+      expect(screen.queryByText(RECOMPUTE_FAILURE_TITLE)).not.toBeInTheDocument();
+      expect(indexControl.searchCount).toBe(computeCount + 1);
+      expect(searchCalls()).toHaveLength(1);
+      expect(heading()).toHaveTextContent('"A" の検索結果');
+      expect(getLocationSearch()).toBe("?q=A");
+    });
   });
 });
