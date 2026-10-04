@@ -40,7 +40,8 @@ const hasSavedEmbedding = (
  *   履歴は元の入力をキーに、編集後の検索文と Embedding で上書きする（編集前の検索文は originalSearchText に残す）
  * - 検索中・失敗時: 入力と前回の結果を保持する（previousResultsQuery で「前回の結果」と区別する）
  * - 中止・前回の結果に戻る: 実行中の検索を無効化し、URL・表示クエリを前回の結果のクエリに戻す（入力欄は保持する）
- * - 再試行: 失敗した検索を同じ条件で1回だけ実行する（利用者の操作でのみ行い、自動では再試行しない）
+ * - 再試行: 失敗した検索を同じ条件で1回だけ実行する（利用者の操作でのみ行い、自動では再試行しない）。
+ *   確定した結果の再計算が失敗しているときは、その再計算だけをやり直す（検索APIは呼ばない）
  *
  * URL の q は setSearchParams が render 時点の値から次の値を作るため、
  * 1つのハンドラー内で複数回更新しない（クリア時の q 削除は呼び出し元の clearSearchAndFilters が担う）。
@@ -59,6 +60,8 @@ export const useHomeSearch = ({
     reset,
     cancel,
     retry,
+    retryRecompute,
+    recomputeError,
     expandedQuery,
     queryEmbedding,
     totalMatchCount,
@@ -194,9 +197,14 @@ export const useHomeSearch = ({
   /**
    * 失敗した検索を同じ経路・同じ条件でもう一度実行する（1操作1回）。
    * Embedding を得た後の失敗・保存済み Embedding での検索は検索APIを呼ばずにやり直す（useSemanticSearch の retry）。
+   * 確定した結果の再計算の失敗では、表示中の結果の再計算だけをやり直す（新しい検索・検索APIは実行しない）。
    * 失敗していない（実行中・成功・クリア後で再試行する検索がない）ときは何もしない。
    */
   const handleRetrySearch = useCallback(() => {
+    if (recomputeError !== null) {
+      retryRecompute();
+      return;
+    }
     const query = activeQueryRef.current;
     if (query === null || semanticSearch.error === null) return;
     // 直近の試行が表示中のクエリの検索でなければ（中止した別のクエリなど）実行しない
@@ -204,7 +212,7 @@ export const useHomeSearch = ({
     if (retrying === null) return;
     beginQuery(query);
     void retrying;
-  }, [beginQuery, retry, semanticSearch.error]);
+  }, [beginQuery, retry, semanticSearch.error, recomputeError, retryRecompute]);
 
   /** 検索をクリア（URL の q は呼び出し元がフィルターと合わせて消す） */
   const handleClearSearch = useCallback(() => {

@@ -1,5 +1,9 @@
 import { type FC, useEffect, useState } from "react";
-import { describeSearchFailure } from "../lib/searchErrors";
+import {
+  describeSearchFailure,
+  RECOMPUTE_FAILURE_MESSAGES,
+  RECOMPUTE_FAILURE_TITLE,
+} from "../lib/searchErrors";
 import { focusPaperSearchInput } from "./PaperSearch";
 import { Button } from "./ui/button";
 
@@ -18,6 +22,11 @@ interface SearchStatusPanelProps {
   error: Error | null;
   /** 表示中の前回の結果のクエリ（前回の結果がなければ null） */
   previousQuery: string | null;
+  /**
+   * error が確定した結果（query の結果）の再計算の失敗か。新しい検索の失敗と区別し、
+   * 表示中の結果は前回の結果ではなく更新できなかった現在の結果として案内する（前結果を見る・条件を編集は出さない）
+   */
+  isRecomputeFailure?: boolean;
   /** 検索を中止する・前回の結果に戻る */
   onCancel: () => void;
   /** 同じ条件で再試行する */
@@ -50,6 +59,7 @@ const ElapsedTime: FC = () => {
  *
  * - 実行中: 検索中のクエリ、前回の結果を表示していること、一定時間後に経過時間、中止
  * - 失敗: 理由（消えるトーストに依存せず残す）と、同じ条件で再試行・条件を編集・前結果を見る（・設定を開く）
+ * - 再計算の失敗: 表示中の結果を更新できなかったことと、再計算だけをやり直す再試行
  *
  * 検索中も検索欄はフォーカスを保ち（readOnly）、中止ボタンへは Tab で移れる。フォーカスを自動では動かさない。
  * 再試行は利用者の操作でのみ行う。設定を直さない限り失敗する分類（API利用OFF・認証・キー復号）では再試行を出さず、設定を案内する。
@@ -60,6 +70,7 @@ export const SearchStatusPanel: FC<SearchStatusPanelProps> = ({
   isLoading,
   error,
   previousQuery,
+  isRecomputeFailure = false,
   onCancel,
   onRetry,
   onOpenSettings,
@@ -96,6 +107,28 @@ export const SearchStatusPanel: FC<SearchStatusPanelProps> = ({
   if (error === null) return null;
 
   const failure = describeSearchFailure(error);
+
+  if (isRecomputeFailure) {
+    return (
+      <div className="space-y-2 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
+        <div role="alert">
+          <p className="font-bold">{RECOMPUTE_FAILURE_TITLE}</p>
+          <p>
+            {failure.kind === "paper_load"
+              ? RECOMPUTE_FAILURE_MESSAGES.paper_load
+              : RECOMPUTE_FAILURE_MESSAGES.compute}
+          </p>
+          <p className="text-muted-foreground">表示中の結果: "{query}"</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={handleRetry}>
+            再試行
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const needsSettings = failure.suggestSettings && onOpenSettings !== undefined;
   // 前回の結果がなく、理由と対処を一覧の0件表示に出す失敗（キー復号・論文の読み込み）は、ここで同じ説明を繰り返さない
   const isExplainedInList = previousQuery === null && failure.explainedInList;

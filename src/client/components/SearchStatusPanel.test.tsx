@@ -4,7 +4,12 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiDisabledError, SearchApiError } from "../lib/api";
-import { SEARCH_FAILURE_MESSAGES, SearchComputeError } from "../lib/searchErrors";
+import {
+  RECOMPUTE_FAILURE_MESSAGES,
+  RECOMPUTE_FAILURE_TITLE,
+  SEARCH_FAILURE_MESSAGES,
+  SearchComputeError,
+} from "../lib/searchErrors";
 import {
   ELAPSED_TIME_VISIBLE_AFTER_SEC,
   SEARCH_FAILURE_EXPLAINED_IN_LIST,
@@ -99,5 +104,55 @@ describe("SearchStatusPanel（#71）", () => {
     rerender(<SearchStatusPanel {...baseProps} error={error} previousQuery="A" />);
     expect(screen.getByText(SEARCH_FAILURE_MESSAGES[kind])).toBeInTheDocument();
     expect(screen.queryByText(SEARCH_FAILURE_EXPLAINED_IN_LIST)).not.toBeInTheDocument();
+  });
+
+  describe("確定した結果の再計算の失敗（#100）", () => {
+    it.each([
+      ["索引での計算の失敗", new SearchComputeError("worker"), RECOMPUTE_FAILURE_MESSAGES.compute],
+      [
+        "論文の読み込み失敗",
+        Object.assign(new Error("db"), { name: "PaperLoadError" }),
+        RECOMPUTE_FAILURE_MESSAGES.paper_load,
+      ],
+    ])("%sは新しい検索の失敗と別の文言で出し、前結果を見る・条件を編集は出さない", (_label, error, message) => {
+      const onRetry = vi.fn();
+      render(
+        <SearchStatusPanel
+          {...baseProps}
+          query="A"
+          error={error}
+          isRecomputeFailure
+          onRetry={onRetry}
+        />
+      );
+
+      expect(screen.getByRole("alert")).toHaveTextContent(RECOMPUTE_FAILURE_TITLE);
+      expect(screen.getByText(message)).toBeInTheDocument();
+      expect(screen.getByText('表示中の結果: "A"')).toBeInTheDocument();
+      expect(screen.queryByText(/を検索できませんでした/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/前回の結果/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "前結果を見る" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "条件を編集" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "設定を開く" })).not.toBeInTheDocument();
+
+      screen.getByRole("button", { name: "再試行" }).click();
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it("同じエラーでも新しい検索の失敗では従来の文言と操作を出す", () => {
+      render(
+        <SearchStatusPanel
+          {...baseProps}
+          query="B"
+          error={new SearchComputeError("worker")}
+          previousQuery="A"
+        />
+      );
+
+      expect(screen.getByText("「B」を検索できませんでした")).toBeInTheDocument();
+      expect(screen.getByText('表示中は前回の結果（"A"）です。')).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "前結果を見る" })).toBeInTheDocument();
+      expect(screen.queryByText(RECOMPUTE_FAILURE_TITLE)).not.toBeInTheDocument();
+    });
   });
 });

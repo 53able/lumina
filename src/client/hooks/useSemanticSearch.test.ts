@@ -869,6 +869,201 @@ describe("useSemanticSearch", () => {
     });
   });
 
+  describe("確定した結果の再計算の失敗（#100）", () => {
+    /** 新しく追加され、クエリと高い類似度になる論文 */
+    const addedPaper: Paper = {
+      ...mockPapers[0],
+      id: "2401.00009",
+      title: "Added Paper",
+    };
+
+    /** 確定後の再計算（索引の検索・全件準備）の失敗をテストから切り替えられる検索の実行元 */
+    const renderControlled = () => {
+      const control = { failCompute: false, ready: true, loadError: null as Error | null };
+      const base = createTestSearchSource([...mockPapers, addedPaper]);
+      const searchSpy = vi.fn(async (...args: Parameters<PaperSearchSource["search"]>) => {
+        if (control.failCompute) throw new Error("worker crashed");
+        return base.search(...args);
+      });
+      const whenReadySpy = vi.fn(async () => {
+        if (control.loadError) throw control.loadError;
+      });
+      const source: PaperSearchSource = {
+        isReady: () => control.ready,
+        whenReady: whenReadySpy,
+        search: searchSpy,
+      };
+      const view = renderHook(
+        ({ papers, scoreThreshold }: { papers: Paper[]; scoreThreshold: number }) =>
+          useSemanticSearch({ papers, scoreThreshold, searchSource: source }),
+        { initialProps: { papers: mockPapers as Paper[], scoreThreshold: 0.3 } }
+      );
+      return { ...view, control, searchSpy, whenReadySpy };
+    };
+
+    /** 保留中の Promise・effect をすべて流す */
+    const flush = async () => {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+    };
+
+    it("再計算が失敗しても新しい検索の失敗にせず、表示中の結果を残して recomputeError に出す", async () => {
+      const { result, rerender, control } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      const shownIds = result.current.results.map((r) => r.paper.id);
+
+      control.failCompute = true;
+      rerender({ papers: [...mockPapers, addedPaper], scoreThreshold: 0.3 });
+
+      await waitFor(() => expect(result.current.recomputeError?.name).toBe("SearchComputeError"));
+      expect(result.current.searchPhase).toBe("done");
+      expect(result.current.error).toBeNull();
+      expect(result.current.isShowingPreviousResults).toBe(false);
+      expect(result.current.resultsReady).toBe(true);
+      expect(result.current.resultQuery).toBe("transformer");
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(shownIds);
+    });
+
+    it("同じ入力のままでは失敗した再計算を自動で繰り返さない", async () => {
+      const { result, rerender, control, searchSpy } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      control.failCompute = true;
+      const nextPapers = [...mockPapers, addedPaper];
+      rerender({ papers: nextPapers, scoreThreshold: 0.3 });
+      await waitFor(() => expect(result.current.recomputeError).not.toBeNull());
+      expect(searchSpy).toHaveBeenCalledTimes(2);
+
+      await flush();
+      rerender({ papers: nextPapers, scoreThreshold: 0.3 });
+      await flush();
+
+      expect(searchSpy).toHaveBeenCalledTimes(2);
+      expect(result.current.recomputeError).not.toBeNull();
+    });
+
+    it("再計算の失敗後に新しい検索を中止して表示中の結果に戻っても、同じ入力の再計算を自動で繰り返さない", async () => {
+      const { result, rerender, control, searchSpy } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      control.failCompute = true;
+      rerender({ papers: [...mockPapers, addedPaper], scoreThreshold: 0.3 });
+      await waitFor(() => expect(result.current.recomputeError).not.toBeNull());
+      expect(searchSpy).toHaveBeenCalledTimes(2);
+
+      mockFetch.mockReturnValueOnce(new Promise(() => {}));
+      act(() => {
+        void result.current.search("bert");
+      });
+      // 新しい検索の実行中は再計算の失敗を出さない（新しい検索の状態を示す）
+      expect(result.current.recomputeError).toBeNull();
+      act(() => {
+        result.current.cancel();
+      });
+      await flush();
+
+      expect(searchSpy).toHaveBeenCalledTimes(2);
+      expect(result.current.searchPhase).toBe("done");
+      expect(result.current.recomputeError?.name).toBe("SearchComputeError");
+    });
+
+    it("retryRecompute で再計算だけをやり直す（検索APIは呼ばない）。失敗が続いても1操作1回", async () => {
+      const { result, rerender, control, searchSpy } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      control.failCompute = true;
+      rerender({ papers: [...mockPapers, addedPaper], scoreThreshold: 0.3 });
+      await waitFor(() => expect(result.current.recomputeError).not.toBeNull());
+
+      act(() => {
+        result.current.retryRecompute();
+      });
+      await flush();
+      expect(searchSpy).toHaveBeenCalledTimes(3);
+      expect(result.current.recomputeError?.name).toBe("SearchComputeError");
+
+      control.failCompute = false;
+      act(() => {
+        result.current.retryRecompute();
+      });
+
+      await waitFor(() => expect(result.current.recomputeError).toBeNull());
+      expect(searchSpy).toHaveBeenCalledTimes(4);
+      expect(result.current.results.map((r) => r.paper.id)).toContain(addedPaper.id);
+      expect(result.current.searchPhase).toBe("done");
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("入力（論文・しきい値）が変われば再計算する", async () => {
+      const { result, rerender, control, searchSpy } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      control.failCompute = true;
+      rerender({ papers: [...mockPapers, addedPaper], scoreThreshold: 0.3 });
+      await waitFor(() => expect(result.current.recomputeError).not.toBeNull());
+      expect(searchSpy).toHaveBeenCalledTimes(2);
+
+      const nextPapers = [...mockPapers, addedPaper];
+      rerender({ papers: nextPapers, scoreThreshold: 0.3 });
+      await waitFor(() => expect(searchSpy).toHaveBeenCalledTimes(3));
+
+      control.failCompute = false;
+      rerender({ papers: nextPapers, scoreThreshold: 0.4 });
+      await waitFor(() => expect(result.current.resultsScoreThreshold).toBe(0.4));
+      expect(result.current.recomputeError).toBeNull();
+      expect(searchSpy).toHaveBeenCalledTimes(4);
+    });
+
+    it("再読み込みの失敗も再計算の失敗として扱い、同じ入力では読み込みの完了を待ち直さない", async () => {
+      const { result, rerender, control, whenReadySpy } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      const readyCalls = whenReadySpy.mock.calls.length;
+
+      control.ready = false;
+      control.loadError = Object.assign(new Error("db"), { name: "PaperLoadError" });
+      const nextPapers = [...mockPapers, addedPaper];
+      rerender({ papers: nextPapers, scoreThreshold: 0.3 });
+
+      await waitFor(() => expect(result.current.recomputeError?.name).toBe("PaperLoadError"));
+      expect(result.current.error).toBeNull();
+      expect(result.current.searchPhase).toBe("done");
+      expect(whenReadySpy).toHaveBeenCalledTimes(readyCalls + 1);
+
+      await flush();
+      rerender({ papers: nextPapers, scoreThreshold: 0.3 });
+      await flush();
+      expect(whenReadySpy).toHaveBeenCalledTimes(readyCalls + 1);
+    });
+
+    it("新しい検索が確定したら再計算の失敗を出さない", async () => {
+      const { result, rerender, control } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      control.failCompute = true;
+      const nextPapers = [...mockPapers, addedPaper];
+      rerender({ papers: nextPapers, scoreThreshold: 0.3 });
+      await waitFor(() => expect(result.current.recomputeError).not.toBeNull());
+
+      control.failCompute = false;
+      await act(async () => {
+        await result.current.search("bert");
+      });
+
+      expect(result.current.recomputeError).toBeNull();
+      expect(result.current.searchPhase).toBe("done");
+    });
+  });
+
   describe("検索中・失敗時の前回の結果の保持（#71）", () => {
     /** 検索APIの応答（Response） */
     const jsonResponse = (body: unknown, status = 200) =>

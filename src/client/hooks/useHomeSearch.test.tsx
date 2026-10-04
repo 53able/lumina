@@ -1221,17 +1221,21 @@ describe("useHomeSearch", () => {
         });
         await waitFor(() => expect(result.current.location.search).toBe("?q=A"));
 
-        // A の再計算が失敗する
+        // A の再計算が失敗する（新しい検索の失敗ではなく、表示中の A の結果の更新の失敗として扱う。#100）
         failCompute = true;
         rerender({ papers: [...papers] });
-        await waitFor(() => expect(result.current.home.error?.name).toBe("SearchComputeError"));
-        expect(result.current.home.previousResultsQuery).toBe("A");
+        await waitFor(() =>
+          expect(result.current.home.recomputeError?.name).toBe("SearchComputeError")
+        );
+        expect(result.current.home.error).toBeNull();
+        expect(result.current.home.previousResultsQuery).toBeNull();
 
         act(() => {
           result.current.home.handleRetrySearch();
         });
 
-        await waitFor(() => expect(result.current.home.completedQuery).toBe("A"));
+        await waitFor(() => expect(result.current.home.recomputeError).toBeNull());
+        expect(result.current.home.completedQuery).toBe("A");
         expect(result.current.home.error).toBeNull();
         expect(result.current.home.expandedQuery?.original).toBe("A");
         expect(result.current.location.search).toBe("?q=A");
@@ -1241,6 +1245,48 @@ describe("useHomeSearch", () => {
           expect(history.originalQuery).toBe("A");
           expect(history.expandedQuery.original).toBe("A");
         }
+      });
+
+      it("確定した結果の再計算の失敗では、再試行で再計算だけをやり直す（検索API・新しい検索は実行しない。#100）", async () => {
+        let failCompute = false;
+        const base = createTestSearchSource(papers);
+        const searchSpy = vi.fn(async (...args: Parameters<PaperSearchSource["search"]>) => {
+          if (failCompute) throw new Error("worker crashed");
+          return base.search(...args);
+        });
+        const source: PaperSearchSource = {
+          isReady: () => true,
+          whenReady: async () => {},
+          search: searchSpy,
+        };
+        mockSearchApi.mockResolvedValueOnce(response("A"));
+        const { result, rerender } = renderHomeSearch({ searchSource: source });
+        await act(async () => {
+          await result.current.home.handleSearch("A");
+        });
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("A"));
+        expect(searchSpy).toHaveBeenCalledTimes(1);
+
+        failCompute = true;
+        rerender({ papers: [...papers] });
+        await waitFor(() => expect(result.current.home.recomputeError).not.toBeNull());
+        expect(result.current.home.error).toBeNull();
+        expect(result.current.home.pendingQuery).toBeNull();
+        expect(result.current.home.previousResultsQuery).toBeNull();
+        expect(result.current.home.completedQuery).toBe("A");
+        expect(searchSpy).toHaveBeenCalledTimes(2);
+
+        failCompute = false;
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+
+        await waitFor(() => expect(result.current.home.recomputeError).toBeNull());
+        expect(searchSpy).toHaveBeenCalledTimes(3);
+        expect(mockSearchApi).toHaveBeenCalledTimes(1);
+        expect(result.current.home.isLoading).toBe(false);
+        expect(result.current.home.completedQuery).toBe("A");
+        expect(result.current.location.search).toBe("?q=A");
       });
 
       it("クリア後は、クリア前に失敗した検索を再試行しない", async () => {

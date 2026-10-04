@@ -44,6 +44,19 @@ export const SEARCH_FAILURE_MESSAGES: Record<Exclude<SearchFailureKind, "api_dis
   other: "検索に失敗しました。通信状況を確認して再試行してください。",
 };
 
+/**
+ * 確定した結果の再計算（論文の更新・しきい値の変更）に失敗したときの案内。
+ * 新しい検索の失敗と区別し、表示中の結果が更新前のものであることを伝える
+ */
+export const RECOMPUTE_FAILURE_TITLE = "表示中の結果を最新の論文・しきい値で更新できませんでした";
+
+/** 再計算の失敗の分類ごとの案内文（読み込みの失敗とそれ以外） */
+export const RECOMPUTE_FAILURE_MESSAGES = {
+  paper_load:
+    "保存済みの論文を読み込めないため、表示中は更新前の結果です。一覧の上の「再試行」で読み込み直してから、再試行してください。",
+  compute: "表示中は更新前の結果です。再試行してください。続く場合は画面を再読み込みしてください。",
+} as const;
+
 /** 検索欄の近くに出す失敗の案内 */
 export interface SearchFailure {
   kind: SearchFailureKind;
