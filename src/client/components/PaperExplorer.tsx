@@ -4,6 +4,13 @@ import type { Paper } from "../../shared/schemas/index";
 import { useInteractionContext } from "../contexts/InteractionContext";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { usePaperFilter } from "../hooks/usePaperFilter";
+import {
+  formatSearchResultBreakdown,
+  formatSearchScope,
+  formatSearchScopeSummary,
+  type SearchResultCounts,
+  summarizeSearchScope,
+} from "../lib/searchCounts";
 import { cn } from "../lib/utils";
 import { usePaperStore } from "../stores/paperStore";
 import { CategoryFilter } from "./CategoryFilter";
@@ -62,6 +69,8 @@ interface PaperExplorerProps {
   previousResultsQuery?: string | null;
   /** 検索欄の直下に出す検索の状態（実行中・失敗と、その操作） */
   searchStatus?: ReactNode;
+  /** 検索結果の候補・上位・対象外の件数（検索が完了している間だけ渡す。件数の定義は lib/searchCounts） */
+  searchResultCounts?: SearchResultCounts;
 }
 
 /**
@@ -93,6 +102,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   renderSearchResultTools,
   previousResultsQuery = null,
   searchStatus,
+  searchResultCounts,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { likedPaperIds, bookmarkedPaperIds } = useInteractionContext();
@@ -114,6 +124,13 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
 
   // 一覧表示時は store を直接購読（backfill で embedding が付与されても即反映）
   const storePapers = usePaperStore((s) => s.papers);
+  // 段階的な読み込みの途中（全件の準備前）の部分集合は、検索範囲の確定件数として出さない
+  const arePapersReady = usePaperStore((s) => s.loadStatus === "ready");
+  // 検索範囲（取得済み論文の実データから集計。同期設定ではない）
+  const searchScope = useMemo(
+    () => (arePapersReady ? summarizeSearchScope(storePapers) : null),
+    [arePapersReady, storePapers]
+  );
   // 検索結果用のローカル state（検索時のみ使用）
   const [searchResultPapers, setSearchResultPapers] = useState<Paper[]>([]);
   // 検索の世代（クリアや後続検索の後に届いた古い結果を採用しない）
@@ -332,6 +349,21 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         />
 
         {searchStatus}
+        {searchScope ? (
+          isDesktop ? (
+            <p className="text-xs text-muted-foreground/70" data-testid="search-scope">
+              このデバイスに取得済みの論文内を検索: {formatSearchScope(searchScope)}
+            </p>
+          ) : (
+            /* モバイル: 一覧を押し下げないよう短縮形だけを出し、期間・カテゴリは開いたときに出す */
+            <details className="text-xs text-muted-foreground/70" data-testid="search-scope">
+              <summary className="cursor-pointer">
+                取得済み論文内を検索: {formatSearchScopeSummary(searchScope)}
+              </summary>
+              <p className="mt-1">{formatSearchScope(searchScope)}</p>
+            </details>
+          )
+        ) : null}
 
         {/* 絞り込み: モバイルは一覧の手前の折りたたみ領域、デスクトップはインラインコンパクト */}
         {/* モバイルで領域を開いている間は、解除で対象が0件になっても開閉ボタンごと消さない */}
@@ -586,7 +618,26 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
             : undefined
         }
         showCount={hasSearched && !isSearchLoading && filteredPapers.length > 0}
-        renderCountAccessory={hasSearched && !isSearchLoading ? renderSearchResultTools : undefined}
+        renderCountAccessory={
+          hasSearched && !isSearchLoading && (searchResultCounts || renderSearchResultTools)
+            ? (displayedCount) => (
+                <>
+                  {searchResultCounts ? (
+                    <p
+                      className="text-xs text-muted-foreground/70"
+                      data-testid="search-result-breakdown"
+                    >
+                      {formatSearchResultBreakdown(
+                        searchResultCounts,
+                        displayPapers.length - filteredPapers.length
+                      )}
+                    </p>
+                  ) : null}
+                  {renderSearchResultTools?.(displayedCount)}
+                </>
+              )
+            : undefined
+        }
         onPaperClick={onPaperClick}
         whyReadMap={whyReadMap}
         // 検索結果表示中、カテゴリフィルタ中、いいね/ブックマークフィルタ中は追加読み込みを無効化

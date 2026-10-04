@@ -49,10 +49,11 @@ export interface PaperSearchSource {
 }
 
 /**
- * 論文が Embedding を持つか。
- * 一覧用の論文（hasEmbedding）と Embedding 付きの論文のどちらでも判定できる。
+ * 論文が Embedding を持つか（セマンティック検索の対象か）。
+ * 一覧用の論文（hasEmbedding）・Embedding 付きの論文・索引に登録する論文のどれでも判定できる。
+ * 画面側（対象外の表示・件数）と索引（Web Worker）で同じ判定を使う。
  */
-export const hasPaperEmbedding = (paper: Paper | PaperListItem): boolean =>
+export const hasPaperEmbedding = (paper: Paper | PaperListItem | PaperEmbeddingInput): boolean =>
   ((paper as Paper).embedding?.length ?? 0) > 0 ||
   ("hasEmbedding" in paper && paper.hasEmbedding === true);
 
@@ -177,7 +178,7 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
     if (papers.length > 0) lastScored = null;
     for (const paper of papers) {
       const embedding = paper.embedding;
-      if (!embedding || embedding.length === 0) {
+      if (!embedding || !hasPaperEmbedding(paper)) {
         entries.delete(paper.id);
         continue;
       }
