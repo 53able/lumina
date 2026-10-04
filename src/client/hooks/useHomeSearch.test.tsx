@@ -1114,5 +1114,79 @@ describe("useHomeSearch", () => {
       expect(addHistory.mock.calls[1]?.[0].originalQuery).toBe("X");
       expect(result.current.home.completedQuery).toBe("X");
     });
+
+    describe("失敗した検索は同じ経路で再試行する", () => {
+      /** 1回目の全件準備（または計算）だけ失敗する検索の実行元 */
+      const createFailOnceSource = (failure: "load" | "compute") => {
+        let failed = false;
+        const base = createTestSearchSource(papers);
+        const source: PaperSearchSource = {
+          isReady: () => failed || failure === "compute",
+          whenReady: async () => {
+            if (failure === "load" && !failed) {
+              failed = true;
+              throw Object.assign(new Error("db"), { name: "PaperLoadError" });
+            }
+          },
+          search: async (...args) => {
+            if (failure === "compute" && !failed) {
+              failed = true;
+              throw new Error("worker crashed");
+            }
+            return base.search(...args);
+          },
+        };
+        return source;
+      };
+
+      it("履歴（保存済み Embedding）の検索が論文の読み込みで失敗したら、再試行で検索APIを呼ばない", async () => {
+        const { result, addHistory } = renderHomeSearch({
+          searchSource: createFailOnceSource("load"),
+        });
+        act(() => {
+          result.current.home.handleReSearch({
+            id: "h-x",
+            originalQuery: "X",
+            expandedQuery: expanded("X"),
+            queryEmbedding: embedding,
+            resultCount: 1,
+            createdAt: new Date(),
+          });
+        });
+        await waitFor(() => expect(result.current.home.error?.name).toBe("PaperLoadError"));
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("X"));
+        expect(result.current.home.error).toBeNull();
+        expect(result.current.home.results).toHaveLength(1);
+        expect(mockSearchApi).not.toHaveBeenCalled();
+        expect(addHistory).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ["論文の読み込み", "load", "PaperLoadError"],
+        ["索引での計算", "compute", "SearchComputeError"],
+      ] as const)("入力の検索が Embedding 取得後に%sで失敗したら、再試行で検索APIを呼び直さない", async (_label, failure, errorName) => {
+        mockSearchApi.mockResolvedValueOnce(response("B"));
+        const { result } = renderHomeSearch({ searchSource: createFailOnceSource(failure) });
+        await act(async () => {
+          await result.current.home.handleSearch("B");
+        });
+        await waitFor(() => expect(result.current.home.error?.name).toBe(errorName));
+        expect(mockSearchApi).toHaveBeenCalledTimes(1);
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("B"));
+        expect(result.current.home.expandedQuery?.original).toBe("B");
+        expect(result.current.home.results).toHaveLength(1);
+        expect(mockSearchApi).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 });

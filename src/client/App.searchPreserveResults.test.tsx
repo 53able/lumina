@@ -530,4 +530,27 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
     expect(searchCalls()).toHaveLength(2);
     expect(addHistory).toHaveBeenCalledTimes(1);
   });
+
+  it("失敗して前回の結果を表示している間は、しきい値の操作を出さない（前回の結果は再計算しない）", async () => {
+    await renderWithPreviousResult();
+    expect(screen.getByRole("button", { name: /^しきい値/ })).toBeInTheDocument();
+    searchHandlers.push(() => Promise.resolve(jsonResponse({ error: "x" }, 500)));
+
+    // 編集した検索文で再検索して失敗させる（検索文の欄は編集内容のまま残る）
+    const textarea = document.querySelector("details textarea") as HTMLTextAreaElement;
+    act(() => {
+      (textarea.closest("form") as HTMLFormElement).requestSubmit();
+    });
+
+    await findFailureAlert();
+    expect(heading()).toHaveTextContent('前回の結果（"A"）');
+    expect(document.querySelector("details textarea")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^しきい値/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "類似度のしきい値" })).not.toBeInTheDocument();
+
+    // 前結果を見ると、しきい値の操作が戻る
+    await userEvent.setup().click(screen.getByRole("button", { name: "前結果を見る" }));
+    await waitFor(() => expect(heading()).toHaveTextContent('"A" の検索結果'));
+    expect(screen.getByRole("button", { name: /^しきい値/ })).toBeInTheDocument();
+  });
 });

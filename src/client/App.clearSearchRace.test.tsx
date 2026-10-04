@@ -191,7 +191,6 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
       expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true")
     );
     expect(searchRequestCount()).toBe(1);
-    expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true");
 
     // クリアの click と同じタイミングで store を更新する（URL 更新の transition より先に確定する）
     const clearButton = screen.getByRole("button", { name: "検索と絞り込みをクリア" });

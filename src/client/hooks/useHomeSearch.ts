@@ -58,6 +58,7 @@ export const useHomeSearch = ({
     searchWithSavedData,
     reset,
     cancel,
+    retry,
     expandedQuery,
     queryEmbedding,
     totalMatchCount,
@@ -191,15 +192,16 @@ export const useHomeSearch = ({
   }, [cancel, resultQuery, setSearchQuery]);
 
   /**
-   * 失敗した検索を同じ条件（入力・編集した検索文）でもう一度実行する（1操作1回）。
+   * 失敗した検索を同じ経路・同じ条件でもう一度実行する（1操作1回）。
+   * Embedding を得た後の失敗・保存済み Embedding での検索は検索APIを呼ばずにやり直す（useSemanticSearch の retry）。
    * 失敗していない（実行中・成功・クリア後で再試行する検索がない）ときは何もしない。
    */
   const handleRetrySearch = useCallback(() => {
     const query = activeQueryRef.current;
     if (query === null || semanticSearch.error === null) return;
     beginQuery(query);
-    void search(query, editedQuery ?? undefined);
-  }, [beginQuery, search, editedQuery, semanticSearch.error]);
+    void retry();
+  }, [beginQuery, retry, semanticSearch.error]);
 
   /** 検索をクリア（URL の q は呼び出し元がフィルターと合わせて消す） */
   const handleClearSearch = useCallback(() => {

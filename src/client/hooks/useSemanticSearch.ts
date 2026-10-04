@@ -6,6 +6,7 @@ import {
   type PaperSearchMatches,
   type PaperSearchSource,
 } from "../lib/paperIndex/core";
+import { SearchComputeError } from "../lib/searchErrors";
 import { paperStoreSearchSource } from "../stores/paperStore";
 
 /**
@@ -102,9 +103,29 @@ interface UseSemanticSearchReturn {
   isShowingPreviousResults: boolean;
   /** 実行中の検索を中止する（通信・計算を無効化して応答を採用しない。前回の結果は保持する） */
   cancel: () => void;
+  /**
+   * 直近に失敗した検索を同じ経路・同じ条件でもう一度実行する。
+   * 拡張クエリと Embedding を得てから失敗した検索（全件準備・計算の失敗）・保存済み Embedding での検索は、
+   * 検索APIを呼ばずに保存済みデータの経路でやり直す。Embedding を得る前に失敗した検索だけ検索APIを呼ぶ。
+   */
+  retry: () => Promise<SearchResult[]>;
   /** 状態リセット関数（実行中の検索も無効化し、その応答を採用しない） */
   reset: () => void;
 }
+
+/**
+ * 検索の試行の条件（失敗した検索を同じ経路で再試行するため）
+ * - api: 検索APIからやり直す（Embedding を得る前の失敗）
+ * - saved: 得られた・保存済みの拡張クエリと Embedding で索引の計算だけをやり直す
+ */
+type SearchAttempt =
+  | { via: "api"; query: string; editedQuery?: ExpandedQuery }
+  | {
+      via: "saved";
+      query: string;
+      expandedQuery: ExpandedQuery;
+      queryEmbedding: number[] | null;
+    };
 
 /**
  * 表示中の結果の出どころ（結果を得た検索）
@@ -189,6 +210,8 @@ export const useSemanticSearch = ({
    */
   const computeSeqRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  /** 直近の検索の試行（失敗した検索を同じ経路で再試行するため） */
+  const lastAttemptRef = useRef<SearchAttempt | null>(null);
 
   // 計算は呼び出し時点の最新の入力で行う（検索関数の参照を論文更新で変えないため ref で持つ）
   const papersRef = useRef(papers);
@@ -234,10 +257,17 @@ export const useSemanticSearch = ({
       const currentPapers = papersRef.current;
       const currentThreshold = scoreThresholdRef.current;
       const currentLimit = limitRef.current;
-      const { matches, totalMatchCount } =
-        embedding && embedding.length > 0
-          ? await getSearchSource().search(embedding, currentThreshold, currentLimit)
-          : NO_MATCHES;
+      let found: PaperSearchMatches = NO_MATCHES;
+      if (embedding && embedding.length > 0) {
+        try {
+          found = await getSearchSource().search(embedding, currentThreshold, currentLimit);
+        } catch (e) {
+          // 読み込みの失敗はそのまま、それ以外（Worker 内の計算の失敗など）は計算の失敗として区別する
+          const err = toError(e);
+          throw err.name === "PaperLoadError" ? err : new SearchComputeError(err.message);
+        }
+      }
+      const { matches, totalMatchCount } = found;
 
       const paperById = new Map(currentPapers.map((paper) => [paper.id, paper]));
       const results: SearchResult[] = [];
@@ -377,6 +407,7 @@ export const useSemanticSearch = ({
       const isCurrent = () => generation === generationRef.current;
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      lastAttemptRef.current = { via: "api", query, editedQuery };
 
       // 前回の検索結果は確定するまで保持する（検索中・失敗時は「前回の結果」として表示する）
       beginSearch("requesting");
@@ -410,6 +441,8 @@ export const useSemanticSearch = ({
             : data.expandedQuery,
           queryEmbedding: embedding.length > 0 ? embedding : null,
         };
+        // ここから先の失敗（全件準備・計算）の再試行では、得られた拡張クエリと Embedding を使い検索APIを呼ばない
+        lastAttemptRef.current = { via: "saved", ...nextShown };
         return await settleSearch(generation, nextShown);
       } catch (e) {
         if (!isCurrent()) return [];
@@ -446,14 +479,21 @@ export const useSemanticSearch = ({
    * 保存済みのexpandedQueryとqueryEmbeddingを使って検索する
    * 検索履歴から再検索する際に使用（APIリクエストなし）
    */
-  const searchWithSavedData = useCallback(
+  /** 保存済み（または得られた）拡張クエリと Embedding で索引の計算だけを行う（APIリクエストなし） */
+  const runWithSavedData = useCallback(
     async (
       savedExpandedQuery: ExpandedQuery,
-      savedQueryEmbedding: number[],
-      query: string = savedExpandedQuery.original
+      savedQueryEmbedding: number[] | null,
+      query: string
     ): Promise<SearchResult[]> => {
       // 実行中のAPI検索があれば無効化する（後から届いた応答で履歴の結果を上書きさせない）
       const generation = startGeneration();
+      lastAttemptRef.current = {
+        via: "saved",
+        query,
+        expandedQuery: savedExpandedQuery,
+        queryEmbedding: savedQueryEmbedding,
+      };
       // 保存済みデータの結果は全件の準備後に索引で計算し、確定したときに表示を置き換える
       const nextShown = {
         query,
@@ -472,6 +512,23 @@ export const useSemanticSearch = ({
     },
     [settleSearch, startGeneration, beginSearch, failSearch, getSearchSource]
   );
+
+  const searchWithSavedData = useCallback(
+    (
+      savedExpandedQuery: ExpandedQuery,
+      savedQueryEmbedding: number[],
+      query: string = savedExpandedQuery.original
+    ): Promise<SearchResult[]> => runWithSavedData(savedExpandedQuery, savedQueryEmbedding, query),
+    [runWithSavedData]
+  );
+
+  const retry = useCallback(async (): Promise<SearchResult[]> => {
+    const attempt = lastAttemptRef.current;
+    if (attempt === null) return [];
+    return attempt.via === "api"
+      ? search(attempt.query, attempt.editedQuery)
+      : runWithSavedData(attempt.expandedQuery, attempt.queryEmbedding, attempt.query);
+  }, [search, runWithSavedData]);
 
   // 表示中の結果（stub を除く）。新しい検索の実行中・失敗時は前回の検索の確定結果
   const shownResults = shown !== null && !shown.isStub && computed !== null ? computed : null;
@@ -522,6 +579,7 @@ export const useSemanticSearch = ({
     resultQuery: shownResults !== null && shown !== null ? shown.query : null,
     isShowingPreviousResults,
     cancel,
+    retry,
     reset,
   };
 };

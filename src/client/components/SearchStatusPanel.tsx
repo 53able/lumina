@@ -1,5 +1,9 @@
 import { type FC, useEffect, useState } from "react";
 import { describeSearchFailure } from "../lib/searchErrors";
+
+/** 理由と対処を一覧に出している失敗で、検索欄の近くに出す文 */
+export const SEARCH_FAILURE_EXPLAINED_IN_LIST = "理由と対処は検索結果の欄に表示しています。";
+
 import { focusPaperSearchInput } from "./PaperSearch";
 import { Button } from "./ui/button";
 
@@ -94,12 +98,14 @@ export const SearchStatusPanel: FC<SearchStatusPanelProps> = ({
 
   const failure = describeSearchFailure(error);
   const needsSettings = failure.suggestSettings && onOpenSettings !== undefined;
+  // 前回の結果がなく、理由と対処を一覧の0件表示に出す失敗（キー復号・論文の読み込み）は、ここで同じ説明を繰り返さない
+  const isExplainedInList = previousQuery === null && failure.explainedInList;
 
   return (
     <div className="space-y-2 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
       <div role="alert">
         <p className="font-bold">「{query}」を検索できませんでした</p>
-        <p>{failure.message}</p>
+        <p>{isExplainedInList ? SEARCH_FAILURE_EXPLAINED_IN_LIST : failure.message}</p>
         {previousNote ? <p className="text-muted-foreground">{previousNote}</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">

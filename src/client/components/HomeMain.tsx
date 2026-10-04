@@ -357,8 +357,10 @@ const HomeMainInner: FC<HomeMainProps> = ({
               expandedPaperId={expandedPaperId}
               renderExpandedDetail={renderExpandedDetail}
               // しきい値は件数の隣で結果を見ながら調整する（検索APIは呼ばず表示中の結果に即時反映）
+              // 前回の結果を表示している間（新しい検索の実行中・失敗時）は出さない。前回の結果はその時点の確定結果で、
+              // しきい値を変えても再計算しない（前結果を見る・新しい検索の完了後に調整する）
               renderSearchResultTools={
-                expandedQuery
+                expandedQuery && previousResultsQuery === null
                   ? (displayedCount) => (
                       <SearchThresholdControl
                         // 検索が変わったら通知状態をリセットする
