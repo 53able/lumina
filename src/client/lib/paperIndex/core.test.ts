@@ -228,6 +228,21 @@ describe("一覧用の論文", () => {
     expect(
       hasPaperEmbedding({ ...toPaperListItem(createPaper("e", "2024-01-01")), embedding: [1] })
     ).toBe(true);
+    // Embedding 本体があれば本体で判定する（hasEmbedding: true でも空なら対象外）
+    expect(
+      hasPaperEmbedding({ ...toPaperListItem(createPaper("f", "2024-01-01", [1])), embedding: [] })
+    ).toBe(false);
+  });
+
+  it("hasEmbedding: true でも embedding が空の論文は索引に入れない", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert([
+      { ...toPaperListItem(createPaper("a", "2024-01-01", [1])), embedding: [] },
+      createPaper("b", "2024-01-01", [1, 0]),
+    ]);
+
+    expect(index.size).toBe(1);
+    expect(index.search([1, 0], 0, 10).matches.map(({ id }) => id)).toEqual(["b"]);
   });
 
   it("toStoredPaper は画面用のフィールド hasEmbedding を除く", () => {

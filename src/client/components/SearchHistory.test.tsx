@@ -70,12 +70,28 @@ describe("SearchHistory", () => {
       expect(screen.getByText("強化学習")).toBeInTheDocument();
     });
 
-    it("正常系: 検索結果件数が表示される", () => {
-      const histories = [createSampleHistory({ resultCount: 42 })];
+    it("正常系: 検索結果件数を、一覧の内訳と同じ「候補」の名前で検索時点の値として表示する（#69）", () => {
+      const histories = [
+        createSampleHistory({ resultCount: 42, createdAt: new Date("2026-10-03T10:00:00Z") }),
+      ];
 
       render(<SearchHistory histories={histories} />);
 
-      expect(screen.getByText(/42件/)).toBeInTheDocument();
+      const count = screen.getByText("検索時の候補 42件");
+      expect(count).toHaveAttribute(
+        "title",
+        "検索した時点で類似度がしきい値以上だった論文の件数です。その後のしきい値の変更や論文の追加は反映していません"
+      );
+    });
+
+    it("正常系: 候補を保存する前（2026-02-01 より前）の履歴は「候補」と書かずに件数だけを表示する（#69）", () => {
+      // それ以前の resultCount は表示上限（20件）を適用した後の件数
+      const histories = [createSampleHistory({ resultCount: 20 })];
+
+      render(<SearchHistory histories={histories} />);
+
+      expect(screen.getByText("20件")).toBeInTheDocument();
+      expect(screen.queryByText(/候補/)).not.toBeInTheDocument();
     });
 
     it("正常系: 複数の検索履歴が表示される", () => {

@@ -5,6 +5,7 @@ import { type FC, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SearchHistory as SearchHistoryType } from "../../shared/schemas/index";
 import type { SearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
+import { describeHistoryResultCount, formatHistoryResultCount } from "../lib/searchCounts";
 import { Button } from "./ui/button";
 
 /**
@@ -321,12 +322,20 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
                         {history.originalQuery}
                       </p>
                       <p className={`text-muted-foreground ${compact ? "text-[10px]" : "text-xs"}`}>
-                        {isPending
-                          ? "削除しています…"
-                          : `${history.resultCount}件 ・ ${formatDistanceToNow(history.createdAt, {
+                        {isPending ? (
+                          "削除しています…"
+                        ) : (
+                          <>
+                            {/* 件数は検索した時点の値（その後の変更は反映しない）。補足を title に出す */}
+                            <span title={describeHistoryResultCount(history.createdAt)}>
+                              {formatHistoryResultCount(history.resultCount, history.createdAt)}
+                            </span>
+                            {` ・ ${formatDistanceToNow(history.createdAt, {
                               addSuffix: true,
                               locale: ja,
                             })}`}
+                          </>
+                        )}
                       </p>
                     </div>
                   </button>

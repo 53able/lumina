@@ -7,6 +7,7 @@ import type {
 } from "../../shared/schemas/index";
 import type { SearchHistoryUndo } from "../hooks/useSearchHistoryUndo";
 import type { GenerateTarget } from "../lib/api";
+import type { SearchResultCounts } from "../lib/searchCounts";
 import { isEditedSearchText, isExcludedTerm, uniqueTerms } from "../lib/searchTextTerms";
 import type { SummaryVersion } from "../stores/summaryStore";
 import { MobileSearchHistory } from "./MobileSearchHistory";
@@ -65,6 +66,8 @@ interface HomeMainProps {
   isLoading: boolean;
   /** 検索が保存済み論文の全件準備を待っているか */
   isWaitingForPapers?: boolean;
+  /** 検索結果の候補・上位・対象外の件数（検索が完了している間だけ渡す） */
+  searchResultCounts?: SearchResultCounts;
   /** 選択中の論文 */
   selectedPaper: Paper | null;
   /** 詳細を閉じる */
@@ -158,6 +161,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   hasQueryEmbedding = false,
   isLoading,
   isWaitingForPapers = false,
+  searchResultCounts,
   selectedPaper,
   onCloseDetail,
   currentSummary,
@@ -356,6 +360,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
               // インライン展開（デスクトップのみ）
               expandedPaperId={expandedPaperId}
               renderExpandedDetail={renderExpandedDetail}
+              searchResultCounts={searchResultCounts}
               // しきい値は件数の隣で結果を見ながら調整する（検索APIは呼ばず表示中の結果に即時反映）
               // 前回の結果を表示している間（新しい検索の実行中・失敗時）は出さない。前回の結果はその時点の確定結果で、
               // しきい値を変えても再計算しない（前結果を見る・新しい検索の完了後に調整する）

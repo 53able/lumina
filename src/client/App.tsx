@@ -129,6 +129,7 @@ const HomePage: FC = () => {
   const {
     results,
     papersExcludedFromSearch,
+    totalMatchCount,
     isLoading,
     isWaitingForPapers,
     resultsReady,
@@ -364,6 +365,27 @@ const HomePage: FC = () => {
     [isSearchActive, searchResultPapers, papersExcludedFromSearch, papers]
   );
 
+  // 検索結果の件数の内訳（検索済みの値から導出し、件数表示のために検索APIは呼ばない）。
+  // 出すのは現在の検索の結果が確定し（resultsReady: 失敗・中止の stub や読み込み途中の結果を含まない）、
+  // クエリEmbeddingで類似度を計算したときだけ。
+  // 新しい検索の実行中・失敗時に前回の結果を表示している間は出さない（前回の結果は新しい検索の進行中は
+  // しきい値の変更に追従せず、新しい検索の状態と混ざるため。前回の結果であることは検索欄の近くに出る）
+  // previousResultsQuery === null は防御（resultsReady なら前回の結果の表示中ではないが、
+  // 状態の定義が変わっても前回の結果に内訳を付けないため明示する）
+  const hasComputedCandidates =
+    resultsReady && previousResultsQuery === null && queryEmbedding !== null;
+  const searchResultCounts = useMemo(
+    () =>
+      hasComputedCandidates
+        ? {
+            candidateCount: totalMatchCount,
+            topCount: results.length,
+            excludedCount: papersExcludedFromSearch.length,
+          }
+        : undefined,
+    [hasComputedCandidates, totalMatchCount, results.length, papersExcludedFromSearch.length]
+  );
+
   return (
     <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-bold bg-particles">
       {/* Header */}
@@ -424,6 +446,7 @@ const HomePage: FC = () => {
         onSearchWithEditedText={handleSearchWithEditedText}
         results={results}
         hasQueryEmbedding={queryEmbedding !== null}
+        searchResultCounts={searchResultCounts}
         isLoading={isLoading}
         isWaitingForPapers={isWaitingForPapers}
         selectedPaper={selectedPaper}
