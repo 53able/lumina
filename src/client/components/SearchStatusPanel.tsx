@@ -27,8 +27,8 @@ interface SearchStatusPanelProps {
    * 表示中の結果は前回の結果ではなく更新できなかった現在の結果として案内する（前結果を見る・条件を編集は出さない）
    */
   isRecomputeFailure?: boolean;
-  /** 検索を中止する・前回の結果に戻る */
-  onCancel: () => void;
+  /** 検索を中止する・前回の結果に戻る（再計算の失敗では使わない） */
+  onCancel?: () => void;
   /** 同じ条件で再試行する */
   onRetry: () => void;
   /** 設定を開く（設定を直すと解決する失敗で案内する） */
@@ -77,7 +77,7 @@ export const SearchStatusPanel: FC<SearchStatusPanelProps> = ({
 }) => {
   /** 中止・前回の結果に戻った後は、押したボタンが消えるため検索欄へフォーカスを戻す */
   const handleCancel = () => {
-    onCancel();
+    onCancel?.();
     focusPaperSearchInput();
   };
 
@@ -121,7 +121,7 @@ export const SearchStatusPanel: FC<SearchStatusPanelProps> = ({
           <p className="text-muted-foreground">表示中の結果: "{query}"</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={handleRetry}>
+          <Button variant="outline" size="sm" onClick={handleRetry} aria-label="結果の更新を再試行">
             再試行
           </Button>
         </div>

@@ -1189,9 +1189,11 @@ describe("useHomeSearch", () => {
       });
 
       it("中止・前結果を見た検索は再試行しない（前回の結果の再計算の失敗を、表示中の結果の条件で再試行する）", async () => {
-        // 確定後の再計算（論文の更新）だけを失敗させられる検索の実行元
+        // 確定後の再計算（論文の更新）だけを失敗させられる検索の実行元。
+        // 索引には追加される論文も入れておき、再計算の結果が反映されたことを結果の論文で確かめる
+        const addedPaper: Paper = { ...papers[0], id: "2401.00009" };
         let failCompute = false;
-        const base = createTestSearchSource(papers);
+        const base = createTestSearchSource([...papers, addedPaper]);
         const source: PaperSearchSource = {
           isReady: () => true,
           whenReady: async () => {},
@@ -1223,7 +1225,7 @@ describe("useHomeSearch", () => {
 
         // A の再計算が失敗する（新しい検索の失敗ではなく、表示中の A の結果の更新の失敗として扱う。#100）
         failCompute = true;
-        rerender({ papers: [...papers] });
+        rerender({ papers: [...papers, addedPaper] });
         await waitFor(() =>
           expect(result.current.home.recomputeError?.name).toBe("SearchComputeError")
         );
@@ -1234,7 +1236,11 @@ describe("useHomeSearch", () => {
           result.current.home.handleRetrySearch();
         });
 
-        await waitFor(() => expect(result.current.home.recomputeError).toBeNull());
+        // 再試行は失敗の記録を同期で消すため、再計算の結果（追加した論文）が反映されるまで待つ
+        await waitFor(() =>
+          expect(result.current.home.results.map((r) => r.paper.id)).toContain(addedPaper.id)
+        );
+        expect(result.current.home.recomputeError).toBeNull();
         expect(result.current.home.completedQuery).toBe("A");
         expect(result.current.home.error).toBeNull();
         expect(result.current.home.expandedQuery?.original).toBe("A");
@@ -1248,8 +1254,9 @@ describe("useHomeSearch", () => {
       });
 
       it("確定した結果の再計算の失敗では、再試行で再計算だけをやり直す（検索API・新しい検索は実行しない。#100）", async () => {
+        const addedPaper: Paper = { ...papers[0], id: "2401.00009" };
         let failCompute = false;
-        const base = createTestSearchSource(papers);
+        const base = createTestSearchSource([...papers, addedPaper]);
         const searchSpy = vi.fn(async (...args: Parameters<PaperSearchSource["search"]>) => {
           if (failCompute) throw new Error("worker crashed");
           return base.search(...args);
@@ -1268,8 +1275,9 @@ describe("useHomeSearch", () => {
         expect(searchSpy).toHaveBeenCalledTimes(1);
 
         failCompute = true;
-        rerender({ papers: [...papers] });
+        rerender({ papers: [...papers, addedPaper] });
         await waitFor(() => expect(result.current.home.recomputeError).not.toBeNull());
+        expect(result.current.home.results.map((r) => r.paper.id)).toEqual([papers[0].id]);
         expect(result.current.home.error).toBeNull();
         expect(result.current.home.pendingQuery).toBeNull();
         expect(result.current.home.previousResultsQuery).toBeNull();
@@ -1281,7 +1289,12 @@ describe("useHomeSearch", () => {
           result.current.home.handleRetrySearch();
         });
 
-        await waitFor(() => expect(result.current.home.recomputeError).toBeNull());
+        // 再試行は失敗の記録を同期で消すため、再計算の結果（追加した論文と件数）が反映されるまで待つ
+        await waitFor(() =>
+          expect(result.current.home.results.map((r) => r.paper.id)).toContain(addedPaper.id)
+        );
+        expect(result.current.home.totalMatchCount).toBe(2);
+        expect(result.current.home.recomputeError).toBeNull();
         expect(searchSpy).toHaveBeenCalledTimes(3);
         expect(mockSearchApi).toHaveBeenCalledTimes(1);
         expect(result.current.home.isLoading).toBe(false);

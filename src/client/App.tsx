@@ -502,7 +502,6 @@ const HomePage: FC = () => {
               error={recomputeError}
               previousQuery={null}
               isRecomputeFailure
-              onCancel={handleCancelSearch}
               onRetry={handleRetrySearch}
             />
           ) : null

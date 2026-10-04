@@ -135,7 +135,7 @@ describe("SearchStatusPanel（#71）", () => {
       expect(screen.queryByRole("button", { name: "条件を編集" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "設定を開く" })).not.toBeInTheDocument();
 
-      screen.getByRole("button", { name: "再試行" }).click();
+      screen.getByRole("button", { name: "結果の更新を再試行" }).click();
       expect(onRetry).toHaveBeenCalledTimes(1);
     });
 

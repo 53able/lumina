@@ -40,7 +40,12 @@ const mockPapers = vi.hoisted(() => [
 ]);
 
 /** 索引での計算を失敗させる（確定後の再計算の失敗の注入用。#100） */
-const indexControl = vi.hoisted(() => ({ failCompute: false, searchCount: 0 }));
+const indexControl = vi.hoisted(() => ({
+  failCompute: false,
+  searchCount: 0,
+  /** 設定すると、索引の検索結果の候補数（totalMatchCount）をこの値にする（再計算の反映の確認用） */
+  totalMatchCountOverride: null as number | null,
+}));
 
 vi.mock("@/client/stores/paperStore", async () => {
   const { createPaperEmbeddingIndex } = await import("./lib/paperIndex/core");
@@ -67,7 +72,10 @@ vi.mock("@/client/stores/paperStore", async () => {
         if (indexControl.failCompute) throw new Error("worker crashed");
         const index = createPaperEmbeddingIndex();
         index.upsert(mockPapers);
-        return index.search(queryEmbedding, scoreThreshold, limit);
+        const found = index.search(queryEmbedding, scoreThreshold, limit);
+        return indexControl.totalMatchCountOverride === null
+          ? found
+          : { ...found, totalMatchCount: indexControl.totalMatchCountOverride };
       },
     },
   };
@@ -205,6 +213,7 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
     searchHandlers = [];
     indexControl.failCompute = false;
     indexControl.searchCount = 0;
+    indexControl.totalMatchCountOverride = null;
     addHistory.mockClear();
     toastError.mockClear();
     fetchMock.mockReset();
@@ -602,17 +611,20 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
       await failRecomputeOfA();
       const computeCount = indexControl.searchCount;
       indexControl.failCompute = false;
+      // 再計算の結果が反映されたことを件数の内訳で確かめるため、成功時の候補数を変える
+      indexControl.totalMatchCountOverride = 5;
 
-      await userEvent.setup().click(screen.getByRole("button", { name: "再試行" }));
+      await userEvent.setup().click(screen.getByRole("button", { name: "結果の更新を再試行" }));
 
+      // 再試行は失敗の記録を同期で消すため、再計算の結果（件数の内訳）が反映されるまで待つ
       await waitFor(() =>
-        expect(screen.queryByText(RECOMPUTE_FAILURE_TITLE)).not.toBeInTheDocument()
+        expect(screen.getByTestId("search-result-breakdown")).toHaveTextContent("候補 5")
       );
+      expect(screen.queryByText(RECOMPUTE_FAILURE_TITLE)).not.toBeInTheDocument();
       expect(indexControl.searchCount).toBe(computeCount + 1);
       expect(searchCalls()).toHaveLength(1);
       expect(heading()).toHaveTextContent('"A" の検索結果');
       expect(getLocationSearch()).toBe("?q=A");
-      expect(screen.getByTestId("search-result-breakdown")).toBeInTheDocument();
     });
   });
 });

@@ -396,7 +396,11 @@ export const useSemanticSearch = ({
     if (key.papers === papers && key.scoreThreshold === scoreThreshold && key.limit === limit) {
       return;
     }
-    if (activeRecomputeFailure !== null) return;
+    if (activeRecomputeFailure !== null) {
+      // 失敗した入力に戻った（A→B→A）ときは、途中の入力（B）で実行中の再計算の結果を採用しない
+      computeSeqRef.current += 1;
+      return;
+    }
     const base = computed;
     const fail = (e: unknown) =>
       setRecomputeFailure({ error: toError(e), base, papers, scoreThreshold, limit });

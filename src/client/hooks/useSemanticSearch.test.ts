@@ -879,10 +879,20 @@ describe("useSemanticSearch", () => {
 
     /** 確定後の再計算（索引の検索・全件準備）の失敗をテストから切り替えられる検索の実行元 */
     const renderControlled = () => {
-      const control = { failCompute: false, ready: true, loadError: null as Error | null };
+      const control = {
+        failCompute: false,
+        ready: true,
+        loadError: null as Error | null,
+        /** 設定すると、次の索引の検索はこの Promise の解決まで応答を返さない */
+        hold: null as Promise<void> | null,
+      };
       const base = createTestSearchSource([...mockPapers, addedPaper]);
       const searchSpy = vi.fn(async (...args: Parameters<PaperSearchSource["search"]>) => {
-        if (control.failCompute) throw new Error("worker crashed");
+        const failing = control.failCompute;
+        const hold = control.hold;
+        control.hold = null;
+        if (hold) await hold;
+        if (failing) throw new Error("worker crashed");
         return base.search(...args);
       });
       const whenReadySpy = vi.fn(async () => {
@@ -972,6 +982,39 @@ describe("useSemanticSearch", () => {
       expect(result.current.recomputeError?.name).toBe("SearchComputeError");
     });
 
+    it("失敗した入力に戻ったら、途中の入力で実行中だった再計算の結果を採用しない（A→B→A）", async () => {
+      const { result, rerender, control, searchSpy } = renderControlled();
+      await act(async () => {
+        await result.current.search("transformer");
+      });
+      const shownIds = result.current.results.map((r) => r.paper.id);
+      control.failCompute = true;
+      const failedPapers = [...mockPapers, addedPaper];
+      rerender({ papers: failedPapers, scoreThreshold: 0.3 });
+      await waitFor(() => expect(result.current.recomputeError).not.toBeNull());
+
+      // B（しきい値の変更）の再計算は成功するが、応答を保留する
+      control.failCompute = false;
+      let releaseB!: () => void;
+      control.hold = new Promise<void>((resolve) => {
+        releaseB = resolve;
+      });
+      rerender({ papers: failedPapers, scoreThreshold: 0.4 });
+      await waitFor(() => expect(searchSpy).toHaveBeenCalledTimes(3));
+
+      // 失敗した入力 A に戻す
+      rerender({ papers: failedPapers, scoreThreshold: 0.3 });
+      await act(async () => {
+        releaseB();
+      });
+      await flush();
+
+      expect(result.current.resultsScoreThreshold).toBe(0.3);
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(shownIds);
+      expect(result.current.recomputeError?.name).toBe("SearchComputeError");
+      expect(searchSpy).toHaveBeenCalledTimes(3);
+    });
+
     it("retryRecompute で再計算だけをやり直す（検索APIは呼ばない）。失敗が続いても1操作1回", async () => {
       const { result, rerender, control, searchSpy } = renderControlled();
       await act(async () => {
@@ -993,9 +1036,12 @@ describe("useSemanticSearch", () => {
         result.current.retryRecompute();
       });
 
-      await waitFor(() => expect(result.current.recomputeError).toBeNull());
+      // retryRecompute は失敗の記録を同期で消すため、再計算の結果が反映されるまで待つ
+      await waitFor(() =>
+        expect(result.current.results.map((r) => r.paper.id)).toContain(addedPaper.id)
+      );
+      expect(result.current.recomputeError).toBeNull();
       expect(searchSpy).toHaveBeenCalledTimes(4);
-      expect(result.current.results.map((r) => r.paper.id)).toContain(addedPaper.id);
       expect(result.current.searchPhase).toBe("done");
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
