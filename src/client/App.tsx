@@ -5,6 +5,7 @@ import type { Paper } from "../shared/schemas/index";
 import { HomeFooter } from "./components/HomeFooter";
 import { HomeHeader } from "./components/HomeHeader";
 import { HomeMain } from "./components/HomeMain";
+import { SearchStatusPanel } from "./components/SearchStatusPanel";
 import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
@@ -144,6 +145,10 @@ const HomePage: FC = () => {
     handleReSearch,
     handleSearchWithEditedText,
     displayExpandedQuery,
+    previousResultsQuery,
+    pendingQuery,
+    handleCancelSearch,
+    handleRetrySearch,
   } = useHomeSearch({
     papers,
     scoreThreshold: searchScoreThreshold,
@@ -152,14 +157,15 @@ const HomePage: FC = () => {
   });
 
   // API利用OFFで止まった検索は、保存済み論文の一覧を残したまま停止理由を通知する
+  // （前回の結果を表示している場合は保存済み論文の一覧ではないため通知しない。停止理由は検索欄の近くに残る）
   useEffect(() => {
-    if (stoppedQuery !== null && searchError) {
+    if (stoppedQuery !== null && searchError && previousResultsQuery === null) {
       toast.error("検索停止中: 保存済みの論文を表示しています", {
         id: "api-disabled-search",
         description: searchError.message,
       });
     }
-  }, [stoppedQuery, searchError]);
+  }, [stoppedQuery, searchError, previousResultsQuery]);
 
   // 設定ダイアログの開閉状態
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -337,15 +343,18 @@ const HomePage: FC = () => {
   const emptySearchMessage = getEmptySearchMessage(
     isSearchActive,
     results.length,
-    searchError,
+    // 前回の結果を表示している間の失敗は新しい検索のもの。理由は検索欄の近くに出し、前回の結果の0件理由に混ぜない
+    previousResultsQuery === null ? searchError : null,
     queryEmbedding,
-    isLoading,
+    // 前回の結果を表示している間は、その結果の0件理由を出す
+    isLoading && previousResultsQuery === null,
     {
       // 案内文は表示中の結果を計算したしきい値で出す（変更直後の再計算中に新しい値を付けない）
       scoreThreshold: resultsScoreThreshold ?? searchScoreThreshold,
       hasSearchablePapers: papers.length > papersExcludedFromSearch.length,
     },
-    resultsReady
+    // 前回の結果は確定済みの結果
+    resultsReady || previousResultsQuery !== null
   );
 
   // 初期表示用の論文（検索後は検索結果＋検索対象外を常時可視化、それ以外はストアから）
@@ -443,6 +452,20 @@ const HomePage: FC = () => {
         onRetrySync={retrySync}
         isSyncPending={isAutoSyncPending}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        previousResultsQuery={previousResultsQuery}
+        searchStatus={
+          pendingQuery !== null ? (
+            <SearchStatusPanel
+              query={pendingQuery}
+              isLoading={isLoading}
+              error={searchError}
+              previousQuery={previousResultsQuery}
+              onCancel={handleCancelSearch}
+              onRetry={handleRetrySearch}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          ) : null
+        }
       />
 
       {/* Footer */}

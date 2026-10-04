@@ -55,6 +55,13 @@ interface PaperExplorerProps {
   onOpenSettings?: () => void;
   /** 検索結果の件数の隣に置く操作（表示件数を受け取る。検索結果の表示中だけ使う） */
   renderSearchResultTools?: (displayedCount: number) => ReactNode;
+  /**
+   * 新しい検索の実行中・失敗時に前回の結果を表示しているとき、その結果のクエリ。
+   * 指定中は initialPapers を「前回の結果」として表示し、ローディング表示で隠さない
+   */
+  previousResultsQuery?: string | null;
+  /** 検索欄の直下に出す検索の状態（実行中・失敗と、その操作） */
+  searchStatus?: ReactNode;
 }
 
 /**
@@ -84,6 +91,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   isSyncPending,
   onOpenSettings,
   renderSearchResultTools,
+  previousResultsQuery = null,
+  searchStatus,
 }) => {
   // Context経由でいいね/ブックマーク状態を取得
   const { likedPaperIds, bookmarkedPaperIds } = useInteractionContext();
@@ -112,7 +121,10 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
 
   // 検索結果の表示元: 検索履歴クリックなど「外部からクエリが指定された」場合は親の initialPapers を使用
   // React Best Practice: 表示用は render 内で派生。effect で searchResultPapers をクリアしない（rerender-derived-state-no-effect）
-  const isExternalSearch = externalQuery !== null && searchQuery?.trim() === externalQuery;
+  // 前回の結果を表示している間（新しい検索の実行中・失敗時）も親の initialPapers を使う
+  const isShowingPreviousResults = previousResultsQuery !== null;
+  const isExternalSearch =
+    isShowingPreviousResults || (externalQuery !== null && searchQuery?.trim() === externalQuery);
   const displayPapers = hasSearched
     ? isExternalSearch
       ? initialPapers
@@ -177,7 +189,14 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   };
 
   // タイトルの決定
-  const title = searchQuery ? `"${searchQuery}" の検索結果` : "論文を探す";
+  // 前回の結果を表示している間は、新しい検索の結果と誤認させない見出しにする
+  const title = isShowingPreviousResults
+    ? `前回の結果（"${previousResultsQuery}"）`
+    : searchQuery
+      ? `"${searchQuery}" の検索結果`
+      : "論文を探す";
+  // 前回の結果を表示している間は、一覧をローディング表示で隠さない
+  const isListLoading = isSearchLoading && !isShowingPreviousResults;
 
   // モバイル: 論文一覧をファーストビューに近づける（オブジェクトファースト）
   const isDesktop = useMediaQuery("(min-width: 1024px)");
@@ -311,6 +330,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
             ? { value: searchInputValue, onChange: onSearchInputChange }
             : {})}
         />
+
+        {searchStatus}
 
         {/* 絞り込み: モバイルは一覧の手前の折りたたみ領域、デスクトップはインラインコンパクト */}
         {/* モバイルで領域を開いている間は、解除で対象が0件になっても開閉ボタンごと消さない */}
@@ -553,8 +574,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
       {/* 論文リスト */}
       <PaperList
         papers={filteredPapers}
-        isLoading={isSearchLoading}
-        isSearchLoading={isSearchLoading}
+        isLoading={isListLoading}
+        isSearchLoading={isListLoading}
         // 検索結果そのものが0件のときだけ検索の理由を出す。絞り込みで0件なら一覧の「条件に一致しない」に任せる
         emptyMessage={
           hasSearched &&

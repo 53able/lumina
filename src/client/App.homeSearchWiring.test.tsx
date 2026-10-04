@@ -192,8 +192,10 @@ describe("App: HomeMain → PaperExplorer の検索 props の受け渡し（#60�
 
     await user.type(await screen.findByRole("searchbox"), "transformer{Enter}");
 
-    await waitFor(() => expect(screen.getByRole("searchbox")).toBeDisabled());
-    expect(screen.getByRole("button", { name: "検索" })).toBeDisabled();
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true")
+    );
+    expect(screen.getByRole("button", { name: "検索" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
   });
 
@@ -203,14 +205,16 @@ describe("App: HomeMain → PaperExplorer の検索 props の受け渡し（#60�
     renderApp();
 
     await user.type(await screen.findByRole("searchbox"), "transformer{Enter}");
-    await waitFor(() => expect(screen.getByRole("searchbox")).toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true")
+    );
     expect(getLocationSearch()).toBe("?q=transformer");
 
     await user.click(screen.getByRole("button", { name: "検索と絞り込みをクリア" }));
 
     // App 側の handleClearSearch が呼ばれないと、検索中のまま入力欄が無効で値も残る
     const searchbox = screen.getByRole("searchbox");
-    await waitFor(() => expect(searchbox).toBeEnabled());
+    await waitFor(() => expect(searchbox).not.toHaveAttribute("aria-disabled"));
     expect(searchbox).toHaveValue("");
     expect(getLocationSearch()).toBe("");
     expect(screen.queryByTestId("paper-list-loading")).not.toBeInTheDocument();

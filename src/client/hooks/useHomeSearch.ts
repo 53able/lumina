@@ -38,6 +38,9 @@ const hasSavedEmbedding = (
  * - クリア: 実行中の検索を無効化し、URL 由来の検索も再開しない
  * - 変換文の編集からの再検索: URL の q（元の入力）は変えず、編集文を Embedding して検索する。
  *   履歴は元の入力をキーに、編集後の検索文と Embedding で上書きする（編集前の検索文は originalSearchText に残す）
+ * - 検索中・失敗時: 入力と前回の結果を保持する（previousResultsQuery で「前回の結果」と区別する）
+ * - 中止・前回の結果に戻る: 実行中の検索を無効化し、URL・表示クエリを前回の結果のクエリに戻す（入力欄は保持する）
+ * - 再試行: 失敗した検索を同じ条件で1回だけ実行する（利用者の操作でのみ行い、自動では再試行しない）
  *
  * URL の q は setSearchParams が render 時点の値から次の値を作るため、
  * 1つのハンドラー内で複数回更新しない（クリア時の q 削除は呼び出し元の clearSearchAndFilters が担う）。
@@ -54,10 +57,13 @@ export const useHomeSearch = ({
     search,
     searchWithSavedData,
     reset,
+    cancel,
     expandedQuery,
     queryEmbedding,
     totalMatchCount,
     resultsReady,
+    resultQuery,
+    isShowingPreviousResults,
   } = semanticSearch;
 
   const { searchQuery, setSearchQuery } = usePaperFilter();
@@ -95,7 +101,7 @@ export const useHomeSearch = ({
   const runQuery = useCallback(
     (query: string, history: SearchHistory | undefined) => {
       if (hasSavedEmbedding(history)) {
-        void searchWithSavedData(history.expandedQuery, history.queryEmbedding);
+        void searchWithSavedData(history.expandedQuery, history.queryEmbedding, query);
       } else {
         void search(query);
       }
@@ -138,6 +144,14 @@ export const useHomeSearch = ({
   );
 
   /**
+   * 検索文エディタ・検索クエリ表示用の拡張クエリ。前回の結果を表示している間（新しい検索の実行中・失敗時）は
+   * 前回の拡張クエリを新しい検索のものとして出さず、編集文での再検索なら送信した編集内容を返す（エディタを消さない）
+   */
+  const displayExpandedQuery = isShowingPreviousResults
+    ? editedQuery
+    : (expandedQuery ?? editedQuery);
+
+  /**
    * 確認・編集した変換文（Embedding に渡す検索文）で再検索する。
    * 元の入力（URL の q・入力欄・表示クエリ）は保持し、クエリ拡張は行わない。
    * 編集前の検索文は originalSearchText に引き継ぐ（履歴にも残り「元の検索文に戻す」に使う）。
@@ -145,7 +159,7 @@ export const useHomeSearch = ({
   const handleSearchWithEditedText = useCallback(
     (searchText: string) => {
       const query = activeQueryRef.current;
-      const base = expandedQuery ?? editedQuery;
+      const base = displayExpandedQuery;
       if (query === null || base === null) return;
       const nextQuery: ExpandedQuery = {
         ...base,
@@ -156,8 +170,36 @@ export const useHomeSearch = ({
       setEditedQuery(nextQuery);
       void search(query, nextQuery);
     },
-    [beginQuery, expandedQuery, editedQuery, search]
+    [beginQuery, displayExpandedQuery, search]
   );
+
+  /**
+   * 実行中の検索を中止する・失敗した検索から前回の結果に戻る。
+   * 通信を中止して応答を採用せず（履歴にも追加しない）、URL の q・表示クエリを前回の結果のクエリに戻す。
+   * 前回の結果がなければ検索していない状態に戻す。入力欄の内容は消さない（条件を直して検索し直せるように）。
+   */
+  const handleCancelSearch = useCallback(() => {
+    // 検索開始と同じ操作の中で呼ばれても（描画前の値でも）、前回の結果のクエリは resultQuery で決まる
+    const backTo = resultQuery;
+    cancel();
+    lastSearchQueryRef.current = null;
+    // URL 監視が前回のクエリを新しい検索として再実行しないよう、URL より先に記録する
+    activeQueryRef.current = backTo;
+    setActiveQuery(backTo);
+    setEditedQuery(null);
+    setSearchQuery(backTo);
+  }, [cancel, resultQuery, setSearchQuery]);
+
+  /**
+   * 失敗した検索を同じ条件（入力・編集した検索文）でもう一度実行する（1操作1回）。
+   * 失敗していない（実行中・成功・クリア後で再試行する検索がない）ときは何もしない。
+   */
+  const handleRetrySearch = useCallback(() => {
+    const query = activeQueryRef.current;
+    if (query === null || semanticSearch.error === null) return;
+    beginQuery(query);
+    void search(query, editedQuery ?? undefined);
+  }, [beginQuery, search, editedQuery, semanticSearch.error]);
 
   /** 検索をクリア（URL の q は呼び出し元がフィルターと合わせて消す） */
   const handleClearSearch = useCallback(() => {
@@ -190,9 +232,15 @@ export const useHomeSearch = ({
      * 失敗した検索（キー復号失敗など）は理由を表示するため、拡張クエリがあればクエリを返す
      */
     completedQuery:
-      expandedQuery !== null && (resultsReady || semanticSearch.error !== null)
+      expandedQuery !== null &&
+      !isShowingPreviousResults &&
+      (resultsReady || semanticSearch.error !== null)
         ? activeQuery
         : null,
+    /** 前回の結果を表示している間（新しい検索の実行中・失敗時）、その結果を得た検索のクエリ。それ以外は null */
+    previousResultsQuery: isShowingPreviousResults ? resultQuery : null,
+    /** 実行中・失敗した検索のクエリ（検索欄近くの状態表示用。それ以外は null） */
+    pendingQuery: semanticSearch.isLoading || semanticSearch.error !== null ? activeQuery : null,
     /** API利用OFFで止まった検索の確定クエリ（入力欄の編集では変わらない。それ以外は null） */
     stoppedQuery:
       semanticSearch.error?.name === "ApiDisabledError" ? (activeQuery?.trim() ?? null) : null,
@@ -205,7 +253,9 @@ export const useHomeSearch = ({
      * 検索クエリ表示・検索文エディタ用の拡張クエリ。完了した検索の拡張クエリを優先し、
      * 編集文での再検索中・失敗時は送信した編集内容を返す（エディタを消さず、編集内容を失わない）
      */
-    displayExpandedQuery: expandedQuery ?? editedQuery,
+    displayExpandedQuery,
     handleSearchWithEditedText,
+    handleCancelSearch,
+    handleRetrySearch,
   };
 };

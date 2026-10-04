@@ -125,7 +125,7 @@ describe("PaperSearch", () => {
       render(<PaperSearch onSearch={vi.fn()} isLoading />);
 
       const searchButton = screen.getByRole("button", { name: /検索/i });
-      expect(searchButton).toBeDisabled();
+      expect(searchButton).toHaveAttribute("aria-disabled", "true");
     });
 
     it("正常系: isLoading時に検索ボックスが無効化される", async () => {
@@ -134,7 +134,36 @@ describe("PaperSearch", () => {
       render(<PaperSearch onSearch={vi.fn()} isLoading />);
 
       const searchBox = screen.getByRole("searchbox");
-      expect(searchBox).toBeDisabled();
+      expect(searchBox).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("検索中も検索欄と検索ボタンは disabled にせず、フォーカスと入力を保ったまま送信だけ止める（#71）", async () => {
+      const { PaperSearch } = await import("./PaperSearch");
+      const user = userEvent.setup();
+      const handleSearch = vi.fn();
+      const { rerender } = render(
+        <PaperSearch onSearch={handleSearch} value="強化学習" onChange={vi.fn()} />
+      );
+      const searchBox = screen.getByRole("searchbox");
+      await user.click(searchBox);
+      await user.keyboard("{Enter}");
+      expect(handleSearch).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <PaperSearch onSearch={handleSearch} value="強化学習" onChange={vi.fn()} isLoading />
+      );
+
+      expect(searchBox).toHaveFocus();
+      expect(searchBox).toHaveValue("強化学習");
+      expect(searchBox).not.toBeDisabled();
+      expect(searchBox).toHaveAttribute("readonly");
+      const searchButton = screen.getByRole("button", { name: "検索" });
+      expect(searchButton).not.toBeDisabled();
+
+      // Enter・ボタンのどちらでも二重に送信しない
+      await user.keyboard("{Enter}");
+      await user.click(searchButton);
+      expect(handleSearch).toHaveBeenCalledTimes(1);
     });
   });
 

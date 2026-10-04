@@ -868,4 +868,117 @@ describe("useSemanticSearch", () => {
       expect(result.current.results).toEqual([]);
     });
   });
+
+  describe("検索中・失敗時の前回の結果の保持（#71）", () => {
+    /** 検索APIの応答（Response） */
+    const jsonResponse = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    /** 1回目は成功させ、前回の結果がある状態にする */
+    const searchFirst = async () => {
+      const view = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
+      await act(async () => {
+        await view.result.current.search("transformer");
+      });
+      expect(view.result.current.results.length).toBeGreaterThan(0);
+      return view;
+    };
+
+    it("新しい検索の実行中は前回の結果を消さず、前回の結果であることを示す", async () => {
+      const { result } = await searchFirst();
+      const previousIds = result.current.results.map((r) => r.paper.id);
+      mockFetch.mockReturnValueOnce(new Promise(() => {}));
+
+      act(() => {
+        void result.current.search("bert");
+      });
+
+      expect(result.current.isLoading).toBe(true);
+      expect(result.current.isShowingPreviousResults).toBe(true);
+      expect(result.current.resultQuery).toBe("transformer");
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(previousIds);
+    });
+
+    it.each([
+      ["401", () => jsonResponse({ error: "Incorrect API key" }, 401), 401],
+      ["429（プレーンテキスト）", () => new Response("Too many requests", { status: 429 }), 429],
+      ["500", () => jsonResponse({ error: "upstream" }, 500), 500],
+    ])("失敗（%s）しても前回の結果を保持し、status 付きのエラーにする。自動では再試行しない", async (_label, failure, status) => {
+      const { result } = await searchFirst();
+      const previousIds = result.current.results.map((r) => r.paper.id);
+      mockFetch.mockResolvedValueOnce(failure());
+
+      await act(async () => {
+        await result.current.search("bert");
+      });
+
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toMatchObject({ name: "SearchApiError", status });
+      expect(result.current.isShowingPreviousResults).toBe(true);
+      expect(result.current.resultQuery).toBe("transformer");
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(previousIds);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("前回の結果がない検索の失敗では、前回の結果として示さない", async () => {
+      mockFetch.mockResolvedValueOnce(new Response("Too many requests", { status: 429 }));
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: createTestSearchSource(mockPapers) })
+      );
+
+      await act(async () => {
+        await result.current.search("bert");
+      });
+
+      expect(result.current.error).not.toBeNull();
+      expect(result.current.isShowingPreviousResults).toBe(false);
+      expect(result.current.resultQuery).toBeNull();
+      expect(result.current.results).toEqual([]);
+    });
+
+    it("cancel で通信を中止し、前回の結果に戻る。後から届いた応答は採用しない", async () => {
+      const { result } = await searchFirst();
+      const previousIds = result.current.results.map((r) => r.paper.id);
+      let resolveFetch!: (value: unknown) => void;
+      mockFetch.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+      );
+
+      act(() => {
+        void result.current.search("bert");
+      });
+      await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+      act(() => {
+        result.current.cancel();
+      });
+
+      const init = mockFetch.mock.calls[1]?.[1] as RequestInit;
+      expect(init.signal?.aborted).toBe(true);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBeNull();
+      expect(result.current.isShowingPreviousResults).toBe(false);
+      expect(result.current.resultQuery).toBe("transformer");
+
+      await act(async () => {
+        resolveFetch(
+          jsonResponse({
+            ...mockSearchResponse,
+            expandedQuery: { ...mockSearchResponse.expandedQuery, original: "bert" },
+            queryEmbedding: createMockEmbedding(100),
+          })
+        );
+      });
+
+      expect(result.current.resultQuery).toBe("transformer");
+      expect(result.current.expandedQuery?.original).toBe("transformer");
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(previousIds);
+    });
+  });
 });

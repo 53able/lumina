@@ -121,6 +121,10 @@ interface HomeMainProps {
   isSyncPending?: boolean;
   /** 設定ダイアログを開く（未同期時の空表示から呼ぶ） */
   onOpenSettings?: () => void;
+  /** 新しい検索の実行中・失敗時に表示している前回の結果のクエリ（それ以外は null） */
+  previousResultsQuery?: string | null;
+  /** 検索欄の直下に出す検索の状態（実行中・失敗と、その操作） */
+  searchStatus?: ReactNode;
 }
 
 /**
@@ -180,6 +184,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
   onRetrySync,
   isSyncPending,
   onOpenSettings,
+  previousResultsQuery = null,
+  searchStatus,
 }) => {
   return (
     <>
@@ -345,6 +351,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
               onRetrySync={onRetrySync}
               isSyncPending={isSyncPending}
               onOpenSettings={onOpenSettings}
+              previousResultsQuery={previousResultsQuery}
+              searchStatus={searchStatus}
               // インライン展開（デスクトップのみ）
               expandedPaperId={expandedPaperId}
               renderExpandedDetail={renderExpandedDetail}
@@ -364,8 +372,8 @@ const HomeMainInner: FC<HomeMainProps> = ({
               }
             />
 
-            {/* ローディング中の検索結果表示 */}
-            {isLoading && results.length === 0 ? (
+            {/* ローディング中の検索結果表示（前回の結果を表示している間は一覧を残すため出さない） */}
+            {isLoading && previousResultsQuery === null && results.length === 0 ? (
               <div className="mt-12 grid place-items-center">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-12 w-12 animate-loading-bold rounded-full border-4 border-primary border-t-transparent" />

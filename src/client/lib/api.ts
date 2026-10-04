@@ -178,6 +178,21 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
 };
 
 /**
+ * 検索API（/api/v1/search）が失敗ステータスを返したときに投げるエラー。
+ * status で「設定を直す（401/403）」「時間をおいて再試行する（429）」などの案内を出し分ける。
+ * message はサーバー（上流）のエラー文のため、画面には表示しない。
+ */
+export class SearchApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "SearchApiError";
+    this.status = status;
+  }
+}
+
+/**
  * 検索API
  *
  * クエリをAIで拡張し、検索用Embeddingを生成する。
@@ -196,8 +211,15 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
   );
 
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error("error" in error ? error.error : "検索に失敗しました");
+    // hono-rate-limiter の 429 はプレーンテキストのため、JSON でなくても status で失敗を分類できるようにする
+    const body: unknown = await res.json().catch(() => null);
+    const message =
+      body && typeof body === "object" && "error" in body
+        ? String((body as { error: unknown }).error)
+        : "検索に失敗しました";
+    // RPC の型はサーバーが返すステータスだけに絞られるため、ミドルウェア・ゲートウェイの値も扱えるよう number で受ける
+    const status: number = res.status;
+    throw new SearchApiError(message, status);
   }
 
   // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される

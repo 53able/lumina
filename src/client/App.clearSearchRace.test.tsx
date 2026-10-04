@@ -187,8 +187,11 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
     renderApp();
 
     await user.type(await screen.findByRole("searchbox"), "transformer{Enter}");
-    await waitFor(() => expect(screen.getByRole("searchbox")).toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true")
+    );
     expect(searchRequestCount()).toBe(1);
+    expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true");
 
     // クリアの click と同じタイミングで store を更新する（URL 更新の transition より先に確定する）
     const clearButton = screen.getByRole("button", { name: "検索と絞り込みをクリア" });
@@ -200,7 +203,8 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
     await waitFor(() => expect(screen.getByTestId("location-search")).toBeEmptyDOMElement());
     expect(searchRequestCount()).toBe(1);
     const searchbox = screen.getByRole("searchbox");
-    await waitFor(() => expect(searchbox).toBeEnabled());
+    // クリア前は検索中（aria-disabled="true"）だったものが解除される
+    await waitFor(() => expect(searchbox).not.toHaveAttribute("aria-disabled"));
     expect(searchbox).toHaveValue("");
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("論文を探す");
     expect(searchRequestCount()).toBe(1);
@@ -211,11 +215,14 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
   )("別クエリで検索を始めると同時に $name が更新されても、前の URL のクエリで検索し直さない", async ({
     update,
   }) => {
-    // 1回目（transformer）は応答し、2回目以降は応答しない
+    // 1回目（transformer）は respondFirst で応答し、2回目以降は応答しない
     const holdingImplementation = fetchMock.getMockImplementation();
+    let respondFirst: (() => void) | undefined;
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) =>
       isSearchRequest(input) && searchRequestCount() === 1
-        ? Promise.resolve(searchResponse())
+        ? new Promise<Response>((resolve) => {
+            respondFirst = () => resolve(searchResponse());
+          })
         : holdingImplementation?.(input, init)
     );
     const user = userEvent.setup();
@@ -223,7 +230,13 @@ describe("App: 検索のクリアと store 更新の競合（#81）", () => {
 
     const searchbox = await screen.findByRole("searchbox");
     await user.type(searchbox, "transformer{Enter}");
-    await waitFor(() => expect(searchbox).toBeEnabled());
+    // 検索中になったことを確かめてから応答させ、完了（aria-disabled の解除）を待つ
+    await waitFor(() => expect(searchRequestCount()).toBe(1));
+    expect(searchbox).toHaveAttribute("aria-disabled", "true");
+    await act(async () => {
+      respondFirst?.();
+    });
+    await waitFor(() => expect(searchbox).not.toHaveAttribute("aria-disabled"));
     expect(screen.getByTestId("location-search")).toHaveTextContent("?q=transformer");
 
     await user.clear(searchbox);

@@ -241,8 +241,8 @@ describe("PaperExplorer", () => {
       renderExplorer({ isSearchLoading: true }, "/?q=transformer");
 
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
-      expect(screen.getByRole("searchbox")).toBeDisabled();
-      expect(screen.getByRole("button", { name: "検索" })).toBeDisabled();
+      expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("button", { name: "検索" })).toHaveAttribute("aria-disabled", "true");
     });
 
     it("検索するとonSearchコールバックが呼ばれる", async () => {
@@ -300,14 +300,16 @@ describe("PaperExplorer", () => {
       await user.type(screen.getByRole("searchbox"), "transformer");
       await user.click(screen.getByRole("button", { name: "検索" }));
 
-      await waitFor(() => expect(screen.getByRole("searchbox")).toBeDisabled());
+      await waitFor(() =>
+        expect(screen.getByRole("searchbox")).toHaveAttribute("aria-disabled", "true")
+      );
       expect(screen.getByTestId("paper-list-loading")).toBeInTheDocument();
       expect(getLocationSearch()).toBe("?q=transformer");
 
       await user.click(screen.getByRole("button", { name: "検索と絞り込みをクリア" }));
 
       const searchbox = screen.getByRole("searchbox");
-      expect(searchbox).toBeEnabled();
+      expect(searchbox).not.toHaveAttribute("aria-disabled");
       expect(searchbox).toHaveValue("");
       expect(getLocationSearch()).toBe("");
       expect(screen.queryByTestId("paper-list-loading")).not.toBeInTheDocument();
