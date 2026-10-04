@@ -212,7 +212,7 @@ const HomePage: FC = () => {
   );
 
   // whyReadMap を生成（論文ID → whyRead のマップ）
-  // 利用者の訂正文は要約本文への訂正のため反映しない（一覧の「読む理由」はAIの推奨のまま）
+  // 利用者の訂正文は要約本文への訂正のため反映しない（一覧の「読むと得られること（AI）」はAI生成文のまま）
   // React Best Practice: useMemoでメモ化して不要な再計算を防ぐ
   const whyReadMap = useMemo(() => {
     const map = new Map<string, string>();

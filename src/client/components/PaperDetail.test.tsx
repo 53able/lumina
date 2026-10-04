@@ -284,6 +284,47 @@ describe("PaperDetail", () => {
       expect(container.querySelector("mark")).toHaveTextContent(sentence1);
     });
 
+    it("正常系: 論文・要約の版・言語を切り替えると、前の根拠の強調を持ち越さない", async () => {
+      const user = userEvent.setup();
+      const summary = createSummary({
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        keyPointEvidence: [[{ index: 2, text: sentence2 }], []],
+      });
+      const { container, rerender } = render(<PaperDetail paper={mockPaper} summary={summary} />);
+      const showEvidence = () =>
+        user.click(screen.getByRole("button", { name: "根拠を見る（キーポイント1）" }));
+
+      // 別の版（同じ論文・言語で生成日時が異なる）
+      await showEvidence();
+      expect(container.querySelector("mark")).not.toBeNull();
+      rerender(
+        <PaperDetail
+          paper={mockPaper}
+          summary={{ ...summary, createdAt: new Date("2026-01-02T00:00:00Z") }}
+        />
+      );
+      expect(container.querySelector("mark")).toBeNull();
+
+      // 言語の切替
+      rerender(<PaperDetail paper={mockPaper} summary={summary} />);
+      await showEvidence();
+      expect(container.querySelector("mark")).not.toBeNull();
+      rerender(<PaperDetail paper={mockPaper} summary={summary} selectedSummaryLanguage="en" />);
+      expect(container.querySelector("mark")).toBeNull();
+
+      // 論文の差し替え（同じ Abstract でも別の論文なら強調しない）
+      rerender(<PaperDetail paper={mockPaper} summary={summary} />);
+      await showEvidence();
+      expect(container.querySelector("mark")).not.toBeNull();
+      rerender(
+        <PaperDetail
+          paper={{ ...mockPaper, id: "2401.00002" }}
+          summary={{ ...summary, paperId: "2401.00002" }}
+        />
+      );
+      expect(container.querySelector("mark")).toBeNull();
+    });
+
     it("異常系: Abstractに実在しない根拠（範囲外の番号・文の不一致）は根拠として示さず「対応箇所未確認」にする", async () => {
       const user = userEvent.setup();
       const { container } = render(

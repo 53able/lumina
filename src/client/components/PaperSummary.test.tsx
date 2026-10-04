@@ -835,7 +835,7 @@ describe("PaperSummary", () => {
       expect(generated).not.toHaveTextContent(misleading);
     });
 
-    it("正常系: 説明文はAIの推奨として論文中の記述と区別して表示される", async () => {
+    it("正常系: 説明文はAIの推測（読むと得られること）として論文中の記述と区別して表示される", async () => {
       const user = userEvent.setup();
       render(
         <PaperSummary
@@ -850,7 +850,9 @@ describe("PaperSummary", () => {
 
       await user.click(screen.getByRole("tab", { name: /なぜ読むべきか/ }));
 
-      expect(screen.getByText(/AIの推奨です。論文中の記述ではありません/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/読むと得られること（AI）です。論文中の記述ではありません/)
+      ).toBeInTheDocument();
     });
   });
 

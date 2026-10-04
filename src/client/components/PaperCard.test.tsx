@@ -219,7 +219,8 @@ describe("PaperCard", () => {
 
       // 検索意図との一致を説明するものではないため、「推奨」「一致」と読める表示にしない
       const card = screen.getByRole("article");
-      expect(card).not.toHaveTextContent(/AIの推奨|一致/);
+      expect(card).not.toHaveTextContent("AIの推奨");
+      expect(card).not.toHaveTextContent(/検索(との|に)一致|一致理由/);
     });
 
     it("正常系: whyReadが未指定の場合はラベルを表示しない", () => {

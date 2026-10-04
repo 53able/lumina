@@ -81,24 +81,30 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   const abstractSentences = useMemo(() => splitAbstractSentences(paper.abstract), [paper.abstract]);
 
   /**
-   * 「根拠を見る」で強調する文（表示中の論文のものだけ有効）
+   * 根拠の強調が有効な範囲（論文・要約の言語・表示中の版）。
+   * 論文・言語・版を切り替えたら、前の要約の根拠の強調を持ち越さない
+   */
+  const evidenceScope = `${paper.id}:${selectedSummaryLanguage}:${summary?.createdAt.getTime() ?? ""}`;
+
+  /**
+   * 「根拠を見る」で強調する文（表示中の範囲のものだけ有効）
    * request は同じ根拠を続けて押してもスクロールし直すための連番
    */
   const [evidence, setEvidence] = useState<{
-    paperId: string;
+    scope: string;
     indices: number[];
     request: number;
   } | null>(null);
-  const highlightedIndices = evidence?.paperId === paper.id ? evidence.indices : [];
+  const highlightedIndices = evidence?.scope === evidenceScope ? evidence.indices : [];
 
   const handleShowEvidence = (indices: number[]) => {
-    setEvidence((prev) => ({ paperId: paper.id, indices, request: (prev?.request ?? 0) + 1 }));
+    setEvidence((prev) => ({ scope: evidenceScope, indices, request: (prev?.request ?? 0) + 1 }));
   };
 
   // 根拠の文（なければAbstract）へスクロールし、フォーカスを移す。URLのフラグメントと履歴は変えない
   // biome-ignore lint/correctness/useExhaustiveDependencies: 「根拠を見る」を押したときだけ動かす
   useEffect(() => {
-    if (!evidence || evidence.paperId !== paper.id) return;
+    if (!evidence || evidence.scope !== evidenceScope) return;
     const first = evidence.indices[0];
     const target = document.getElementById(first === undefined ? abstractId : sentenceId(first));
     target?.scrollIntoView({ block: "center" });
@@ -138,7 +144,11 @@ export const PaperDetail: FC<PaperDetailProps> = ({
         {/* アブストラクト */}
         <div>
           <h3 className="mb-2 text-sm font-bold text-muted-foreground">Abstract</h3>
-          <p id={abstractId} tabIndex={-1} className="text-sm leading-relaxed outline-none">
+          <p
+            id={abstractId}
+            tabIndex={-1}
+            className="rounded text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             {abstractSentences.map((sentence, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: 文の並びは Abstract から決まり、並べ替えない
               <Fragment key={i}>
@@ -147,7 +157,7 @@ export const PaperDetail: FC<PaperDetailProps> = ({
                   <mark
                     id={sentenceId(i)}
                     tabIndex={-1}
-                    className="rounded bg-primary/20 px-0.5 text-foreground outline-none"
+                    className="rounded bg-primary/20 px-0.5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {sentence}
                   </mark>

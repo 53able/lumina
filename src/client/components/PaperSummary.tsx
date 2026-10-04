@@ -736,7 +736,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             <div className={cn("space-y-4 transition-opacity", isRegenerating && "opacity-50")}>
               {/* 論文中の事実と区別するための注記 */}
               <p className="text-xs text-muted-foreground">
-                以下はAbstractをもとにしたAIの推奨です。論文中の記述ではありません。
+                以下はAbstractをもとにAIが推測した、読むと得られること（AI）です。論文中の記述ではありません。
               </p>
 
               {/* メイン説明文 */}
