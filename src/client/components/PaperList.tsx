@@ -18,11 +18,18 @@ import { Card } from "./ui/card";
 /** カードの最小幅（px） */
 const MIN_CARD_WIDTH = 300;
 
-/** グリッドのギャップ（px） */
-const GRID_GAP = 32;
+/** グリッドのギャップ（px）。先頭の結果を画面内に多く収めるため控えめにする */
+const GRID_GAP = 16;
 
-/** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
-const ESTIMATED_ROW_HEIGHT = 252;
+/**
+ * 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定
+ *
+ * ビルド済みCSSをヘッドレス Chrome で実測した1セル（余白 4px 込み）の高さ（幅 350〜352px、3行のタイトル・著者4名・カテゴリ3つ）:
+ * Abstract 抜粋のみ 340px、AI の一文あり 398px、Abstract なし 272px。多くの論文が該当する Abstract 抜粋のみの値を使う
+ * AI の一文（whyRead）がある行は推定より約60px高く、Abstract がない行は約70px低い。差は measureElement の実測で補正する。
+ * 行ごとの内容に応じた推定は PR #24（Pretext による行の高さの推定）で見直す
+ */
+const ESTIMATED_ROW_HEIGHT = 340;
 
 /** 展開行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
 const ESTIMATED_EXPANDED_ROW_HEIGHT = 400;
@@ -308,7 +315,7 @@ export const PaperList: FC<PaperListProps> = ({
                   key={`row-${index}`}
                   data-index={index}
                   ref={measureElement}
-                  className="absolute left-0 right-0 [content-visibility:auto] [contain-intrinsic-size:0_252px]"
+                  className="absolute left-0 right-0 [content-visibility:auto] [contain-intrinsic-size:0_340px]"
                   style={{
                     top: `${start}px`,
                     zIndex: isExpanded ? 10 : 1,
@@ -358,8 +365,8 @@ export const PaperList: FC<PaperListProps> = ({
                             style={{
                               animationDelay: `${(finalIndex !== undefined ? finalIndex : index * columnCount + colIndex) * 0.05}s`,
                               overflow: "visible",
-                              /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
-                              padding: "12px",
+                              /* ホバー・選択時の枠線が隣のカードに隠れない程度の余白 */
+                              padding: "4px",
                             }}
                           >
                             <PaperCard

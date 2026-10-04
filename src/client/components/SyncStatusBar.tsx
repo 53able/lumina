@@ -15,7 +15,7 @@ import { Button } from "./ui/button";
  * 同期の表示状態（isSyncing, isSyncingAll, 進捗, エラー）は syncStore から取得する。
  */
 interface SyncStatusBarProps {
-  /** モバイル向けコンパクト表示（論文一覧までの距離を短くする） */
+  /** コンパクト表示（モバイルの一覧の下・デスクトップのサイドバー）。狭い幅でもブロックを縮めて折り返し、ボタンを外枠からはみ出させない */
   compact?: boolean;
   /** まだ取得可能な論文があるか（同期期間内の残り） */
   hasMore?: boolean;
@@ -62,7 +62,7 @@ const EmbeddingBackfillOutcomeNotice: FC<EmbeddingBackfillOutcomeNoticeProps> = 
   const textSize = compact ? "text-xs" : "text-sm";
   const subTextSize = compact ? "text-[10px]" : "text-xs";
   const buttonClassName = compact
-    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+    ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs"
     : "min-h-[48px] min-w-[48px] h-auto px-3 py-2";
 
   return (
@@ -236,7 +236,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                 disabled={isSyncing || isSyncingAll || isSyncingFromDate}
                 className={
                   compact
-                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs"
                     : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
                 }
               >
@@ -249,7 +249,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
               onClick={() => setLastSyncError(null)}
               className={
                 compact
-                  ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                  ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs"
                   : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
               }
             >
@@ -261,7 +261,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
       <div
         className={
           compact
-            ? "flex flex-wrap items-center gap-x-4 gap-y-2"
+            ? "flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2"
             : "flex flex-wrap items-center gap-x-6 gap-y-3"
         }
       >
@@ -269,7 +269,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
         <div
           className={
             compact
-              ? "flex flex-wrap items-center content-start gap-x-2 gap-y-2"
+              ? "flex min-w-0 flex-wrap items-center content-start gap-x-2 gap-y-2"
               : "flex flex-wrap items-center content-start gap-x-4 gap-y-2"
           }
         >
@@ -310,7 +310,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           <div
             className={
               compact
-                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0 pl-2 border-l border-border/50"
+                ? "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs pl-2 border-l border-border/50"
                 : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0 pl-3 border-l border-border/50"
             }
           >
@@ -332,7 +332,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                 aria-label="同期期間の論文をすべて取得"
                 className={
                   compact
-                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs"
                     : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
                 }
               >
@@ -362,11 +362,12 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   onStopSync();
                 }}
                 disabled={isStopping}
-                aria-label={isStopping ? "停止しています" : "同期を停止"}
+                // 名前は表示文（「停止中…」「停止」）を含める（WCAG 2.5.3）
+                aria-label={isStopping ? "同期を停止中…" : "同期を停止"}
                 aria-busy={isStopping}
                 className={
                   compact
-                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs"
                     : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
                 }
               >
@@ -374,7 +375,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   className={compact ? "h-3.5 w-3.5 shrink-0" : "h-4 w-4 shrink-0"}
                   aria-hidden
                 />
-                {compact ? "" : isStopping ? "停止中…" : "停止"}
+                {isStopping ? "停止中…" : "停止"}
               </Button>
             ) : null}
           </div>
@@ -383,7 +384,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
           <div
             className={
               compact
-                ? "flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs shrink-0 pl-2 border-l border-border/50"
+                ? "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1.5 text-xs pl-2 border-l border-border/50"
                 : "flex flex-wrap items-center gap-x-2 gap-y-2 text-sm shrink-0 pl-3 border-l border-border/50"
             }
           >
@@ -421,7 +422,7 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                 aria-describedby={apiEnabled ? undefined : "embedding-backfill-api-disabled"}
                 className={
                   compact
-                    ? "min-h-[44px] min-w-[44px] h-auto px-2 py-1.5 text-xs"
+                    ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs"
                     : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
                 }
               >

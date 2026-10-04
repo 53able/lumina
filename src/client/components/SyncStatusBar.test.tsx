@@ -363,5 +363,24 @@ describe("SyncStatusBar", () => {
 
       expect(onStopSync).toHaveBeenCalledTimes(1);
     });
+
+    it.each([
+      ["通常", false],
+      ["compact", true],
+    ])("%s表示: 停止ボタンの名前は表示文を含む（停止処理中も「停止中…」を名前に含める）", async (_, compact) => {
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      const user = userEvent.setup();
+      mockSyncStoreState.isSyncingFromDate = true;
+
+      render(<SyncStatusBar compact={compact} onStopSync={vi.fn()} />);
+
+      const stop = screen.getByRole("button", { name: "同期を停止" });
+      expect(stop).toHaveTextContent("停止");
+      await user.click(stop);
+
+      const stopping = screen.getByRole("button", { name: "同期を停止中…" });
+      expect(stopping).toHaveTextContent("停止中…");
+      expect(stopping).toBeDisabled();
+    });
   });
 });

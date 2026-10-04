@@ -64,7 +64,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
           <TooltipTrigger asChild>
             <Badge
               variant="secondary"
-              className="relative z-10 cursor-help font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10 hover:bg-primary/20 hover:border-primary/50 hover:scale-105 transition-all duration-200"
+              className="relative z-10 cursor-help font-semibold text-xs px-2 py-0.5 rounded-md border border-primary/30 bg-primary/10 hover:bg-primary/20"
               onClick={(e) => e.stopPropagation()}
             >
               {category}
@@ -78,7 +78,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
         <Badge
           key={category}
           variant="secondary"
-          className="relative z-10 font-bold text-xs px-3 py-1 rounded-md border-2 border-primary/30 bg-primary/10"
+          className="relative z-10 font-semibold text-xs px-2 py-0.5 rounded-md border border-primary/30 bg-primary/10"
         >
           {category}
         </Badge>
@@ -132,7 +132,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
   return (
     <Card
       role="article"
-      className={`min-w-0 cursor-pointer card-3d card-glow card-accent-line transition-all duration-200 relative ${
+      className={`min-w-0 cursor-pointer gap-3 py-4 card-3d card-glow card-accent-line transition-all duration-200 relative ${
         isExpanded
           ? "card-expanded-border shadow-2xl bg-card/90 rotate-0"
           : "hover:shadow-xl hover:shadow-primary/20"
@@ -160,20 +160,15 @@ const PaperCardComponent: FC<PaperCardProps> = ({
         )}
       </div>
       <div className="card-3d-inner">
-        <CardHeader className="pb-2">
+        <CardHeader className="px-4 pb-1">
           <div className="flex items-start gap-2">
             {index !== undefined && (
-              <span
-                className="shrink-0 inline-flex items-center justify-center h-8 min-w-8 px-2 rounded-md bg-primary/20 text-primary font-mono font-bold text-sm text-dense"
-                style={{
-                  transform: "rotate(-2deg)",
-                  boxShadow: "0 2px 8px hsl(var(--primary) / 0.3)",
-                }}
-              >
+              <span className="shrink-0 inline-flex items-center justify-center h-6 min-w-6 px-1.5 rounded bg-primary/15 text-primary font-mono font-bold text-xs">
                 #{index + 1}
               </span>
             )}
-            <CardTitle className="min-w-0 card-title-hover line-clamp-2 text-lg font-bold text-tight-bold">
+            {/* タイトルは省略せず全文を表示する（読む対象を詳細を開かずに選べるように） */}
+            <CardTitle className="min-w-0 card-title-hover text-base font-bold leading-snug">
               {paper.title}
             </CardTitle>
           </div>
@@ -191,10 +186,22 @@ const PaperCardComponent: FC<PaperCardProps> = ({
           <p className="card-text-hover text-sm text-foreground" style={{ opacity: 0.8 }}>
             {authorsDisplay}
           </p>
+          {/* Abstract の抜粋（原文）。AI が生成した文と区別できるようラベルを付ける */}
+          {paper.abstract ? (
+            <p
+              className="text-sm text-muted-foreground line-clamp-3"
+              data-testid="abstract-excerpt"
+            >
+              <span className="mr-1 rounded border border-current px-1 text-[10px] align-middle">
+                Abstract（原文）
+              </span>
+              {paper.abstract}
+            </p>
+          ) : null}
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4">
           {/* カテゴリバッジ（ツールチップ付き） */}
-          <div className="relative z-10 mb-3 flex flex-wrap gap-2">
+          <div className="relative z-10 mb-2 flex flex-wrap gap-1.5">
             {categoryBadges}
             {!hasPaperEmbedding(paper) && (
               <Badge

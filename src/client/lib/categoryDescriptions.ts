@@ -227,3 +227,47 @@ export const CATEGORY_DESCRIPTIONS: Record<string, string> = {
 export const getCategoryDescription = (categoryId: string): string | undefined => {
   return CATEGORY_DESCRIPTIONS[categoryId];
 };
+
+/**
+ * 説明の先頭文が分野名になっていないカテゴリ（cs・stat）の日本語の分野名
+ *
+ * それ以外のカテゴリは説明の先頭文（「。」まで）を分野名として使う
+ */
+const CATEGORY_NAME_OVERRIDES: Record<string, string> = {
+  "cs.AI": "人工知能",
+  "cs.AR": "ハードウェアアーキテクチャ",
+  "cs.CC": "計算複雑性",
+  "cs.CE": "計算科学・工学・金融",
+  "cs.CV": "コンピュータビジョン",
+  "cs.CY": "コンピュータと社会",
+  "cs.DB": "データベース",
+  "cs.DL": "デジタルライブラリ",
+  "cs.DM": "離散数学",
+  "cs.ET": "新興技術",
+  "cs.FL": "形式言語とオートマトン",
+  "cs.GL": "一般文献",
+  "cs.GR": "コンピュータグラフィックス",
+  "cs.GT": "計算機科学とゲーム理論",
+  "cs.HC": "ヒューマンコンピュータインタラクション",
+  "cs.IR": "情報検索",
+  "cs.IT": "情報理論",
+  "cs.LG": "機械学習",
+  "cs.MA": "マルチエージェントシステム",
+  "cs.NA": "数値解析",
+  "cs.NE": "ニューラル・進化計算",
+  "stat.AP": "応用統計",
+  "stat.CO": "計算統計",
+  "stat.ME": "統計的方法論",
+  "stat.ML": "機械学習（統計）",
+  "stat.OT": "その他の統計学",
+  "stat.TH": "統計理論",
+};
+
+/**
+ * カテゴリIDから日本語の分野名を取得する（例: "cs.LG" → "機械学習"）
+ *
+ * @param categoryId - arXivカテゴリID
+ * @returns 分野名（説明がないカテゴリはundefined）
+ */
+export const getCategoryName = (categoryId: string): string | undefined =>
+  CATEGORY_NAME_OVERRIDES[categoryId] ?? CATEGORY_DESCRIPTIONS[categoryId]?.split("。")[0];

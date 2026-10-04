@@ -4,6 +4,7 @@ import type { Paper } from "../../shared/schemas/index";
 import { useInteractionContext } from "../contexts/InteractionContext";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { usePaperFilter } from "../hooks/usePaperFilter";
+import { getCategoryName } from "../lib/categoryDescriptions";
 import {
   formatSearchResultBreakdown,
   formatSearchScope,
@@ -18,6 +19,9 @@ import { PaperList } from "./PaperList";
 import { PaperSearch } from "./PaperSearch";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+
+/** ボタン既定のホバー・押下時の拡大と回転を打ち消す（絞り込みの操作で行を揺らさない） */
+const NO_MOTION_BUTTON_CLASS = "hover:scale-100 hover:rotate-0 active:scale-100 active:rotate-0";
 
 /** 絞り込み結果を読み上げるまでの待ち時間（連続操作で読み上げを連発しない） */
 const FILTER_ANNOUNCE_DELAY_MS = 400;
@@ -222,6 +226,11 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const filterPanelId = useId();
   const filterToggleRef = useRef<HTMLButtonElement>(null);
+
+  // デスクトップ: カテゴリの折りたたみ領域（開閉状態）
+  const [isCategoryPanelOpen, setIsCategoryPanelOpen] = useState(false);
+  const categoryPanelId = useId();
+  const categoryToggleRef = useRef<HTMLButtonElement>(null);
 
   // 有効なフィルター数（バッジ表示用）
   const activeFilterCount = (filterMode !== "all" ? 1 : 0) + selectedCategories.size;
@@ -479,11 +488,12 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                   </div>
                 </fieldset>
 
-                {/* カテゴリ（多い場合は領域内でスクロールし、一覧の先頭を押し出しすぎない） */}
+                {/* カテゴリ（多い場合は名前・コードで探せ、一覧は領域内でスクロールして一覧の先頭を押し出しすぎない） */}
                 {availableCategories.length > 1 ? (
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">カテゴリ</p>
-                    <div className="max-h-28 overflow-y-auto">
+                    {/* 閉じている間はマウントしない（閉じたらカテゴリの検索語をリセットする） */}
+                    {isFilterPanelOpen ? (
                       <CategoryFilter
                         availableCategories={availableCategories}
                         selectedCategories={selectedCategories}
@@ -493,8 +503,9 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                         }}
                         onClear={clearFiltersFromPanel}
                         hideLabel
+                        listMaxHeightClassName="max-h-28"
                       />
-                    </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -514,84 +525,165 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
             </div>
           ) : (
             /* デスクトップ: インラインコンパクト（ラベル省略・余白縮小） */
-            <div className="flex flex-wrap items-center gap-2 pt-2">
-              {/* いいね/ブックマーク */}
-              <fieldset className="flex items-center gap-1.5 border-0 p-0 m-0 min-w-0">
-                <legend className="sr-only">表示</legend>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => toggleFilterMode("liked")}
-                      className={cn(
-                        "h-7 px-2 gap-1 transition-all",
-                        filterMode === "liked"
-                          ? "bg-primary/10 text-primary hover:bg-primary/20"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                      disabled={likedCount === 0 && filterMode !== "liked"}
-                      aria-pressed={filterMode === "liked"}
-                      aria-label={
-                        filterMode === "liked" ? "すべての論文を表示" : "いいねした論文のみ表示"
-                      }
-                    >
-                      <Heart
-                        className={cn("h-3.5 w-3.5", filterMode === "liked" && "fill-current")}
-                      />
-                      <span className="text-xs">{likedCount}</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {filterMode === "liked" ? "すべての論文を表示" : "いいねした論文のみ表示"}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => toggleFilterMode("bookmarked")}
-                      className={cn(
-                        "h-7 px-2 gap-1 transition-all",
-                        filterMode === "bookmarked"
-                          ? "bg-primary/10 text-primary hover:bg-primary/20"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                      disabled={bookmarkedCount === 0 && filterMode !== "bookmarked"}
-                      aria-pressed={filterMode === "bookmarked"}
-                      aria-label={
-                        filterMode === "bookmarked"
-                          ? "すべての論文を表示"
-                          : "ブックマークした論文のみ表示"
-                      }
-                    >
-                      <Bookmark
-                        className={cn("h-3.5 w-3.5", filterMode === "bookmarked" && "fill-current")}
-                      />
-                      <span className="text-xs">{bookmarkedCount}</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {filterMode === "bookmarked"
-                      ? "すべての論文を表示"
-                      : "ブックマークした論文のみ表示"}
-                  </TooltipContent>
-                </Tooltip>
-              </fieldset>
+            <div className="space-y-2 pt-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* いいね/ブックマーク */}
+                <fieldset className="flex items-center gap-1.5 border-0 p-0 m-0 min-w-0">
+                  <legend className="sr-only">表示</legend>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleFilterMode("liked")}
+                        className={cn(
+                          "h-7 px-2 gap-1 transition-all",
+                          filterMode === "liked"
+                            ? "bg-primary/10 text-primary hover:bg-primary/20"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                        disabled={likedCount === 0 && filterMode !== "liked"}
+                        aria-pressed={filterMode === "liked"}
+                        aria-label={
+                          filterMode === "liked" ? "すべての論文を表示" : "いいねした論文のみ表示"
+                        }
+                      >
+                        <Heart
+                          className={cn("h-3.5 w-3.5", filterMode === "liked" && "fill-current")}
+                        />
+                        <span className="text-xs">{likedCount}</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {filterMode === "liked" ? "すべての論文を表示" : "いいねした論文のみ表示"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleFilterMode("bookmarked")}
+                        className={cn(
+                          "h-7 px-2 gap-1 transition-all",
+                          filterMode === "bookmarked"
+                            ? "bg-primary/10 text-primary hover:bg-primary/20"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                        disabled={bookmarkedCount === 0 && filterMode !== "bookmarked"}
+                        aria-pressed={filterMode === "bookmarked"}
+                        aria-label={
+                          filterMode === "bookmarked"
+                            ? "すべての論文を表示"
+                            : "ブックマークした論文のみ表示"
+                        }
+                      >
+                        <Bookmark
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            filterMode === "bookmarked" && "fill-current"
+                          )}
+                        />
+                        <span className="text-xs">{bookmarkedCount}</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {filterMode === "bookmarked"
+                        ? "すべての論文を表示"
+                        : "ブックマークした論文のみ表示"}
+                    </TooltipContent>
+                  </Tooltip>
+                </fieldset>
 
-              {/* カテゴリ（2つ以上ある場合） */}
+                {/* カテゴリ（2つ以上ある場合）: 一覧を押し下げないよう折りたたみ、開くと名前・コードで探せる */}
+                {availableCategories.length > 1 ? (
+                  <>
+                    <div className="h-4 w-px bg-border/50" aria-hidden />
+                    <Button
+                      ref={categoryToggleRef}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsCategoryPanelOpen((open) => !open)}
+                      className={cn("h-7 gap-1 px-2 text-xs", NO_MOTION_BUTTON_CLASS)}
+                      aria-expanded={isCategoryPanelOpen}
+                      aria-controls={categoryPanelId}
+                    >
+                      カテゴリ
+                      {selectedCategories.size > 0 ? (
+                        <span className="rounded-full bg-primary/20 px-1.5 font-medium text-primary">
+                          <span className="sr-only">（選択中</span>
+                          {selectedCategories.size}
+                          <span className="sr-only">件）</span>
+                        </span>
+                      ) : null}
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 transition-transform",
+                          isCategoryPanelOpen && "rotate-180"
+                        )}
+                        aria-hidden
+                      />
+                    </Button>
+                  </>
+                ) : null}
+
+                {/* 適用中のカテゴリ（折りたたみ中も見え、その場で解除できる） */}
+                {[...selectedCategories].map((category) => {
+                  const name = getCategoryName(category);
+                  return (
+                    <Button
+                      key={category}
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        toggleCategory(category);
+                        // 押したチップが消えるため、開閉ボタン（カテゴリが1件以下で開閉ボタンがないときは検索欄）へフォーカスを移す
+                        (
+                          categoryToggleRef.current ??
+                          heroSectionRef.current?.querySelector<HTMLInputElement>(
+                            '[role="searchbox"]'
+                          )
+                        )?.focus();
+                      }}
+                      aria-label={`${name ? `${category}（${name}）` : category}の絞り込みを解除`}
+                      className={cn("h-7 gap-1 px-2 text-xs", NO_MOTION_BUTTON_CLASS)}
+                    >
+                      <span className="font-mono font-semibold">{category}</span>
+                      {name ? <span>{name}</span> : null}
+                      <X className="h-3 w-3" aria-hidden />
+                    </Button>
+                  );
+                })}
+              </div>
               {availableCategories.length > 1 ? (
-                <>
-                  <div className="h-4 w-px bg-border/50" aria-hidden />
-                  <CategoryFilter
-                    availableCategories={availableCategories}
-                    selectedCategories={selectedCategories}
-                    onToggle={toggleCategory}
-                    onClear={clearAllFilters}
-                    hideLabel
-                  />
-                </>
+                <section
+                  id={categoryPanelId}
+                  aria-label="カテゴリ"
+                  hidden={!isCategoryPanelOpen}
+                  onKeyDown={(event) => {
+                    // Esc で折りたたみ、内部にあったフォーカスを開閉ボタンへ戻す
+                    if (event.key === "Escape") {
+                      setIsCategoryPanelOpen(false);
+                      categoryToggleRef.current?.focus();
+                    }
+                  }}
+                  className="rounded-lg border border-border/60 p-3"
+                >
+                  {/* 閉じている間はマウントしない（閉じたらカテゴリの検索語をリセットする） */}
+                  {isCategoryPanelOpen ? (
+                    <CategoryFilter
+                      availableCategories={availableCategories}
+                      selectedCategories={selectedCategories}
+                      onToggle={toggleCategory}
+                      onClear={() => {
+                        clearAllFilters();
+                        // 押した解除ボタンが消えるため、フォーカスを開閉ボタンへ移す
+                        categoryToggleRef.current?.focus();
+                      }}
+                      hideLabel
+                    />
+                  ) : null}
+                </section>
               ) : null}
             </div>
           ))}

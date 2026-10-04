@@ -275,7 +275,9 @@ describe("App: 検索の件数の定義を区別して表示する（#69）", ()
     try {
       const user = await search();
       // 上位20件のうち cs.CL は5件。cs.CL で絞り込むと上位の残り15件と対象外1件（cs.AI）が外れる
-      await user.click(screen.getByRole("button", { name: /cs\.CL/ }));
+      // デスクトップのカテゴリは折りたたみ領域（#68）。開いてから選ぶ
+      await user.click(screen.getByRole("button", { name: /^カテゴリ/ }));
+      await user.click(screen.getByRole("button", { name: /^cs\.CL / }));
 
       expect(getBreakdown()).toHaveTextContent(
         "候補 25件のうち上位 20件・対象外 1件（Embedding未設定・末尾に表示）・絞り込みで 16件を非表示"
