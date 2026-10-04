@@ -357,12 +357,9 @@ const SummaryResultSchema = z.object({
   keyPoints: z.array(z.string()),
 });
 
-/**
- * キーポイントごとの根拠の文番号のスキーマ（keyPoints と同じ順序）
- * 要約本体とは別に検証し、形が不正でも要約は失敗させずに全キーポイントを「対応箇所未確認」にする。
- * 番号が整数で Abstract の範囲内かは resolveKeyPointEvidence が番号ごとに確かめる
- */
-const KeyPointEvidenceIndicesSchema = z.array(z.array(z.number()));
+/** プロンプトのタグ内に置く本文の "&" "<" ">" をエスケープする（本文によるタグの偽装を防ぐ） */
+const escapeTagText = (text: string): string =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
  * 認知負荷最適化説明文のスキーマ
@@ -406,7 +403,7 @@ Academic abstracts typically follow IMRaD structure:
 4. **Synthesize** into a coherent summary
 
 # Input Format
-The abstract is given as numbered sentences: "[0] ...", "[1] ...".
+The abstract is given as sentences wrapped in <s id="N">...</s> tags (N is the sentence number, starting at 0).
 
 # Output Schema (JSON)
 {
@@ -458,8 +455,8 @@ Respond entirely in English.
 const SUMMARY_EXAMPLE_JA = `
 <example>
 Abstract:
-[0] We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.
-[1] While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.
+<s id="0">We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.</s>
+<s id="1">While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.</s>
 
 Output: {"summary":"本論文はGPT-4を紹介する。GPT-4は画像とテキストを入力として受け付け、テキストを出力するマルチモーダルモデルである。実世界のシナリオでは人間に及ばない点もあるが、様々な専門的・学術的ベンチマークで人間レベルの性能を達成した。","keyPoints":["画像・テキスト入力に対応したマルチモーダル大規模言語モデル","専門的・学術的ベンチマークで人間レベルの性能を実証","実世界タスクでは人間との性能差が依然として存在"],"evidence":[[0],[1],[1]]}
 </example>`;
@@ -470,8 +467,8 @@ Output: {"summary":"本論文はGPT-4を紹介する。GPT-4は画像とテキ�
 const SUMMARY_EXAMPLE_EN = `
 <example>
 Abstract:
-[0] We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.
-[1] While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.
+<s id="0">We introduce GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.</s>
+<s id="1">While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.</s>
 
 Output: {"summary":"This paper introduces GPT-4, a large-scale multimodal model capable of processing both image and text inputs to generate text outputs. The model achieves human-level performance on professional and academic benchmarks, though gaps remain in real-world scenarios.","keyPoints":["Multimodal architecture accepting both image and text inputs","Human-level performance demonstrated on professional/academic benchmarks","Performance gap identified in real-world application scenarios"],"evidence":[[0],[1],[1]]}
 </example>`;
@@ -498,7 +495,10 @@ export const generateSummary = async (
   const example = language === "ja" ? SUMMARY_EXAMPLE_JA : SUMMARY_EXAMPLE_EN;
 
   const sentences = splitAbstractSentences(abstract);
-  const numberedAbstract = sentences.map((sentence, i) => `[${i}] ${sentence}`).join("\n");
+  // 文番号は本文に現れにくいタグで付け、本文中の "<" ">" はエスケープしてタグや番号の偽装を防ぐ
+  const numberedAbstract = sentences
+    .map((sentence, i) => `<s id="${i}">${escapeTagText(sentence)}</s>`)
+    .join("\n");
 
   const modelId = getModel(config, "summary");
   const { text } = await generateText({
@@ -516,17 +516,13 @@ Respond with valid JSON only.`,
 
   const json: unknown = JSON.parse(text);
   const { summary, keyPoints } = SummaryResultSchema.parse(json);
-  const rawEvidence = KeyPointEvidenceIndicesSchema.safeParse(
-    json && typeof json === "object" ? (json as { evidence?: unknown }).evidence : undefined
-  );
+  // evidence は要約本体とは別に、キーポイント・番号ごとに検証する（不正な番号だけを捨て、要約は失敗させない）
+  const rawEvidence =
+    json && typeof json === "object" ? (json as { evidence?: unknown }).evidence : undefined;
   return {
     summary,
     keyPoints,
-    keyPointEvidence: resolveKeyPointEvidence(
-      sentences,
-      keyPoints.length,
-      rawEvidence.success ? rawEvidence.data : undefined
-    ),
+    keyPointEvidence: resolveKeyPointEvidence(sentences, keyPoints.length, rawEvidence),
   };
 };
 

@@ -24,6 +24,47 @@ describe("splitAbstractSentences", () => {
     ]);
   });
 
+  it('正常系: 括弧内の略語（"(Fig. 2)" "[e.g. X]"）でも区切らない', () => {
+    expect(
+      splitAbstractSentences("Results improve (Fig. 2) and [e.g. Table 3] hold. Next sentence.")
+    ).toEqual(["Results improve (Fig. 2) and [e.g. Table 3] hold.", "Next sentence."]);
+  });
+
+  it('正常系: 語の末尾が略語と同じ綴り（"piano." の "no."）でも略語とみなさない', () => {
+    expect(splitAbstractSentences("We play the piano. It works.")).toEqual([
+      "We play the piano.",
+      "It works.",
+    ]);
+  });
+
+  it("性能: 長い入力（各200KB）も線形時間で分割する（二乗時間なら数百ms以上かかる）", () => {
+    const size = 200_000;
+    const sentence = "Accuracy improves by 3.5 points (Fig. 2), e.g. on GLUE vs. baselines. ";
+    const inputs = [
+      sentence.repeat(Math.ceil(size / sentence.length)),
+      // 終止符がない入力
+      "a".repeat(size),
+      // 終止符だけが続く入力
+      ". ".repeat(size / 2),
+      // 略語が続いて文が終わらない入力（文の先頭から走査し直すと二乗時間になる）
+      "e.g. X ".repeat(Math.ceil(size / 7)),
+    ];
+
+    for (const input of inputs) {
+      // 他の処理による一時的な遅れを除くため、3回のうち最短の時間で判定する
+      const elapsed = Math.min(
+        ...Array.from({ length: 3 }, () => {
+          const startedAt = performance.now();
+          splitAbstractSentences(input);
+          return performance.now() - startedAt;
+        })
+      );
+      expect(elapsed).toBeLessThan(100);
+    }
+    expect(splitAbstractSentences(inputs[0])).toHaveLength(Math.ceil(size / sentence.length));
+    expect(splitAbstractSentences(inputs[3])).toHaveLength(1);
+  });
+
   it("正常系: 全角の終止符で区切る", () => {
     expect(splitAbstractSentences("手法を提案する。精度が向上した！")).toEqual([
       "手法を提案する。",

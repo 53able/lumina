@@ -23,23 +23,49 @@ const NON_TERMINAL_ABBREVIATIONS = [
   "resp.",
 ];
 
+/** 略語の最大の長さ（略語判定で見る直前の文字数を一定に保ち、分割を入力長に対して線形にする） */
+const MAX_ABBREVIATION_LENGTH = Math.max(...NON_TERMINAL_ABBREVIATIONS.map((abbr) => abbr.length));
+
+/** 略語の直前に来てよい文字（空白と開き括弧。"(Fig. 2)" や "[e.g. X]" を略語とみなす） */
+const ABBREVIATION_PRECEDING = /[\s([{]/;
+
 /** 空白なしで文を終える全角の終止符 */
 const FULL_WIDTH_TERMINATORS = new Set(["。", "！", "？"]);
 /** 直後に空白があれば文を終える半角の終止符 */
 const HALF_WIDTH_TERMINATORS = new Set([".", "!", "?"]);
 
+const WHITESPACE = /\s/;
+const WHITESPACE_RUN = /\s+/g;
+const LOWERCASE_LETTER = /\p{Ll}/u;
+
+const isWhitespace = (char: string | undefined) => char !== undefined && WHITESPACE.test(char);
+
+/**
+ * 位置 end（「.」の直後）の直前が略語で終わるか
+ * 文の先頭（start）より前は見ない。見る文字数は略語の最大長＋1文字で一定
+ */
+const endsWithAbbreviation = (text: string, start: number, end: number): boolean => {
+  const tail = text.slice(Math.max(start, end - MAX_ABBREVIATION_LENGTH - 1), end).toLowerCase();
+  return NON_TERMINAL_ABBREVIATIONS.some((abbr) => {
+    if (!tail.endsWith(abbr)) return false;
+    const abbrStart = end - abbr.length;
+    return abbrStart === start || ABBREVIATION_PRECEDING.test(text[abbrStart - 1]);
+  });
+};
+
 /**
  * Abstract を文に分割する（前後の空白を除き、空の文は返さない）
  *
  * - 「.」「!」「?」は直後が空白で、その後が小文字で始まらない場合に文末とする
- *   （小数点「3.5」や略語「e.g.」「et al.」では区切らない）
+ *   （小数点「3.5」や略語「e.g.」「et al.」「(Fig. 2)」では区切らない）
  * - 「。」「！」「？」は直後で区切る
+ * - 入力長に対して線形時間で動く（各位置は定数回しか見ない）
  */
 export const splitAbstractSentences = (abstract: string): string[] => {
   const sentences: string[] = [];
   let start = 0;
   const push = (end: number) => {
-    const sentence = abstract.slice(start, end).replace(/\s+/g, " ").trim();
+    const sentence = abstract.slice(start, end).replace(WHITESPACE_RUN, " ").trim();
     if (sentence) sentences.push(sentence);
     start = end;
   };
@@ -50,18 +76,13 @@ export const splitAbstractSentences = (abstract: string): string[] => {
       push(i + 1);
       continue;
     }
-    if (!HALF_WIDTH_TERMINATORS.has(char)) continue;
-    const next = abstract[i + 1];
-    if (next === undefined || !/\s/.test(next)) continue;
-    // 空白の後の最初の文字が小文字なら文の途中とみなす
-    const following = abstract.slice(i + 1).match(/^\s+(\S)/)?.[1];
-    if (following !== undefined && /\p{Ll}/u.test(following)) continue;
-    if (char === ".") {
-      const head = abstract.slice(start, i + 1).toLowerCase();
-      if (NON_TERMINAL_ABBREVIATIONS.some((abbr) => head.endsWith(` ${abbr}`) || head === abbr)) {
-        continue;
-      }
-    }
+    if (!HALF_WIDTH_TERMINATORS.has(char) || !isWhitespace(abstract[i + 1])) continue;
+    // 空白の後の最初の文字が小文字なら文の途中とみなす（空白の連続は次の終止符まで1回しか走査しない）
+    let j = i + 1;
+    while (isWhitespace(abstract[j])) j++;
+    const following = abstract[j];
+    if (following !== undefined && LOWERCASE_LETTER.test(following)) continue;
+    if (char === "." && endsWithAbbreviation(abstract, start, i + 1)) continue;
     push(i + 1);
   }
   push(abstract.length);

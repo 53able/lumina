@@ -19,13 +19,19 @@ import type { Env } from "../types/env";
 const GenerateTargetSchema = z.enum(["explanation", "both"]);
 
 /**
+ * Abstract の最大文字数
+ * arXiv の Abstract は約2,000文字以内。AI 呼び出し前の文分割などの処理量を入力で増やされないよう上限を設ける
+ */
+export const SUMMARY_ABSTRACT_MAX_LENGTH = 10_000;
+
+/**
  * 要約リクエストのスキーマ
  */
 const SummaryRequestSchema = z.object({
   /** 要約の言語 */
   language: z.enum(["ja", "en"]),
   /** 論文のアブストラクト（クライアント側から渡される） */
-  abstract: z.string().min(1).optional(),
+  abstract: z.string().min(1).max(SUMMARY_ABSTRACT_MAX_LENGTH).optional(),
   /** 生成対象（デフォルト: both） */
   generateTarget: GenerateTargetSchema.optional().default("both"),
   /** @deprecated includeExplanation は generateTarget に置き換え */

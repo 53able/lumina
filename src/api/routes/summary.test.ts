@@ -108,6 +108,20 @@ describe("要約API", () => {
       expect(generateSummary).toHaveBeenCalledTimes(1);
     });
 
+    it("異常系: Abstract が上限（10,000文字）を超える場合は、AI呼び出しや文分割の前に400で返す", async () => {
+      const response = await app.request(
+        new Request("http://localhost/api/v1/summary/2401.12345", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": "fake-key" },
+          body: JSON.stringify({ language: "ja", abstract: "A. ".repeat(4_000) }),
+        })
+      );
+
+      expect(response.status).toBe(400);
+      expect(generateSummary).not.toHaveBeenCalled();
+      expect(generateExplanation).not.toHaveBeenCalled();
+    });
+
     it("正常系: 要約を生成しない場合（スタブ・説明文のみ）は根拠を返さない", async () => {
       const stub = await app.request(
         new Request("http://localhost/api/v1/summary/2401.12345", {
