@@ -16,6 +16,9 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../shared/schemas/index";
 import { App } from "./App";
+// App が lazy() で読み込むコンポーネントを先に読み込む（初回描画時の動的読み込みを先頭テストの testTimeout に含めない）
+import "./components/PaperDetail";
+import "./components/SettingsDialog";
 import { InteractionProvider } from "./contexts/InteractionContext";
 import { useSettingsStore } from "./stores/settingsStore";
 
