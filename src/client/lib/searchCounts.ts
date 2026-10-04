@@ -149,6 +149,8 @@ export const formatSearchResultBreakdown = (
 /**
  * 履歴の resultCount が候補（totalMatchCount）を保存するようになった時点（232aa17・2026-02-01）。
  * それより前の履歴は表示上限（20件）を適用した後の件数を保存しているため、「候補」とは書かない。
+ * 値は 232aa17 のコミット時刻で近似している（各環境へ反映された時刻は記録がない）。
+ * 反映までの間に作られた履歴は、上限後の件数でも「検索時の候補」と表示されうる。
  */
 export const HISTORY_CANDIDATE_COUNT_SINCE = new Date("2026-02-01T19:31:52+09:00");
 

@@ -370,6 +370,8 @@ const HomePage: FC = () => {
   // クエリEmbeddingで類似度を計算したときだけ。
   // 新しい検索の実行中・失敗時に前回の結果を表示している間は出さない（前回の結果は新しい検索の進行中は
   // しきい値の変更に追従せず、新しい検索の状態と混ざるため。前回の結果であることは検索欄の近くに出る）
+  // previousResultsQuery === null は防御（resultsReady なら前回の結果の表示中ではないが、
+  // 状態の定義が変わっても前回の結果に内訳を付けないため明示する）
   const hasComputedCandidates =
     resultsReady && previousResultsQuery === null && queryEmbedding !== null;
   const searchResultCounts = useMemo(
