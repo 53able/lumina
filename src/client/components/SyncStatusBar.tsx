@@ -362,7 +362,8 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   onStopSync();
                 }}
                 disabled={isStopping}
-                aria-label={isStopping ? "停止しています" : "同期を停止"}
+                // 名前は表示文（「停止中…」「停止」）を含める（WCAG 2.5.3）
+                aria-label={isStopping ? "同期を停止中…" : "同期を停止"}
                 aria-busy={isStopping}
                 className={
                   compact

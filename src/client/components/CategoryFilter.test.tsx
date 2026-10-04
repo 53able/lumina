@@ -105,9 +105,11 @@ describe("CategoryFilter", () => {
     expect(result).toHaveAttribute("aria-live", "polite");
     expect(result).toHaveTextContent("「天文学」に一致するカテゴリはありません");
 
-    // 一致が戻ったら通知の文言を消す
+    // 一致が戻ったら通知の文言を消す。live region は空でもアクセシビリティツリーに残す（次の通知を確実に読み上げる）
     await user.clear(within(group).getByRole("textbox"));
     expect(result).toHaveTextContent("");
+    expect(within(group).getByRole("status", { name: "カテゴリの検索結果" })).toBe(result);
+    expect(result.className).not.toContain("empty:hidden");
   });
 
   it("一覧の高さの上限を指定できる（モバイルの絞り込み領域では低くする）", () => {

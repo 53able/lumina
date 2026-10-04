@@ -92,7 +92,7 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
           <output
             aria-live="polite"
             aria-label="カテゴリの検索結果"
-            className="block text-xs text-muted-foreground empty:hidden"
+            className="block text-xs text-muted-foreground"
           >
             {visibleCategories.length === 0
               ? `「${keyword.trim()}」に一致するカテゴリはありません`

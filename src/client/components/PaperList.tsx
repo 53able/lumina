@@ -26,6 +26,8 @@ const GRID_GAP = 16;
  *
  * ビルド済みCSSをヘッドレス Chrome で実測した1セル（余白 4px 込み）の高さ（幅 350〜352px、3行のタイトル・著者4名・カテゴリ3つ）:
  * Abstract 抜粋のみ 340px、AI の一文あり 398px、Abstract なし 272px。多くの論文が該当する Abstract 抜粋のみの値を使う
+ * AI の一文（whyRead）がある行は推定より約60px高く、Abstract がない行は約70px低い。差は measureElement の実測で補正する。
+ * 行ごとの内容に応じた推定は PR #24（Pretext による行の高さの推定）で見直す
  */
 const ESTIMATED_ROW_HEIGHT = 340;
 
