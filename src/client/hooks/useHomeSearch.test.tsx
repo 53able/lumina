@@ -568,7 +568,9 @@ describe("useHomeSearch", () => {
       });
       await waitFor(() => expect(result.current.home.isLoading).toBe(true));
 
-      expect(result.current.home.expandedQuery).toBeNull();
+      // 前回の結果（編集前の検索）は保持し、前回の結果として区別する（#71）
+      expect(result.current.home.expandedQuery?.searchText).toBe(expandedWithSynonyms.searchText);
+      expect(result.current.home.previousResultsQuery).toBe("深層学習");
       expect(result.current.home.displayExpandedQuery?.searchText).toBe("deep learning");
       expect(result.current.home.displayExpandedQuery?.synonyms).toEqual(
         expandedWithSynonyms.synonyms
@@ -901,6 +903,362 @@ describe("useHomeSearch", () => {
       expect(view.addHistory.mock.calls[1]?.[0]).toMatchObject({
         originalQuery: "transformer",
         resultCount: 3,
+      });
+    });
+  });
+
+  describe("検索中・失敗時の前回の結果の保持と手動の復旧（#71）", () => {
+    /** A を検索して前回の結果がある状態にする */
+    const searchA = async () => {
+      mockSearchApi.mockResolvedValueOnce(response("A"));
+      const view = renderHomeSearch();
+      await act(async () => {
+        await view.result.current.home.handleSearch("A");
+      });
+      await waitFor(() => expect(view.result.current.home.completedQuery).toBe("A"));
+      expect(view.addHistory).toHaveBeenCalledTimes(1);
+      return view;
+    };
+
+    it("検索中に論文の更新で件数が変わっても、前回の結果を新しいクエリの履歴として記録しない", async () => {
+      const { result, rerender, addHistory } = await searchA();
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      act(() => {
+        result.current.home.setSearchInputValue("B");
+        void result.current.home.handleSearch("B");
+      });
+      expect(result.current.home.previousResultsQuery).toBe("A");
+      expect(result.current.home.pendingQuery).toBe("B");
+
+      rerender({ papers: [...papers, { ...papers[0], id: "2401.00002" } as Paper] });
+      await act(async () => {});
+      expect(addHistory).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        pending.resolve(response("B"));
+        await pending.promise;
+      });
+      await waitFor(() => expect(result.current.home.completedQuery).toBe("B"));
+      expect(addHistory).toHaveBeenCalledTimes(2);
+      expect(addHistory.mock.calls[1]?.[0].originalQuery).toBe("B");
+    });
+
+    it("失敗しても入力・前回の結果を保持し、自動で再試行しない。再試行は1操作1回", async () => {
+      const { result, addHistory } = await searchA();
+      mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+
+      act(() => {
+        result.current.home.setSearchInputValue("B");
+      });
+      await act(async () => {
+        await result.current.home.handleSearch("B");
+      });
+
+      expect(result.current.home.error).not.toBeNull();
+      expect(result.current.home.previousResultsQuery).toBe("A");
+      expect(result.current.home.pendingQuery).toBe("B");
+      expect(result.current.home.completedQuery).toBeNull();
+      expect(result.current.home.results).toHaveLength(1);
+      expect(result.current.home.searchInputValue).toBe("B");
+      expect(result.current.location.search).toBe("?q=B");
+      expect(mockSearchApi).toHaveBeenCalledTimes(2);
+      expect(addHistory).toHaveBeenCalledTimes(1);
+
+      mockSearchApi.mockResolvedValueOnce(response("B"));
+      act(() => {
+        result.current.home.handleRetrySearch();
+      });
+
+      await waitFor(() => expect(result.current.home.completedQuery).toBe("B"));
+      expect(mockSearchApi).toHaveBeenCalledTimes(3);
+      expect(mockSearchApi.mock.calls[2]?.[0]).toEqual({ query: "B", limit: 20 });
+      expect(result.current.home.previousResultsQuery).toBeNull();
+      expect(addHistory).toHaveBeenCalledTimes(2);
+    });
+
+    it("編集した検索文での検索が失敗したら、再試行も同じ編集文で送る", async () => {
+      const { result } = await searchA();
+      mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+      act(() => {
+        result.current.home.handleSearchWithEditedText("A edited");
+      });
+      await waitFor(() => expect(result.current.home.error).not.toBeNull());
+
+      mockSearchApi.mockResolvedValueOnce(response("A edited"));
+      act(() => {
+        result.current.home.handleRetrySearch();
+      });
+
+      await waitFor(() => expect(result.current.home.error).toBeNull());
+      expect(mockSearchApi).toHaveBeenCalledTimes(3);
+      expect(mockSearchApi.mock.calls[2]?.[0]).toEqual({
+        query: "A",
+        limit: 20,
+        embeddingText: "A edited",
+      });
+    });
+
+    it("中止すると URL・完了クエリを前回の結果のクエリに戻し、入力は残す。URL 監視で再検索しない", async () => {
+      const { result, addHistory } = await searchA();
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+      act(() => {
+        result.current.home.setSearchInputValue("B");
+        void result.current.home.handleSearch("B");
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(2));
+
+      act(() => {
+        result.current.home.handleCancelSearch();
+      });
+
+      expect(result.current.home.isLoading).toBe(false);
+      expect(result.current.home.completedQuery).toBe("A");
+      expect(result.current.home.previousResultsQuery).toBeNull();
+      expect(result.current.home.pendingQuery).toBeNull();
+      expect(result.current.home.searchInputValue).toBe("B");
+      await waitFor(() => expect(result.current.location.search).toBe("?q=A"));
+      const [, options] = mockSearchApi.mock.calls[1] as [unknown, { signal: AbortSignal }];
+      expect(options.signal.aborted).toBe(true);
+
+      await act(async () => {
+        pending.resolve(response("B"));
+        await pending.promise;
+      });
+      expect(result.current.home.expandedQuery?.original).toBe("A");
+      expect(result.current.home.completedQuery).toBe("A");
+      expect(addHistory).toHaveBeenCalledTimes(1);
+      expect(mockSearchApi).toHaveBeenCalledTimes(2);
+    });
+
+    it("検索開始と同じ操作の中で中止しても、前回のクエリに戻り、中止した検索をやり直さない", async () => {
+      const { result, addHistory } = await searchA();
+      const pending = deferred<ReturnType<typeof response>>();
+      mockSearchApi.mockReturnValueOnce(pending.promise);
+
+      act(() => {
+        result.current.home.setSearchInputValue("B");
+        void result.current.home.handleSearch("B");
+        // 描画前（検索開始前の値を持つ関数）で中止する
+        result.current.home.handleCancelSearch();
+      });
+
+      await waitFor(() => expect(result.current.location.search).toBe("?q=A"));
+      expect(result.current.home.isLoading).toBe(false);
+      expect(result.current.home.completedQuery).toBe("A");
+      expect(result.current.home.searchInputValue).toBe("B");
+      await act(async () => {
+        pending.resolve(response("B"));
+        await pending.promise;
+      });
+      expect(result.current.home.expandedQuery?.original).toBe("A");
+      expect(result.current.location.search).toBe("?q=A");
+      // キーの取得（await）の間に中止したため B は送信されず、A も再検索されない
+      expect(mockSearchApi).toHaveBeenCalledTimes(1);
+      expect(addHistory).toHaveBeenCalledTimes(1);
+    });
+
+    it("失敗していないとき（検索前・実行中・成功後）の再試行は何もしない", async () => {
+      const { result } = await searchA();
+      act(() => {
+        result.current.home.handleRetrySearch();
+      });
+      await act(async () => {});
+      expect(mockSearchApi).toHaveBeenCalledTimes(1);
+
+      mockSearchApi.mockReturnValueOnce(new Promise(() => {}));
+      act(() => {
+        void result.current.home.handleSearch("B");
+      });
+      await waitFor(() => expect(mockSearchApi).toHaveBeenCalledTimes(2));
+      act(() => {
+        result.current.home.handleRetrySearch();
+      });
+      await act(async () => {});
+      expect(mockSearchApi).toHaveBeenCalledTimes(2);
+
+      const fresh = renderHomeSearch();
+      act(() => {
+        fresh.result.current.home.handleRetrySearch();
+      });
+      await act(async () => {});
+      expect(mockSearchApi).toHaveBeenCalledTimes(2);
+    });
+
+    it("実行中に、表示中の結果と同じ履歴を選び直すと、履歴を更新する（並び順を最新にする）", async () => {
+      const history: SearchHistory = {
+        id: "h-x",
+        originalQuery: "X",
+        expandedQuery: expanded("X"),
+        queryEmbedding: embedding,
+        resultCount: 1,
+        createdAt: new Date(),
+      };
+      const { result, addHistory } = renderHomeSearch();
+      act(() => {
+        result.current.home.handleReSearch(history);
+      });
+      await waitFor(() => expect(addHistory).toHaveBeenCalledTimes(1));
+      mockSearchApi.mockReturnValueOnce(new Promise(() => {}));
+      act(() => {
+        void result.current.home.handleSearch("B");
+      });
+
+      act(() => {
+        result.current.home.handleReSearch(history);
+      });
+
+      await waitFor(() => expect(addHistory).toHaveBeenCalledTimes(2));
+      expect(addHistory.mock.calls[1]?.[0].originalQuery).toBe("X");
+      expect(result.current.home.completedQuery).toBe("X");
+    });
+
+    describe("失敗した検索は同じ経路で再試行する", () => {
+      /** 1回目の全件準備（または計算）だけ失敗する検索の実行元 */
+      const createFailOnceSource = (failure: "load" | "compute") => {
+        let failed = false;
+        const base = createTestSearchSource(papers);
+        const source: PaperSearchSource = {
+          isReady: () => failed || failure === "compute",
+          whenReady: async () => {
+            if (failure === "load" && !failed) {
+              failed = true;
+              throw Object.assign(new Error("db"), { name: "PaperLoadError" });
+            }
+          },
+          search: async (...args) => {
+            if (failure === "compute" && !failed) {
+              failed = true;
+              throw new Error("worker crashed");
+            }
+            return base.search(...args);
+          },
+        };
+        return source;
+      };
+
+      it("履歴（保存済み Embedding）の検索が論文の読み込みで失敗したら、再試行で検索APIを呼ばない", async () => {
+        const { result, addHistory } = renderHomeSearch({
+          searchSource: createFailOnceSource("load"),
+        });
+        act(() => {
+          result.current.home.handleReSearch({
+            id: "h-x",
+            originalQuery: "X",
+            expandedQuery: expanded("X"),
+            queryEmbedding: embedding,
+            resultCount: 1,
+            createdAt: new Date(),
+          });
+        });
+        await waitFor(() => expect(result.current.home.error?.name).toBe("PaperLoadError"));
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("X"));
+        expect(result.current.home.error).toBeNull();
+        expect(result.current.home.results).toHaveLength(1);
+        expect(mockSearchApi).not.toHaveBeenCalled();
+        expect(addHistory).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ["論文の読み込み", "load", "PaperLoadError"],
+        ["索引での計算", "compute", "SearchComputeError"],
+      ] as const)("入力の検索が Embedding 取得後に%sで失敗したら、再試行で検索APIを呼び直さない", async (_label, failure, errorName) => {
+        mockSearchApi.mockResolvedValueOnce(response("B"));
+        const { result } = renderHomeSearch({ searchSource: createFailOnceSource(failure) });
+        await act(async () => {
+          await result.current.home.handleSearch("B");
+        });
+        await waitFor(() => expect(result.current.home.error?.name).toBe(errorName));
+        expect(mockSearchApi).toHaveBeenCalledTimes(1);
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("B"));
+        expect(result.current.home.expandedQuery?.original).toBe("B");
+        expect(result.current.home.results).toHaveLength(1);
+        expect(mockSearchApi).toHaveBeenCalledTimes(1);
+      });
+
+      it("中止・前結果を見た検索は再試行しない（前回の結果の再計算の失敗を、表示中の結果の条件で再試行する）", async () => {
+        // 確定後の再計算（論文の更新）だけを失敗させられる検索の実行元
+        let failCompute = false;
+        const base = createTestSearchSource(papers);
+        const source: PaperSearchSource = {
+          isReady: () => true,
+          whenReady: async () => {},
+          search: async (...args) => {
+            if (failCompute) {
+              failCompute = false;
+              throw new Error("worker crashed");
+            }
+            return base.search(...args);
+          },
+        };
+        mockSearchApi.mockResolvedValueOnce(response("A"));
+        const { result, rerender, addHistory } = renderHomeSearch({ searchSource: source });
+        await act(async () => {
+          await result.current.home.handleSearch("A");
+        });
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("A"));
+
+        // B は検索APIで失敗し、前結果を見る（A に戻る）
+        mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+        await act(async () => {
+          await result.current.home.handleSearch("B");
+        });
+        expect(result.current.home.error).not.toBeNull();
+        act(() => {
+          result.current.home.handleCancelSearch();
+        });
+        await waitFor(() => expect(result.current.location.search).toBe("?q=A"));
+
+        // A の再計算が失敗する
+        failCompute = true;
+        rerender({ papers: [...papers] });
+        await waitFor(() => expect(result.current.home.error?.name).toBe("SearchComputeError"));
+        expect(result.current.home.previousResultsQuery).toBe("A");
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("A"));
+        expect(result.current.home.error).toBeNull();
+        expect(result.current.home.expandedQuery?.original).toBe("A");
+        expect(result.current.location.search).toBe("?q=A");
+        // B を検索APIで呼び直さず、A の履歴を B の内容で上書きしない
+        expect(mockSearchApi).toHaveBeenCalledTimes(2);
+        for (const [history] of addHistory.mock.calls) {
+          expect(history.originalQuery).toBe("A");
+          expect(history.expandedQuery.original).toBe("A");
+        }
+      });
+
+      it("クリア後は、クリア前に失敗した検索を再試行しない", async () => {
+        mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+        const { result, clear } = renderHomeSearch();
+        await act(async () => {
+          await result.current.home.handleSearch("B");
+        });
+        expect(result.current.home.error).not.toBeNull();
+        clear();
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+        await act(async () => {});
+
+        expect(mockSearchApi).toHaveBeenCalledTimes(1);
+        expect(result.current.home.isLoading).toBe(false);
       });
     });
   });
