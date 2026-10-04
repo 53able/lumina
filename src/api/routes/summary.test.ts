@@ -25,6 +25,11 @@ describe("要約API", () => {
     vi.mocked(generateSummary).mockResolvedValue({
       summary: "これは深層学習に関する論文の要約です。",
       keyPoints: ["キーポイント1", "キーポイント2", "キーポイント3"],
+      keyPointEvidence: [
+        [{ index: 0, text: "This paper presents a new deep learning method..." }],
+        [],
+        [],
+      ],
     });
 
     // generateExplanationのモック
@@ -93,8 +98,58 @@ describe("要約API", () => {
       const body = await response.json();
       expect(body.summary).toBe("これは深層学習に関する論文の要約です。");
       expect(body.keyPoints).toHaveLength(3);
+      // キーポイントごとの根拠（サーバーで Abstract に実在すると確かめた文）を返す
+      expect(body.keyPointEvidence).toEqual([
+        [{ index: 0, text: "This paper presents a new deep learning method..." }],
+        [],
+        [],
+      ]);
       // OpenAIサービスが呼ばれる
       expect(generateSummary).toHaveBeenCalledTimes(1);
+    });
+
+    it("異常系: Abstract が上限（10,000文字）を超える場合は、AI呼び出しや文分割の前に400で返す", async () => {
+      const response = await app.request(
+        new Request("http://localhost/api/v1/summary/2401.12345", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": "fake-key" },
+          body: JSON.stringify({ language: "ja", abstract: "A. ".repeat(4_000) }),
+        })
+      );
+
+      expect(response.status).toBe(400);
+      // 再試行で解決しない失敗として分類する（クライアントは再試行を案内しない）
+      expect(await response.json()).toEqual({
+        error: "要約の要求が正しくありません",
+        code: "invalid_input",
+        retryable: false,
+      });
+      expect(generateSummary).not.toHaveBeenCalled();
+      expect(generateExplanation).not.toHaveBeenCalled();
+    });
+
+    it("正常系: 要約を生成しない場合（スタブ・説明文のみ）は根拠を返さない", async () => {
+      const stub = await app.request(
+        new Request("http://localhost/api/v1/summary/2401.12345", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language: "ja" }),
+        })
+      );
+      expect(await stub.json()).not.toHaveProperty("keyPointEvidence");
+
+      const explanationOnly = await app.request(
+        new Request("http://localhost/api/v1/summary/2401.12345", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": openAIKeyHeader },
+          body: JSON.stringify({
+            language: "ja",
+            abstract: "This paper presents a new deep learning method...",
+            generateTarget: "explanation",
+          }),
+        })
+      );
+      expect(await explanationOnly.json()).not.toHaveProperty("keyPointEvidence");
     });
 
     it("正常系: 英語で要約を生成できる", async () => {

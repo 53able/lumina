@@ -19,7 +19,7 @@ interface PaperCardProps {
   paper: Paper;
   /** カードクリック時のコールバック */
   onClick?: (paper: Paper) => void;
-  /** なぜ読むべきか（1行キャッチコピー） */
+  /** 読むと得られること（AIが Abstract から推測した文。検索との一致理由ではない） */
   whyRead?: string;
   /** 展開中フラグ */
   isExpanded?: boolean;
@@ -178,7 +178,7 @@ const PaperCardComponent: FC<PaperCardProps> = ({
               style={{ color: "hsl(var(--primary-light))", opacity: 0.9 }}
             >
               <span className="mr-1 rounded border border-current px-1 text-[10px] align-middle">
-                AIの推奨
+                読むと得られること（AI）
               </span>
               <span>{whyRead}</span>
             </p>

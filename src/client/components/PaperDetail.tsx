@@ -1,7 +1,8 @@
 import { format } from "date-fns";
 import { Bookmark, ExternalLink, FileText, Heart } from "lucide-react";
-import type { FC } from "react";
+import { type FC, Fragment, useEffect, useMemo, useState } from "react";
 import type { Paper, PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
+import { splitAbstractSentences } from "../../shared/utils/abstractSentences";
 import { useInteraction } from "../contexts/InteractionContext";
 import type { SummaryVersion } from "../stores/summaryStore";
 import { type GenerateTarget, PaperSummary } from "./PaperSummary";
@@ -73,6 +74,48 @@ export const PaperDetail: FC<PaperDetailProps> = ({
 
   /** AI要約の参照範囲注記からリンクするAbstract要素のID */
   const abstractId = `paper-abstract-${paper.id}`;
+  /** 根拠として強調するAbstractの文の要素ID */
+  const sentenceId = (index: number) => `${abstractId}-sentence-${index}`;
+
+  /** 要約の根拠と照合できるよう、サーバーと同じ分割で文ごとに描画する */
+  const abstractSentences = useMemo(() => splitAbstractSentences(paper.abstract), [paper.abstract]);
+
+  /**
+   * 根拠の強調が有効な範囲（論文・要約の言語・表示中の版）。
+   * 論文・言語・版を切り替えたら、前の要約の根拠の強調を持ち越さない
+   */
+  const evidenceScope = `${paper.id}:${selectedSummaryLanguage}:${summary?.createdAt.getTime() ?? ""}`;
+
+  /**
+   * 「根拠を見る」で強調する文（表示中の範囲のものだけ有効）
+   * request は同じ根拠を続けて押してもスクロールし直すための連番
+   */
+  const [evidence, setEvidence] = useState<{
+    scope: string;
+    indices: number[];
+    request: number;
+  } | null>(null);
+  const highlightedIndices = evidence?.scope === evidenceScope ? evidence.indices : [];
+
+  // 論文・言語・版を切り替えたら強調を消す（元の範囲に戻っても前の強調を復活させない）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: evidenceScope の変化だけを契機にする
+  useEffect(() => {
+    setEvidence(null);
+  }, [evidenceScope]);
+
+  const handleShowEvidence = (indices: number[]) => {
+    setEvidence((prev) => ({ scope: evidenceScope, indices, request: (prev?.request ?? 0) + 1 }));
+  };
+
+  // 根拠の文（なければAbstract）へスクロールし、フォーカスを移す。URLのフラグメントと履歴は変えない
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 「根拠を見る」を押したときだけ動かす
+  useEffect(() => {
+    if (!evidence || evidence.scope !== evidenceScope) return;
+    const first = evidence.indices[0];
+    const target = document.getElementById(first === undefined ? abstractId : sentenceId(first));
+    target?.scrollIntoView({ block: "center" });
+    target?.focus({ preventScroll: true });
+  }, [evidence]);
 
   const handleLikeClick = () => {
     toggleLike();
@@ -107,8 +150,28 @@ export const PaperDetail: FC<PaperDetailProps> = ({
         {/* アブストラクト */}
         <div>
           <h3 className="mb-2 text-sm font-bold text-muted-foreground">Abstract</h3>
-          <p id={abstractId} className="text-sm leading-relaxed">
-            {paper.abstract}
+          <p
+            id={abstractId}
+            tabIndex={-1}
+            className="rounded text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {abstractSentences.map((sentence, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 文の並びは Abstract から決まり、並べ替えない
+              <Fragment key={i}>
+                {i > 0 && " "}
+                {highlightedIndices.includes(i) ? (
+                  <mark
+                    id={sentenceId(i)}
+                    tabIndex={-1}
+                    className="rounded bg-primary/20 px-0.5 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {sentence}
+                  </mark>
+                ) : (
+                  sentence
+                )}
+              </Fragment>
+            ))}
           </p>
         </div>
 
@@ -126,6 +189,8 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             onLanguageChange={onSummaryLanguageChange}
             autoGenerate={autoGenerateSummary}
             abstractId={abstractId}
+            abstract={paper.abstract}
+            onShowEvidence={handleShowEvidence}
             pdfUrl={paper.pdfUrl}
             arxivUrl={paper.arxivUrl}
             versions={summaryVersions}

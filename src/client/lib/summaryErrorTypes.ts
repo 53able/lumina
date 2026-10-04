@@ -10,14 +10,21 @@
  * - auth: キー未設定・401/403（設定を直す）
  * - invalid_output: AIの出力を解釈できない（再試行）
  * - upstream: その他の上流エラー（再試行）
+ * - invalid_input: 要求の内容が不正（400。Abstract が上限を超えるなど。再試行では解決しない）
  */
-export type SummaryStageErrorCode = "rate_limit" | "auth" | "invalid_output" | "upstream";
+export type SummaryStageErrorCode =
+  | "rate_limit"
+  | "auth"
+  | "invalid_output"
+  | "upstream"
+  | "invalid_input";
 
 const STAGE_ERROR_CODES: readonly SummaryStageErrorCode[] = [
   "rate_limit",
   "auth",
   "invalid_output",
   "upstream",
+  "invalid_input",
 ];
 
 /** 分類ごとの案内（利用者向けの文言はクライアントで決める） */
@@ -26,6 +33,8 @@ const STAGE_ERROR_GUIDANCE: Record<SummaryStageErrorCode, string> = {
   auth: "APIキーの設定を確認してください。",
   invalid_output: "AIの出力を読み取れませんでした。再試行してください。",
   upstream: "AIサービスでエラーが発生しました。再試行してください。",
+  invalid_input:
+    "この論文のAbstractは要約できません（長さが上限を超えているなど）。再試行では解決しません。",
 };
 
 /** 分類ごとの案内文 */

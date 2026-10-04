@@ -19,13 +19,19 @@ import type { Env } from "../types/env";
 const GenerateTargetSchema = z.enum(["explanation", "both"]);
 
 /**
+ * Abstract の最大文字数
+ * arXiv の Abstract は約2,000文字以内。AI 呼び出し前の文分割などの処理量を入力で増やされないよう上限を設ける
+ */
+export const SUMMARY_ABSTRACT_MAX_LENGTH = 10_000;
+
+/**
  * 要約リクエストのスキーマ
  */
 const SummaryRequestSchema = z.object({
   /** 要約の言語 */
   language: z.enum(["ja", "en"]),
   /** 論文のアブストラクト（クライアント側から渡される） */
-  abstract: z.string().min(1).optional(),
+  abstract: z.string().min(1).max(SUMMARY_ABSTRACT_MAX_LENGTH).optional(),
   /** 生成対象（デフォルト: both） */
   generateTarget: GenerateTargetSchema.optional().default("both"),
   /** @deprecated includeExplanation は generateTarget に置き換え */
@@ -91,7 +97,15 @@ const generateStubKeyPoints = (language: "ja" | "en"): string[] => {
  */
 export const summaryApp = new Hono<{ Bindings: Env }>().post(
   "/summary/:id",
-  zValidator("json", SummaryRequestSchema),
+  // 要求の検証の失敗（Abstract の上限超過など）は再試行で解決しないため、retryable: false の分類で返す
+  zValidator("json", SummaryRequestSchema, (result, c) => {
+    if (!result.success) {
+      return c.json(
+        { error: "要約の要求が正しくありません", code: "invalid_input", retryable: false } as const,
+        400
+      );
+    }
+  }),
   async (c) => {
     const paperId = c.req.param("id");
     const { language, abstract, generateTarget, includeExplanation } = c.req.valid("json");
@@ -145,6 +159,8 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
           // 要約がない場合は空文字列を返す（説明文のみ生成の場合）
           summary: summaryResult?.summary ?? "",
           keyPoints: summaryResult?.keyPoints ?? [],
+          // キーポイントごとの根拠（Abstract に実在すると確かめた文だけ。要約を生成した場合のみ）
+          ...(summaryResult && { keyPointEvidence: summaryResult.keyPointEvidence }),
           ...(explanationResult && {
             explanation: explanationResult.explanation,
             targetAudience: explanationResult.targetAudience,

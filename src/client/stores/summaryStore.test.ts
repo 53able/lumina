@@ -174,6 +174,21 @@ describe("summaryStore", () => {
       expect(dbSummaries[1]).toMatchObject({ summary: "新版", explanation: "説明文" });
     });
 
+    it("正常系: 説明文だけを更新しても、版のキーポイントの根拠は残る", async () => {
+      const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+      await initializeSummaryStore(mockDb);
+      const keyPointEvidence = [[{ index: 0, text: "First." }], [], []];
+      await useSummaryStore.getState().addSummary(createSampleSummary({ keyPointEvidence }));
+
+      await useSummaryStore.getState().updateSummary("2401.00001", "ja", { whyRead: "理由" });
+
+      expect(
+        useSummaryStore.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")
+      ).toMatchObject({ whyRead: "理由", keyPointEvidence });
+      const [saved] = await mockDb.paperSummaries.where("paperId").equals("2401.00001").toArray();
+      expect(saved.keyPointEvidence).toEqual(keyPointEvidence);
+    });
+
     it("異常系: 要約がない場合は失敗する", async () => {
       const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
       await initializeSummaryStore(mockDb);

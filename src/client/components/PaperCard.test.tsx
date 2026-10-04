@@ -202,20 +202,31 @@ describe("PaperCard", () => {
       expect(screen.getByText(whyRead)).toBeInTheDocument();
     });
 
-    it("正常系: whyReadにはAIの推奨であることを示すラベルが付く", () => {
+    it("正常系: whyReadには読むと得られること（AIの推測）であることを示すラベルが付く", () => {
       const paper = createSamplePaper();
       const whyRead = "機械学習モデルの効率的な学習方法を理解できます";
 
       renderWithRouter(<PaperCard paper={paper} whyRead={whyRead} />);
 
       const whyReadLine = screen.getByText(whyRead).parentElement;
-      expect(whyReadLine).toHaveTextContent(`AIの推奨${whyRead}`);
+      expect(whyReadLine).toHaveTextContent(`読むと得られること（AI）${whyRead}`);
     });
 
-    it("正常系: whyReadが未指定の場合はAIの推奨ラベルを表示しない", () => {
+    it("正常系: whyReadを検索との一致理由・推奨として表示しない", () => {
+      renderWithRouter(
+        <PaperCard paper={createSamplePaper()} whyRead="効率的な学習方法を理解できます" />
+      );
+
+      // 検索意図との一致を説明するものではないため、「推奨」「一致」と読める表示にしない
+      const card = screen.getByRole("article");
+      expect(card).not.toHaveTextContent("AIの推奨");
+      expect(card).not.toHaveTextContent(/検索(との|に)一致|一致理由/);
+    });
+
+    it("正常系: whyReadが未指定の場合はラベルを表示しない", () => {
       renderWithRouter(<PaperCard paper={createSamplePaper()} />);
 
-      expect(screen.queryByText("AIの推奨")).not.toBeInTheDocument();
+      expect(screen.queryByText("読むと得られること（AI）")).not.toBeInTheDocument();
     });
 
     it("正常系: whyReadが未指定の場合は表示されない", () => {

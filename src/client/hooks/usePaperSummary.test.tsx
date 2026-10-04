@@ -91,6 +91,76 @@ describe("usePaperSummary", () => {
     expect(mockSummaryApi).toHaveBeenCalledTimes(1);
   });
 
+  it("正常系: キーポイントの根拠を版のレコードに保存する", async () => {
+    const keyPointEvidence = [[{ index: 0, text: "First sentence." }], []];
+    mockSummaryApi.mockResolvedValueOnce({
+      ...createSummaryResponse("2401.00001"),
+      keyPoints: ["要点1", "要点2"],
+      keyPointEvidence,
+    });
+    const { result } = renderUsePaperSummary();
+
+    await act(async () => {
+      await result.current.generateSummary();
+    });
+
+    expect(mockAddSummary).toHaveBeenCalledWith(expect.objectContaining({ keyPointEvidence }));
+  });
+
+  it("異常系: 根拠の形式が不正・キーポイントと数が合わない場合は根拠を保存しない（未確認として扱う）", async () => {
+    for (const keyPointEvidence of [
+      [[{ index: "0", text: "First sentence." }]],
+      [[{ index: 0, text: "First sentence." }]],
+    ]) {
+      mockSummaryApi.mockResolvedValueOnce({
+        ...createSummaryResponse("2401.00001"),
+        keyPoints: ["要点1", "要点2"],
+        keyPointEvidence,
+      });
+      const { result, unmount } = renderUsePaperSummary();
+
+      await act(async () => {
+        await result.current.generateSummary();
+      });
+
+      expect(mockAddSummary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ keyPointEvidence: undefined })
+      );
+      unmount();
+    }
+  });
+
+  it("正常系: 説明文のみの生成では説明文だけを更新し、保存済みの根拠を上書きしない", async () => {
+    const keyPointEvidence = [[{ index: 0, text: "First sentence." }]];
+    const existing = {
+      ...createSummaryResponse("2401.00001"),
+      keyPoints: ["要点1"],
+      keyPointEvidence,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+    mockGetSummaryByPaperIdAndLanguage.mockReturnValue(existing);
+    // 説明文のみの応答は keyPoints が空で、keyPointEvidence を含まない
+    mockSummaryApi.mockResolvedValueOnce({
+      ...createSummaryResponse("2401.00001"),
+      summary: "",
+      explanation: "説明文",
+      targetAudience: "研究者",
+      whyRead: "理由",
+    });
+    const { result } = renderUsePaperSummary();
+
+    await act(async () => {
+      await result.current.generateSummary(undefined, "explanation");
+    });
+
+    expect(mockAddSummary).not.toHaveBeenCalled();
+    expect(mockUpdateSummary).toHaveBeenCalledWith("2401.00001", "ja", {
+      explanation: "説明文",
+      targetAudience: "研究者",
+      whyRead: "理由",
+    });
+  });
+
   it("正常系: generatingTarget は生成中の生成の対象を返し、完了すると null に戻る", async () => {
     const generation = createDeferred<unknown>();
     mockSummaryApi.mockReturnValueOnce(generation.promise);

@@ -46,6 +46,14 @@ export const PaperSummarySchema = z.object({
   summary: z.string(),
   /** キーポイント */
   keyPoints: z.array(z.string()),
+  /**
+   * キーポイントごとの根拠（keyPoints と同じ順序。生成時の Abstract に実在する文だけ）
+   * 空配列のキーポイントと、この項目がない古い要約は「対応箇所未確認」として扱う。
+   * 文との対応を示すだけで、キーポイントの正しさは保証しない
+   */
+  keyPointEvidence: z
+    .array(z.array(z.object({ index: z.number().int().nonnegative(), text: z.string() })))
+    .optional(),
   /** 認知負荷最適化説明文（読者ベース、オプショナル） */
   explanation: z.string().optional(),
   /** 対象読者（オプショナル） */

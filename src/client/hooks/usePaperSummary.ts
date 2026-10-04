@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
-import type { PaperSummary } from "../../shared/schemas/index";
+import { type PaperSummary, PaperSummarySchema } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
 import { PartialSummaryError, toSummaryStageErrorCode } from "../lib/summaryErrorTypes";
 import { getSummaryVersions, type SummaryVersion, useSummaryStore } from "../stores/summaryStore";
@@ -91,6 +91,19 @@ interface UsePaperSummaryReturn {
 }
 
 /**
+ * APIレスポンスのキーポイントの根拠を取り出す
+ * 形式が不正、またはキーポイントと数が合わない場合は保存しない（表示では「対応箇所未確認」になる）
+ */
+const normalizeKeyPointEvidence = (
+  data: object,
+  keyPoints: string[]
+): PaperSummary["keyPointEvidence"] => {
+  if (!("keyPointEvidence" in data)) return undefined;
+  const parsed = PaperSummarySchema.shape.keyPointEvidence.safeParse(data.keyPointEvidence);
+  return parsed.success && parsed.data?.length === keyPoints.length ? parsed.data : undefined;
+};
+
+/**
  * APIレスポンスの日付を正規化する
  *
  * Hono RPC の型推論では Date として扱われるが、
@@ -100,6 +113,7 @@ const normalizeSummaryResponse = (data: Awaited<ReturnType<typeof summaryApi>>):
   paperId: data.paperId,
   summary: data.summary,
   keyPoints: data.keyPoints,
+  keyPointEvidence: normalizeKeyPointEvidence(data, data.keyPoints),
   language: data.language,
   createdAt: new Date(data.createdAt as unknown as string),
   explanation:

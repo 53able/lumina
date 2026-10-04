@@ -460,6 +460,12 @@ describe("summaryApi のエラー応答", () => {
     [401, "auth", false, "APIキーの設定を確認してください。"],
     [429, "rate_limit", true, "AIの利用上限に達しました。時間をおいて再試行してください。"],
     [500, "upstream", true, "AIサービスでエラーが発生しました。再試行してください。"],
+    [
+      400,
+      "invalid_input",
+      false,
+      "この論文のAbstractは要約できません（長さが上限を超えているなど）。再試行では解決しません。",
+    ],
   ] as const)("%s の code（%s）から案内文を作る", async (status, code, retryable, message) => {
     respond(status, { error: "要約の生成に失敗しました", code, retryable });
 
@@ -485,6 +491,7 @@ describe("summaryApi のエラー応答", () => {
     [429, "rate_limit", true],
     [401, "auth", false],
     [403, "auth", false],
+    [400, "invalid_input", false],
   ] as const)("JSON でない %s（ミドルウェアのプレーンテキストなど）はステータスから %s として扱う", async (status, code, retryable) => {
     mockFetch.mockResolvedValueOnce(
       new Response("Too many requests, please try again later.", {
