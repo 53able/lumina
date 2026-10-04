@@ -554,42 +554,10 @@
   position: relative;
 }
 
-.bg-gradient-bold::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: 
-    repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 2px,
-      hsl(185 75% 55% / 0.03) 2px,
-      hsl(185 75% 55% / 0.03) 4px
-    );
-  pointer-events: none;
-}
-
-/* パーティクル風の背景アニメーション */
+/* 背景のパーティクル・斜線の装飾は、論文の選別の妨げになるため置かない（#68） */
 .bg-particles {
   position: relative;
   overflow: hidden;
-}
-
-.bg-particles::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: 
-    radial-gradient(2px 2px at 20% 30%, hsl(var(--primary) / 0.3), transparent),
-    radial-gradient(2px 2px at 60% 70%, hsl(var(--primary) / 0.2), transparent),
-    radial-gradient(1px 1px at 50% 50%, hsl(var(--primary) / 0.4), transparent),
-    radial-gradient(1px 1px at 80% 10%, hsl(var(--primary) / 0.3), transparent),
-    radial-gradient(2px 2px at 90% 60%, hsl(var(--primary) / 0.2), transparent),
-    radial-gradient(1px 1px at 33% 80%, hsl(var(--primary) / 0.3), transparent);
-  background-size: 200% 200%;
-  animation: particleFloat 30s linear infinite;
-  pointer-events: none;
-  z-index: 0;
 }
 
 /* 光の効果 */
@@ -636,13 +604,8 @@
 }
 
 .card-3d:hover .card-3d-inner {
-  /* 3D回転を削除して文字が確実に読めるように（機能要件優先） */
-  transform: translateY(-12px) scale(1.02);
-  transform-origin: center center;
-  box-shadow: 
-    0 25px 50px -12px hsl(var(--primary) / 0.4),
-    0 15px 30px -8px hsl(var(--primary) / 0.3),
-    0 0 0 2px hsl(var(--primary) / 0.2);
+  /* 浮き上がり・発光は控え、枠線だけでホバー中のカードを示す（#68） */
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.4);
   /* ホバー時も背景色を維持（テキストの可読性を確保） */
   background-color: hsl(var(--card));
 }
@@ -689,10 +652,6 @@
   pointer-events: none;
 }
 
-.card-glow:hover::before {
-  opacity: 1;
-}
-
 /* カードのアクセントライン */
 .card-accent-line {
   position: relative;
@@ -715,11 +674,6 @@
   transition: width 0.2s ease-out, box-shadow 0.2s ease-out;
   z-index: 1;
   pointer-events: none;
-}
-
-.card-accent-line:hover::after {
-  width: 6px;
-  box-shadow: 0 0 12px hsl(var(--primary) / 0.8);
 }
 
 /* 展開時のカードのグラデーションボーダー */

@@ -358,7 +358,9 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
         createPaper("2401.00004", "NoEmbedding Paper", null, ["cs.CL"]),
       ];
       const user = await search();
-      await user.click(screen.getByRole("button", { name: /cs\.AI/ }));
+      // デスクトップのカテゴリは折りたたみ領域（#68）。開いてから選ぶ
+      await user.click(screen.getByRole("button", { name: /^カテゴリ/ }));
+      await user.click(screen.getByRole("button", { name: /^cs\.AI / }));
       expect(screen.getByText("Mid Paper")).toBeInTheDocument();
       expect(screen.queryByText("NoEmbedding Paper")).not.toBeInTheDocument();
 
@@ -412,7 +414,7 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     const filterToggle = screen.getByRole("button", { name: /^絞り込み($|（)/ });
     await user.click(filterToggle);
     const filterPanel = document.getElementById(filterToggle.getAttribute("aria-controls") ?? "");
-    await user.click(within(filterPanel as HTMLElement).getByRole("button", { name: "cs.AI" }));
+    await user.click(within(filterPanel as HTMLElement).getByRole("button", { name: /^cs\.AI / }));
     expect(screen.queryByText("Mid Paper")).not.toBeInTheDocument();
     await waitFor(() => expect(filterAnnouncer).toHaveTextContent("cs.AI: 2件の論文を表示"));
     // 画面の「N件の論文」と同じ件数
@@ -459,7 +461,7 @@ describe("App: 検索結果の件数の隣でしきい値を調整する（#53�
     const user = await search();
     const filterToggle = screen.getByRole("button", { name: /^絞り込み($|（)/ });
     await user.click(filterToggle);
-    await user.click(screen.getByRole("button", { name: "cs.AI" }));
+    await user.click(screen.getByRole("button", { name: /^cs\.AI / }));
     const filterAnnouncer = screen.getByRole("status", { name: "絞り込みの結果" });
     await waitFor(() => expect(filterAnnouncer).toHaveTextContent("1件の論文を表示"));
 

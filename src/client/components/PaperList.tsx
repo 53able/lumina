@@ -18,8 +18,8 @@ import { Card } from "./ui/card";
 /** カードの最小幅（px） */
 const MIN_CARD_WIDTH = 300;
 
-/** グリッドのギャップ（px） */
-const GRID_GAP = 32;
+/** グリッドのギャップ（px）。先頭の結果を画面内に多く収めるため控えめにする */
+const GRID_GAP = 16;
 
 /** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
 const ESTIMATED_ROW_HEIGHT = 252;
@@ -358,8 +358,8 @@ export const PaperList: FC<PaperListProps> = ({
                             style={{
                               animationDelay: `${(finalIndex !== undefined ? finalIndex : index * columnCount + colIndex) * 0.05}s`,
                               overflow: "visible",
-                              /* カードが浮き上がっても文字が隠れないように十分な余白を確保 */
-                              padding: "12px",
+                              /* ホバー・選択時の枠線が隣のカードに隠れない程度の余白 */
+                              padding: "4px",
                             }}
                           >
                             <PaperCard

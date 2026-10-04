@@ -399,6 +399,8 @@ describe("PaperExplorer", () => {
       );
 
       const user = userEvent.setup({ delay: null });
+      // デスクトップのカテゴリは折りたたみ領域（#68）。開いてから解除する
+      await user.click(screen.getByRole("button", { name: /^カテゴリ/ }));
       const categoryGroup = screen.getByRole("group", { name: "カテゴリで絞り込み" });
       await user.click(within(categoryGroup).getByRole("button", { name: "絞り込みをすべて解除" }));
 
@@ -507,7 +509,7 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       await user.click(getFilterDisclosure().toggle);
-      await user.click(screen.getByRole("button", { name: "cs.LG" }));
+      await user.click(screen.getByRole("button", { name: /^cs\.LG / }));
 
       expect(getLocationSearch()).toBe("?cat=cs.LG");
       expect(screen.getByText("Attention Is All You Need")).toBeInTheDocument();
@@ -534,7 +536,7 @@ describe("PaperExplorer", () => {
       await waitForAnnounceDelay();
       expect(announcer).toHaveTextContent("");
 
-      await user.click(screen.getByRole("button", { name: "cs.LG" }));
+      await user.click(screen.getByRole("button", { name: /^cs\.LG / }));
       // 連続操作で読み上げを連発しないよう、すぐには更新しない
       expect(announcer).toHaveTextContent("");
       await waitFor(() => expect(announcer).toHaveTextContent("cs.LG: 1件の論文を表示"));
@@ -554,7 +556,7 @@ describe("PaperExplorer", () => {
 
         const user = userEvent.setup({ delay: null });
         await user.click(getFilterDisclosure().toggle);
-        await user.click(screen.getByRole("button", { name: "cs.CL" }));
+        await user.click(screen.getByRole("button", { name: /^cs\.CL / }));
         await waitFor(() => expect(announcer).toHaveTextContent("cs.CL: 2件の論文を表示"));
 
         // 通知後の同期による追加でも再通知せず、古い件数の通知は空にする
@@ -615,7 +617,7 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       await user.click(getFilterDisclosure().toggle);
-      await user.click(screen.getByRole("button", { name: "cs.LG" }));
+      await user.click(screen.getByRole("button", { name: /^cs\.LG / }));
       expect(getLocationSearch()).toBe("?cat=cs.LG");
       await waitForAnnounceDelay();
 
@@ -686,8 +688,8 @@ describe("PaperExplorer", () => {
 
       const user = userEvent.setup({ delay: null });
       await user.click(getFilterDisclosure().toggle);
-      await user.click(screen.getByRole("button", { name: "cs.CL" }));
-      expect(screen.getByRole("button", { name: "cs.CL" })).toHaveFocus();
+      await user.click(screen.getByRole("button", { name: /^cs\.CL / }));
+      expect(screen.getByRole("button", { name: /^cs\.CL / })).toHaveFocus();
 
       await user.keyboard("{Escape}");
 
@@ -778,6 +780,95 @@ describe("PaperExplorer", () => {
       await user.click(screen.getAllByRole("article")[0] as HTMLElement);
 
       expect(mockOnPaperClick).toHaveBeenCalledWith(mockPapers[0]);
+    });
+  });
+
+  describe("デスクトップのカテゴリ（#68: 検索→条件→一覧の順に、一覧を押し下げない）", () => {
+    /** 多数のカテゴリを持つ論文（探す欄が出る件数） */
+    const manyCategoryPapers: Paper[] = [
+      {
+        ...(mockPapers[0] as Paper),
+        categories: ["cs.AI", "cs.CL", "cs.CV", "cs.IR", "cs.LG", "cs.RO", "stat.ML"],
+      },
+      mockPapers[1] as Paper,
+    ];
+
+    const getCategoryDisclosure = () => {
+      const toggle = screen.getByRole("button", { name: /^カテゴリ/ });
+      const panel = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+      if (!panel) throw new Error("aria-controls が指すカテゴリ領域がない");
+      return { toggle, panel };
+    };
+
+    it("カテゴリは折りたたまれており、一覧より前に全カテゴリを並べない", () => {
+      renderExplorer({ initialPapers: manyCategoryPapers });
+
+      const { toggle, panel } = getCategoryDisclosure();
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(panel).not.toBeVisible();
+      expect(screen.queryByRole("button", { name: /^cs\.CV / })).not.toBeInTheDocument();
+    });
+
+    it("開くと分野名・コードで探して選べ、閉じても適用中のカテゴリが名前付きで見える", async () => {
+      renderExplorer({ initialPapers: manyCategoryPapers });
+
+      const user = userEvent.setup({ delay: null });
+      const { toggle, panel } = getCategoryDisclosure();
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("region", { name: "カテゴリ" })).toBe(panel);
+
+      await user.type(
+        within(panel).getByRole("textbox", { name: "カテゴリを分野名・コードで探す" }),
+        "ビジョン"
+      );
+      await user.click(within(panel).getByRole("button", { name: "cs.CV コンピュータビジョン" }));
+      expect(getLocationSearch()).toBe("?cat=cs.CV");
+
+      await user.click(toggle);
+      expect(panel).not.toBeVisible();
+      expect(getCategoryDisclosure().toggle).toHaveAccessibleName("カテゴリ（選択中1件）");
+      expect(
+        screen.getByRole("button", { name: "cs.CV（コンピュータビジョン）の絞り込みを解除" })
+      ).toBeVisible();
+    });
+
+    it("適用中のカテゴリはその場で解除でき、フォーカスを開閉ボタンへ移す", async () => {
+      renderExplorer({ initialPapers: manyCategoryPapers }, "/?cat=cs.LG");
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("button", { name: "cs.LG（機械学習）の絞り込みを解除" }));
+
+      expect(getLocationSearch()).toBe("");
+      expect(getCategoryDisclosure().toggle).toHaveFocus();
+    });
+
+    it("領域内で Esc を押すと折りたたみ、フォーカスを開閉ボタンへ戻す", async () => {
+      renderExplorer({ initialPapers: manyCategoryPapers });
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(getCategoryDisclosure().toggle);
+      await user.click(screen.getByRole("textbox", { name: "カテゴリを分野名・コードで探す" }));
+      await user.keyboard("{Escape}");
+
+      const { toggle, panel } = getCategoryDisclosure();
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(panel).not.toBeVisible();
+      expect(toggle).toHaveFocus();
+    });
+
+    it("Tab の順序は 検索欄 → 絞り込み条件 → 一覧（カテゴリを開いていないときは中身を飛ばす）", async () => {
+      renderExplorer({ initialPapers: manyCategoryPapers });
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("searchbox"));
+      // 検索欄 → 検索ボタン → いいね・ブックマーク（0件で無効のため飛ばす）→ カテゴリ → 一覧の先頭カードの操作
+      await user.tab();
+      expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
+      await user.tab();
+      expect(getCategoryDisclosure().toggle).toHaveFocus();
+      await user.tab();
+      expect(document.activeElement).toHaveAccessibleName("いいね");
     });
   });
 

@@ -134,7 +134,7 @@ interface HomeMainProps {
  * HomeMain - ホームページのメインコンテンツコンポーネント
  *
  * 責務:
- * - サイドバー（検索履歴。モバイルは検索欄の手前の折りたたみ）
+ * - サイドバー（同期ステータス・検索履歴。モバイルの検索履歴は検索欄の手前の折りたたみ、同期ステータスは一覧の下）
  * - メインコンテンツ（PaperExplorer、詳細パネル）
  * - モバイル用Sheet（論文詳細）
  *
@@ -225,23 +225,24 @@ const HomeMainInner: FC<HomeMainProps> = ({
 
       {/* Main Layout: Sidebar + List + Detail (Master-Detail Pattern) */}
       <div className="flex min-h-0 relative">
-        {/* Sidebar - 検索履歴（デスクトップのみ。モバイルは検索欄の手前の折りたたみ）
+        {/* Sidebar - 同期ステータスと検索履歴（デスクトップのみ。モバイルの検索履歴は検索欄の手前の折りたたみ）
             表示は CSS の lg ではなく isDesktop だけで決める（既定の文字サイズが 16px でない環境で、入口が消えたり二重になったりしないように）。
             サイドバーと折りたたみは同時にマウントしない（通知・フォーカス先の重複を防ぐ）。
             画面幅を切り替えると SearchHistory が作り直され、処理中の削除・元に戻すの完了通知とフォーカス移動は行わない（結果は行内の表示に残る） */}
         {isDesktop ? (
-          <aside className="flex w-64 flex-col bg-sidebar/50 relative z-10">
-            {/* 視線誘導の基準線 - サイドバーとメインコンテンツの境界 */}
-            <div
-              className="absolute right-0 top-0 bottom-0 w-[3px] pointer-events-none z-20"
-              style={{
-                background:
-                  "linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.6), hsl(var(--primary-light) / 0.8), hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.2), transparent)",
-                boxShadow: "0 0 12px hsl(var(--primary) / 0.5), 0 0 24px hsl(var(--primary) / 0.3)",
-                filter: "blur(1px)",
-              }}
-            />
-            <div className="px-6 pt-6 pb-4">
+          <aside className="flex w-64 flex-col border-r border-border/60 bg-sidebar/50 relative z-10">
+            {/* 同期（補助領域）: 検索欄より上に置かず、サイドバーの先頭で進行中・停止・失敗を見せる */}
+            <section aria-label="同期" className="px-4 pt-6">
+              <SyncStatusBar
+                compact
+                hasMore={hasMore}
+                onSyncAll={onSyncAll}
+                onRunEmbeddingBackfill={onRunEmbeddingBackfill}
+                onStopSync={onStopSync}
+                onRetrySync={onRetrySync}
+              />
+            </section>
+            <div className="px-6 pt-3 pb-4">
               <h3
                 className="text-sm font-bold uppercase tracking-wider text-primary-light"
                 style={{ opacity: 1 }}
@@ -267,16 +268,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
         {/* Main Content - 論文リスト（モバイルはオブジェクトファーストで一覧を上に） */}
         <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto min-w-0 relative z-10">
           <div className="px-4 py-4 sm:px-6 sm:py-6 lg:px-12 lg:py-10">
-            {/* デスクトップ: 同期ステータスは一覧の上。モバイル: 一覧の下に回すのでここでは出さない */}
-            {isDesktop && (
-              <SyncStatusBar
-                hasMore={hasMore}
-                onSyncAll={onSyncAll}
-                onRunEmbeddingBackfill={onRunEmbeddingBackfill}
-                onStopSync={onStopSync}
-                onRetrySync={onRetrySync}
-              />
-            )}
+            {/* 同期ステータスは補助領域に置く（デスクトップはサイドバー、モバイルは一覧の下）。検索欄より上には出さない */}
 
             {/* 保存済み論文の読み込み状態（読み込み中の件数・失敗時の再試行） */}
             <PaperLoadStatus />
