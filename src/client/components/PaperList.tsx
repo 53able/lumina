@@ -21,8 +21,13 @@ const MIN_CARD_WIDTH = 300;
 /** グリッドのギャップ（px）。先頭の結果を画面内に多く収めるため控えめにする */
 const GRID_GAP = 16;
 
-/** 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
-const ESTIMATED_ROW_HEIGHT = 252;
+/**
+ * 通常行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定
+ *
+ * ビルド済みCSSをヘッドレス Chrome で実測した1セル（余白 4px 込み）の高さ（幅 350〜352px、3行のタイトル・著者4名・カテゴリ3つ）:
+ * Abstract 抜粋のみ 340px、AI の一文あり 398px、Abstract なし 272px。多くの論文が該当する Abstract 抜粋のみの値を使う
+ */
+const ESTIMATED_ROW_HEIGHT = 340;
 
 /** 展開行の推定高さ（px）- 仮想スクロールの初期計算用。実際の高さは measureElement で測定 */
 const ESTIMATED_EXPANDED_ROW_HEIGHT = 400;
@@ -308,7 +313,7 @@ export const PaperList: FC<PaperListProps> = ({
                   key={`row-${index}`}
                   data-index={index}
                   ref={measureElement}
-                  className="absolute left-0 right-0 [content-visibility:auto] [contain-intrinsic-size:0_252px]"
+                  className="absolute left-0 right-0 [content-visibility:auto] [contain-intrinsic-size:0_340px]"
                   style={{
                     top: `${start}px`,
                     zIndex: isExpanded ? 10 : 1,

@@ -843,6 +843,75 @@ describe("PaperExplorer", () => {
       expect(getCategoryDisclosure().toggle).toHaveFocus();
     });
 
+    it("チップの解除は、そのカテゴリだけを外し、他のカテゴリといいね表示を残す", async () => {
+      renderExplorer({ initialPapers: manyCategoryPapers }, "/?filter=liked&cat=cs.LG&cat=cs.CV");
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("button", { name: "cs.LG（機械学習）の絞り込みを解除" }));
+
+      const params = new URLSearchParams(getLocationSearch() ?? "");
+      expect(params.get("filter")).toBe("liked");
+      expect(params.getAll("cat")).toEqual(["cs.CV"]);
+      expect(
+        screen.getByRole("button", { name: "cs.CV（コンピュータビジョン）の絞り込みを解除" })
+      ).toBeInTheDocument();
+    });
+
+    it("カテゴリが1件以下で開閉ボタンがないときは、チップの解除後のフォーカスを検索欄へ移す", async () => {
+      // URL で指定したカテゴリが一覧の論文にない（カテゴリは cs.CL の1件だけ）
+      renderExplorer({ initialPapers: [mockPapers[1] as Paper] }, "/?cat=cs.LG");
+      expect(screen.queryByRole("button", { name: /^カテゴリ/ })).not.toBeInTheDocument();
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("button", { name: "cs.LG（機械学習）の絞り込みを解除" }));
+
+      expect(getLocationSearch()).toBe("");
+      expect(screen.getByRole("searchbox")).toHaveFocus();
+    });
+
+    it("領域を閉じると、カテゴリの検索語をリセットする", async () => {
+      renderExplorer({ initialPapers: manyCategoryPapers });
+
+      const user = userEvent.setup({ delay: null });
+      const { toggle } = getCategoryDisclosure();
+      await user.click(toggle);
+      await user.type(
+        screen.getByRole("textbox", { name: "カテゴリを分野名・コードで探す" }),
+        "ビジョン"
+      );
+      await user.click(toggle);
+      await user.click(toggle);
+
+      expect(screen.getByRole("textbox", { name: "カテゴリを分野名・コードで探す" })).toHaveValue(
+        ""
+      );
+      expect(screen.getByRole("button", { name: /^cs\.LG / })).toBeInTheDocument();
+    });
+
+    it("モバイルの絞り込み領域では、カテゴリ一覧の高さを低く保つ（一覧の先頭を押し出しすぎない）", async () => {
+      mediaState.isDesktop = false;
+      renderExplorer({ initialPapers: manyCategoryPapers });
+
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("button", { name: /^絞り込み($|（)/ }));
+
+      const list = screen.getByRole("button", { name: /^cs\.LG / }).closest("div");
+      expect(list?.className).toContain("max-h-28");
+    });
+
+    it("開閉ボタンとチップはホバー・押下時に拡大・回転しない", () => {
+      renderExplorer({ initialPapers: manyCategoryPapers }, "/?cat=cs.LG");
+
+      for (const button of [
+        getCategoryDisclosure().toggle,
+        screen.getByRole("button", { name: "cs.LG（機械学習）の絞り込みを解除" }),
+      ]) {
+        expect(button.className).toContain("hover:scale-100");
+        expect(button.className).toContain("hover:rotate-0");
+        expect(button.className).not.toContain("hover:scale-110");
+      }
+    });
+
     it("領域内で Esc を押すと折りたたみ、フォーカスを開閉ボタンへ戻す", async () => {
       renderExplorer({ initialPapers: manyCategoryPapers });
 

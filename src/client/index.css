@@ -453,18 +453,6 @@
 }
 
 /* バッジ選択時のアニメーション */
-@keyframes badgeSelect {
-  0% {
-    transform: scale(1) rotate(0deg);
-  }
-  50% {
-    transform: scale(1.15) rotate(5deg);
-  }
-  100% {
-    transform: scale(1.1) rotate(-2deg);
-  }
-}
-
 .animate-float {
   animation: float 3s ease-in-out infinite; /* --transition-slow * 10 で調整可能 */
 }
@@ -508,10 +496,6 @@
 
 .animate-page-enter {
   animation: pageEnter 0.5s ease-out forwards;
-}
-
-.animate-badge-select {
-  animation: badgeSelect 0.3s ease-out;
 }
 
 /* Background gradient for hero sections - メインカラー統一 */

@@ -66,6 +66,8 @@ const renderHomeMain = (isDesktop: boolean) =>
       recentHistories={[]}
       onReSearch={noop}
       onRunEmbeddingBackfill={noop}
+      hasMore
+      onSyncAll={noop}
       onStopSync={noop}
       onRetrySync={noop}
     />
@@ -85,7 +87,12 @@ describe("HomeMain の配置（#68）", () => {
   afterEach(() => {
     cleanup();
     usePaperStore.setState({ papers: [] });
-    useSyncStore.setState({ isFetching: false, lastSyncError: null });
+    useSyncStore.setState({
+      isFetching: false,
+      isSyncingAll: false,
+      syncAllProgress: null,
+      lastSyncError: null,
+    });
   });
 
   it("デスクトップ: 同期はサイドバーにあり、論文一覧側（main）の検索欄より上に出さない", () => {
@@ -108,6 +115,29 @@ describe("HomeMain の配置（#68）", () => {
     expect(within(sync).getByRole("button", { name: "同期を停止" })).toBeVisible();
     expect(within(sync).getByTestId("sync-error")).toHaveTextContent("論文の同期に失敗しました");
     expect(within(sync).getByRole("button", { name: "同期を再試行" })).toBeInTheDocument();
+  });
+
+  it("デスクトップ: サイドバーの狭い幅でも、同期の操作のブロックは縮んで折り返し、停止は文字でも示す", () => {
+    // jsdom はレイアウトを計算しないため、はみ出しの原因だったクラス（shrink-0）がないことと折り返しの指定を確かめる。
+    // 実寸での収まりはビルド済みCSSをヘッドレス Chrome で測って確認する（PR に手順を記載）
+    useSyncStore.setState({
+      isSyncingAll: true,
+      syncAllProgress: { fetched: 12345, total: 23456 },
+    });
+    renderHomeMain(true);
+
+    const sync = screen.getByRole("region", { name: "同期" });
+    const stop = within(sync).getByRole("button", { name: "同期を停止" });
+    expect(stop).toHaveTextContent("停止");
+
+    const block = stop.parentElement as HTMLElement;
+    expect(block.className).toContain("min-w-0");
+    expect(block.className).toContain("flex-wrap");
+    expect(block.className).not.toMatch(/(^|\s)shrink-0(\s|$)/);
+    // ボタンの文言も折り返せる
+    expect(
+      within(sync).getByRole("button", { name: "同期期間の論文をすべて取得" }).className
+    ).toContain("whitespace-normal");
   });
 
   it("モバイル: 同期は検索欄より後（一覧の下）に置き、停止・失敗も表示する", () => {

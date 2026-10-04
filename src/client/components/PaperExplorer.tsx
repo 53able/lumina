@@ -20,6 +20,9 @@ import { PaperSearch } from "./PaperSearch";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
+/** ボタン既定のホバー・押下時の拡大と回転を打ち消す（絞り込みの操作で行を揺らさない） */
+const NO_MOTION_BUTTON_CLASS = "hover:scale-100 hover:rotate-0 active:scale-100 active:rotate-0";
+
 /** 絞り込み結果を読み上げるまでの待ち時間（連続操作で読み上げを連発しない） */
 const FILTER_ANNOUNCE_DELAY_MS = 400;
 
@@ -489,16 +492,20 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                 {availableCategories.length > 1 ? (
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">カテゴリ</p>
-                    <CategoryFilter
-                      availableCategories={availableCategories}
-                      selectedCategories={selectedCategories}
-                      onToggle={(category) => {
-                        toggleCategory(category);
-                        markFilterAdjusted();
-                      }}
-                      onClear={clearFiltersFromPanel}
-                      hideLabel
-                    />
+                    {/* 閉じている間はマウントしない（閉じたらカテゴリの検索語をリセットする） */}
+                    {isFilterPanelOpen ? (
+                      <CategoryFilter
+                        availableCategories={availableCategories}
+                        selectedCategories={selectedCategories}
+                        onToggle={(category) => {
+                          toggleCategory(category);
+                          markFilterAdjusted();
+                        }}
+                        onClear={clearFiltersFromPanel}
+                        hideLabel
+                        listMaxHeightClassName="max-h-28"
+                      />
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -597,7 +604,7 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                       variant="outline"
                       size="sm"
                       onClick={() => setIsCategoryPanelOpen((open) => !open)}
-                      className="h-7 gap-1 px-2 text-xs"
+                      className={cn("h-7 gap-1 px-2 text-xs", NO_MOTION_BUTTON_CLASS)}
                       aria-expanded={isCategoryPanelOpen}
                       aria-controls={categoryPanelId}
                     >
@@ -630,10 +637,16 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                       size="sm"
                       onClick={() => {
                         toggleCategory(category);
-                        categoryToggleRef.current?.focus();
+                        // 押したチップが消えるため、開閉ボタン（カテゴリが1件以下で開閉ボタンがないときは検索欄）へフォーカスを移す
+                        (
+                          categoryToggleRef.current ??
+                          heroSectionRef.current?.querySelector<HTMLInputElement>(
+                            '[role="searchbox"]'
+                          )
+                        )?.focus();
                       }}
                       aria-label={`${name ? `${category}（${name}）` : category}の絞り込みを解除`}
-                      className="h-7 gap-1 px-2 text-xs"
+                      className={cn("h-7 gap-1 px-2 text-xs", NO_MOTION_BUTTON_CLASS)}
                     >
                       <span className="font-mono font-semibold">{category}</span>
                       {name ? <span>{name}</span> : null}
@@ -656,17 +669,20 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
                   }}
                   className="rounded-lg border border-border/60 p-3"
                 >
-                  <CategoryFilter
-                    availableCategories={availableCategories}
-                    selectedCategories={selectedCategories}
-                    onToggle={toggleCategory}
-                    onClear={() => {
-                      clearAllFilters();
-                      // 押した解除ボタンが消えるため、フォーカスを開閉ボタンへ移す
-                      categoryToggleRef.current?.focus();
-                    }}
-                    hideLabel
-                  />
+                  {/* 閉じている間はマウントしない（閉じたらカテゴリの検索語をリセットする） */}
+                  {isCategoryPanelOpen ? (
+                    <CategoryFilter
+                      availableCategories={availableCategories}
+                      selectedCategories={selectedCategories}
+                      onToggle={toggleCategory}
+                      onClear={() => {
+                        clearAllFilters();
+                        // 押した解除ボタンが消えるため、フォーカスを開閉ボタンへ移す
+                        categoryToggleRef.current?.focus();
+                      }}
+                      hideLabel
+                    />
+                  ) : null}
                 </section>
               ) : null}
             </div>

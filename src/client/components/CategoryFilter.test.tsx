@@ -93,13 +93,36 @@ describe("CategoryFilter", () => {
     expect(within(group).getByRole("button", { name: "cs.RO ロボティクス" })).toBeInTheDocument();
   });
 
-  it("一致しないときはその旨を表示する", async () => {
+  it("一致しないときはその旨を表示し、読み上げる", async () => {
     const user = userEvent.setup({ delay: null });
     const { group } = renderFilter(MANY_CATEGORIES);
 
     await user.type(within(group).getByRole("textbox"), "天文学");
 
     expect(within(group).queryAllByRole("button")).toHaveLength(0);
-    expect(within(group).getByText("「天文学」に一致するカテゴリはありません")).toBeInTheDocument();
+    // 一覧が空になったことを読み上げる（live region）
+    const result = within(group).getByRole("status", { name: "カテゴリの検索結果" });
+    expect(result).toHaveAttribute("aria-live", "polite");
+    expect(result).toHaveTextContent("「天文学」に一致するカテゴリはありません");
+
+    // 一致が戻ったら通知の文言を消す
+    await user.clear(within(group).getByRole("textbox"));
+    expect(result).toHaveTextContent("");
+  });
+
+  it("一覧の高さの上限を指定できる（モバイルの絞り込み領域では低くする）", () => {
+    render(
+      <CategoryFilter
+        availableCategories={["cs.CL", "cs.LG"]}
+        selectedCategories={new Set()}
+        onToggle={vi.fn()}
+        hideLabel
+        listMaxHeightClassName="max-h-28"
+      />
+    );
+
+    const list = screen.getByRole("button", { name: /^cs\.CL / }).closest("div");
+    expect(list?.className).toContain("max-h-28");
+    expect(list?.className).not.toContain("max-h-40");
   });
 });

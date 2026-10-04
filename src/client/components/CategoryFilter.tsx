@@ -22,6 +22,8 @@ interface CategoryFilterProps {
   onClear?: () => void;
   /** 「絞り込み:」ラベルを非表示にする（コンパクト表示用） */
   hideLabel?: boolean;
+  /** カテゴリ一覧の高さの上限（領域内でスクロールする）。既定は max-h-40 */
+  listMaxHeightClassName?: string;
 }
 
 /**
@@ -50,6 +52,7 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
   onToggle,
   onClear,
   hideLabel = false,
+  listMaxHeightClassName = "max-h-40",
 }) => {
   const [keyword, setKeyword] = useState("");
   const searchInputId = useId();
@@ -85,10 +88,25 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
             autoComplete="off"
             className="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
+          {/* 一致なしは読み上げる（入力中に一覧が空になったことを画面を見ずに分かるように） */}
+          <output
+            aria-live="polite"
+            aria-label="カテゴリの検索結果"
+            className="block text-xs text-muted-foreground empty:hidden"
+          >
+            {visibleCategories.length === 0
+              ? `「${keyword.trim()}」に一致するカテゴリはありません`
+              : ""}
+          </output>
         </>
       ) : null}
 
-      <div className="flex max-h-40 flex-wrap items-center gap-1.5 overflow-y-auto p-0.5">
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-1.5 overflow-y-auto p-0.5",
+          listMaxHeightClassName
+        )}
+      >
         {visibleCategories.map((category) => {
           const isSelected = selectedCategories.has(category);
           const name = getCategoryName(category);
@@ -127,12 +145,6 @@ export const CategoryFilter: FC<CategoryFilterProps> = ({
             </Tooltip>
           );
         })}
-
-        {visibleCategories.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            「{keyword.trim()}」に一致するカテゴリはありません
-          </p>
-        ) : null}
 
         {/* クリアボタン */}
         {hasSelection && onClear && (
