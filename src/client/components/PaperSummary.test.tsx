@@ -995,7 +995,10 @@ describe("PaperSummary", () => {
       await user.click(within(list).getByRole("button", { name: "第1版を採用" }));
 
       expect(await screen.findByText("採用中: 第1版 / 全2版")).toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent("第1版を採用しました");
+      // 通知は採用の保存完了後に別の再描画で入る。バッジ更新（Store 経由）と同時とは限らないため待つ
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("第1版を採用しました")
+      );
       // 押した「第1版を採用」ボタンは消えるため、採用した版の見出しへフォーカスを移す
       await waitFor(() =>
         expect(document.activeElement).toBe(within(list).getByRole("heading", { name: /^第1版/ }))
@@ -1033,8 +1036,10 @@ describe("PaperSummary", () => {
 
       expect(await screen.findByText("採用中: 第2版 / 全2版")).toBeInTheDocument();
       expect(screen.getByText("第2版の要約")).toBeInTheDocument();
-      expect(screen.getByRole("status")).toHaveTextContent(
-        "第3版を破棄しました。残りの版のうち最新の版を採用しています"
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "第3版を破棄しました。残りの版のうち最新の版を採用しています"
+        )
       );
       await waitFor(() => expect(screen.getByRole("heading", { name: "AI要約" })).toHaveFocus());
       expect(await db.paperSummaries.count()).toBe(2);
