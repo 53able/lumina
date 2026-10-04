@@ -118,6 +118,12 @@ describe("要約API", () => {
       );
 
       expect(response.status).toBe(400);
+      // 再試行で解決しない失敗として分類する（クライアントは再試行を案内しない）
+      expect(await response.json()).toEqual({
+        error: "要約の要求が正しくありません",
+        code: "invalid_input",
+        retryable: false,
+      });
       expect(generateSummary).not.toHaveBeenCalled();
       expect(generateExplanation).not.toHaveBeenCalled();
     });

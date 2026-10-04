@@ -666,7 +666,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                           summary.keyPointEvidence?.[i]
                         );
                         return (
-                          <li key={point} className="text-sm flex items-start gap-2">
+                          // 同じ文言のキーポイントがあってもキーが重複しないよう、位置と併用する（生成後に並べ替えない）
+                          <li key={`${i}-${point}`} className="text-sm flex items-start gap-2">
                             <span className="text-primary">•</span>
                             <span>
                               {point}
@@ -736,7 +737,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             <div className={cn("space-y-4 transition-opacity", isRegenerating && "opacity-50")}>
               {/* 論文中の事実と区別するための注記 */}
               <p className="text-xs text-muted-foreground">
-                以下はAbstractをもとにAIが推測した、読むと得られること（AI）です。論文中の記述ではありません。
+                以下はAbstractをもとにAIが生成した説明です。論文中の記述ではありません。
               </p>
 
               {/* メイン説明文 */}

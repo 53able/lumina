@@ -627,9 +627,14 @@ export const summaryApi = async (
           ? "rate_limit"
           : status === 401 || status === 403
             ? "auth"
-            : "upstream";
-    // retryable がない場合の既定は、サーバーの toStageError（summary.ts）と同じく auth だけ再試行不可とする
-    const retryable = typeof body?.retryable === "boolean" ? body.retryable : code !== "auth";
+            : status === 400
+              ? "invalid_input"
+              : "upstream";
+    // retryable がない場合の既定は、サーバー（summary.ts）と同じく auth と invalid_input（400）だけ再試行不可とする
+    const retryable =
+      typeof body?.retryable === "boolean"
+        ? body.retryable
+        : code !== "auth" && code !== "invalid_input";
     throw new SummaryApiError(code, retryable);
   }
 

@@ -97,6 +97,12 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   } | null>(null);
   const highlightedIndices = evidence?.scope === evidenceScope ? evidence.indices : [];
 
+  // 論文・言語・版を切り替えたら強調を消す（元の範囲に戻っても前の強調を復活させない）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: evidenceScope の変化だけを契機にする
+  useEffect(() => {
+    setEvidence(null);
+  }, [evidenceScope]);
+
   const handleShowEvidence = (indices: number[]) => {
     setEvidence((prev) => ({ scope: evidenceScope, indices, request: (prev?.request ?? 0) + 1 }));
   };

@@ -304,16 +304,19 @@ describe("PaperDetail", () => {
         />
       );
       expect(container.querySelector("mark")).toBeNull();
+      // 元の版に戻しても、前の強調は復活しない
+      rerender(<PaperDetail paper={mockPaper} summary={summary} />);
+      expect(container.querySelector("mark")).toBeNull();
 
       // 言語の切替
-      rerender(<PaperDetail paper={mockPaper} summary={summary} />);
       await showEvidence();
       expect(container.querySelector("mark")).not.toBeNull();
       rerender(<PaperDetail paper={mockPaper} summary={summary} selectedSummaryLanguage="en" />);
       expect(container.querySelector("mark")).toBeNull();
+      rerender(<PaperDetail paper={mockPaper} summary={summary} />);
+      expect(container.querySelector("mark")).toBeNull();
 
       // 論文の差し替え（同じ Abstract でも別の論文なら強調しない）
-      rerender(<PaperDetail paper={mockPaper} summary={summary} />);
       await showEvidence();
       expect(container.querySelector("mark")).not.toBeNull();
       rerender(
@@ -322,6 +325,8 @@ describe("PaperDetail", () => {
           summary={{ ...summary, paperId: "2401.00002" }}
         />
       );
+      expect(container.querySelector("mark")).toBeNull();
+      rerender(<PaperDetail paper={mockPaper} summary={summary} />);
       expect(container.querySelector("mark")).toBeNull();
     });
 

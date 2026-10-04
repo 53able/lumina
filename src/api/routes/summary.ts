@@ -97,7 +97,15 @@ const generateStubKeyPoints = (language: "ja" | "en"): string[] => {
  */
 export const summaryApp = new Hono<{ Bindings: Env }>().post(
   "/summary/:id",
-  zValidator("json", SummaryRequestSchema),
+  // 要求の検証の失敗（Abstract の上限超過など）は再試行で解決しないため、retryable: false の分類で返す
+  zValidator("json", SummaryRequestSchema, (result, c) => {
+    if (!result.success) {
+      return c.json(
+        { error: "要約の要求が正しくありません", code: "invalid_input", retryable: false } as const,
+        400
+      );
+    }
+  }),
   async (c) => {
     const paperId = c.req.param("id");
     const { language, abstract, generateTarget, includeExplanation } = c.req.valid("json");

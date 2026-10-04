@@ -55,6 +55,11 @@ describe("showSummaryErrorToast", () => {
     ["auth", false, "論文: APIキーの設定を確認してください。"],
     ["rate_limit", true, "論文: AIの利用上限に達しました。時間をおいて再試行してください。"],
     ["upstream", true, "論文: AIサービスでエラーが発生しました。再試行してください。"],
+    [
+      "invalid_input",
+      false,
+      "論文: この論文のAbstractは要約できません（長さが上限を超えているなど）。再試行では解決しません。",
+    ],
   ] as const)("要約APIの全体の失敗（%s）は分類の案内文で出す", (code, retryable, description) => {
     showSummaryErrorToast(new SummaryApiError(code, retryable), "論文");
 
