@@ -199,8 +199,11 @@ export const useHomeSearch = ({
   const handleRetrySearch = useCallback(() => {
     const query = activeQueryRef.current;
     if (query === null || semanticSearch.error === null) return;
+    // 直近の試行が表示中のクエリの検索でなければ（中止した別のクエリなど）実行しない
+    const retrying = retry(query);
+    if (retrying === null) return;
     beginQuery(query);
-    void retry();
+    void retrying;
   }, [beginQuery, retry, semanticSearch.error]);
 
   /** 検索をクリア（URL の q は呼び出し元がフィルターと合わせて消す） */

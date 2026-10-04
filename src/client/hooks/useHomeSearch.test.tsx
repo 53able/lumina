@@ -1187,6 +1187,79 @@ describe("useHomeSearch", () => {
         expect(result.current.home.results).toHaveLength(1);
         expect(mockSearchApi).toHaveBeenCalledTimes(1);
       });
+
+      it("中止・前結果を見た検索は再試行しない（前回の結果の再計算の失敗を、表示中の結果の条件で再試行する）", async () => {
+        // 確定後の再計算（論文の更新）だけを失敗させられる検索の実行元
+        let failCompute = false;
+        const base = createTestSearchSource(papers);
+        const source: PaperSearchSource = {
+          isReady: () => true,
+          whenReady: async () => {},
+          search: async (...args) => {
+            if (failCompute) {
+              failCompute = false;
+              throw new Error("worker crashed");
+            }
+            return base.search(...args);
+          },
+        };
+        mockSearchApi.mockResolvedValueOnce(response("A"));
+        const { result, rerender, addHistory } = renderHomeSearch({ searchSource: source });
+        await act(async () => {
+          await result.current.home.handleSearch("A");
+        });
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("A"));
+
+        // B は検索APIで失敗し、前結果を見る（A に戻る）
+        mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+        await act(async () => {
+          await result.current.home.handleSearch("B");
+        });
+        expect(result.current.home.error).not.toBeNull();
+        act(() => {
+          result.current.home.handleCancelSearch();
+        });
+        await waitFor(() => expect(result.current.location.search).toBe("?q=A"));
+
+        // A の再計算が失敗する
+        failCompute = true;
+        rerender({ papers: [...papers] });
+        await waitFor(() => expect(result.current.home.error?.name).toBe("SearchComputeError"));
+        expect(result.current.home.previousResultsQuery).toBe("A");
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+
+        await waitFor(() => expect(result.current.home.completedQuery).toBe("A"));
+        expect(result.current.home.error).toBeNull();
+        expect(result.current.home.expandedQuery?.original).toBe("A");
+        expect(result.current.location.search).toBe("?q=A");
+        // B を検索APIで呼び直さず、A の履歴を B の内容で上書きしない
+        expect(mockSearchApi).toHaveBeenCalledTimes(2);
+        for (const [history] of addHistory.mock.calls) {
+          expect(history.originalQuery).toBe("A");
+          expect(history.expandedQuery.original).toBe("A");
+        }
+      });
+
+      it("クリア後は、クリア前に失敗した検索を再試行しない", async () => {
+        mockSearchApi.mockRejectedValueOnce(new Error("Rate limit exceeded"));
+        const { result, clear } = renderHomeSearch();
+        await act(async () => {
+          await result.current.home.handleSearch("B");
+        });
+        expect(result.current.home.error).not.toBeNull();
+        clear();
+
+        act(() => {
+          result.current.home.handleRetrySearch();
+        });
+        await act(async () => {});
+
+        expect(mockSearchApi).toHaveBeenCalledTimes(1);
+        expect(result.current.home.isLoading).toBe(false);
+      });
     });
   });
 });

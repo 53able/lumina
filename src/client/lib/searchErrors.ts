@@ -4,8 +4,8 @@ import { ApiDisabledError, SearchApiError } from "./api";
  * 索引での類似度の計算に失敗したときのエラー（Worker 内の計算の失敗など。論文の読み込み失敗は PaperLoadError）
  */
 export class SearchComputeError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = "SearchComputeError";
   }
 }

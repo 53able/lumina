@@ -1,11 +1,10 @@
 import { type FC, useEffect, useState } from "react";
 import { describeSearchFailure } from "../lib/searchErrors";
+import { focusPaperSearchInput } from "./PaperSearch";
+import { Button } from "./ui/button";
 
 /** 理由と対処を一覧に出している失敗で、検索欄の近くに出す文 */
 export const SEARCH_FAILURE_EXPLAINED_IN_LIST = "理由と対処は検索結果の欄に表示しています。";
-
-import { focusPaperSearchInput } from "./PaperSearch";
-import { Button } from "./ui/button";
 
 /** 経過時間を表示し始めるまでの秒数（短い検索では出さない） */
 export const ELAPSED_TIME_VISIBLE_AFTER_SEC = 3;
