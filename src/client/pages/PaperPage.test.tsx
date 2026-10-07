@@ -6,6 +6,7 @@
  * - Issue #65: 保存済み論文の読み込み中に、一覧に未読み込みの論文を DB から1件読み、
  *   「保存されていない」と誤判定しない
  * - Issue #108: 旧形式の ID（math.GT/0309136）はスラッシュを含んでも開ける
+ * - Issue #127: 読み込めなかったことを表示している間も、別タブでその論文が保存されたら読み直す
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen } from "@testing-library/react";
@@ -15,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
 import { InteractionProvider } from "../contexts/InteractionContext";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { DB_CHANGE_CHANNEL_NAME, type DbChangeMessage } from "../lib/dbChangeChannel";
 import { toPaperListItem } from "../lib/paperIndex/core";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -259,5 +261,35 @@ describe("PaperPage の DB からの1件読み込み（保存済み論文の段�
     });
     expect(await screen.findByText(paper.title)).toBeInTheDocument();
     expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it("読めなかったことを表示している間に別タブでその論文が保存されたら、読み直して詳細を表示する（Issue #127）", async () => {
+    vi.spyOn(db.papers, "get").mockRejectedValueOnce(new Error("read failed"));
+    usePaperStore.setState({ papers: [], loadStatus: "error", isLoading: false, _db: db });
+    renderAt(`/papers/${paper.id}`);
+    expect(
+      await screen.findByRole("heading", { name: "論文を読み込めませんでした" })
+    ).toBeInTheDocument();
+
+    const otherTab = new BroadcastChannel(DB_CHANGE_CHANNEL_NAME);
+    try {
+      // 別の論文の変更では読み直さない
+      otherTab.postMessage({
+        dbName: db.name,
+        table: "papers",
+        paperIds: ["2401.99999"],
+      } satisfies DbChangeMessage);
+      await db.papers.add(paper);
+      otherTab.postMessage({
+        dbName: db.name,
+        table: "papers",
+        paperIds: [paper.id],
+      } satisfies DbChangeMessage);
+
+      expect(await screen.findByText(paper.title)).toBeInTheDocument();
+      expect(db.papers.get).toHaveBeenCalledTimes(2);
+    } finally {
+      otherTab.close();
+    }
   });
 });

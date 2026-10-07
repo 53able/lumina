@@ -6,6 +6,7 @@ import { PaperDetail } from "../components/PaperDetail";
 import { Button } from "../components/ui/button";
 import { usePaperSummary } from "../hooks/usePaperSummary";
 import { ARXIV_ID_PATTERN } from "../lib/arxivId";
+import { subscribeDbChanges } from "../lib/dbChangeChannel";
 import { type PaperListItem, toPaperListItem } from "../lib/paperIndex/core";
 import { showSummaryErrorToast } from "../lib/summaryErrors";
 import { usePaperStore } from "../stores/paperStore";
@@ -74,6 +75,16 @@ export const PaperPage: FC = () => {
       cancelled = true;
     };
   }, [needsLookup, db, storedId, lookupAttempt]);
+
+  // 読み込みに失敗している間も、別タブでこの論文が保存されたら読み直す（Issue #127）
+  // 一覧の読み込みも失敗している場合、別タブの保存は一覧に反映されないため
+  const lookupFailed = lookup !== null && lookup.id === storedId && lookup.status === "error";
+  useEffect(() => {
+    if (!lookupFailed || !db || storedId === undefined) return;
+    return subscribeDbChanges(db, "papers", ({ paperIds }) => {
+      if (paperIds.includes(storedId)) setLookupAttempt((n) => n + 1);
+    });
+  }, [lookupFailed, db, storedId]);
 
   // 現在の ID に対する読み込み結果だけを使う
   const currentLookup = lookup !== null && lookup.id === storedId ? lookup : null;

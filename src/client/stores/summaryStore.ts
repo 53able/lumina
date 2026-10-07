@@ -366,7 +366,7 @@ export const initializeSummaryStore = async (db: LuminaDB): Promise<void> => {
   useSummaryStore.setState({ isLoading: true, _db: db });
   unsubscribeRemoteChanges?.();
   unsubscribeRemoteChanges = subscribeDbChanges(db, "paperSummaries", ({ paperIds }) => {
-    reloadSummaries(db, paperIds).catch((error: unknown) => {
+    return reloadSummaries(db, paperIds).catch((error: unknown) => {
       console.warn("Failed to reload summaries changed in another tab", error);
     });
   });

@@ -285,7 +285,7 @@ export const initializeSearchHistoryStore = async (db: LuminaDB): Promise<void> 
   });
   unsubscribeRemoteChanges?.();
   unsubscribeRemoteChanges = subscribeDbChanges(db, "searchHistories", () => {
-    reloadHistories(db).catch((error: unknown) => {
+    return reloadHistories(db).catch((error: unknown) => {
       console.warn("Failed to reload search histories changed in another tab", error);
     });
   });

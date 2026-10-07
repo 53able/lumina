@@ -166,7 +166,7 @@ export const initializeInteractionStore = async (db: LuminaDB): Promise<void> =>
   useInteractionStore.setState({ isLoading: true, _db: db });
   unsubscribeRemoteChanges?.();
   unsubscribeRemoteChanges = subscribeDbChanges(db, "userInteractions", ({ paperIds }) => {
-    reloadInteractions(db, paperIds).catch((error: unknown) => {
+    return reloadInteractions(db, paperIds).catch((error: unknown) => {
       console.warn("Failed to reload interactions changed in another tab", error);
     });
   });
