@@ -2,8 +2,10 @@
  * @vitest-environment jsdom
  *
  * 起動時のローカルデータ初期化に失敗したとき、白い画面で止まらずエラー画面を出すことを検証する（Issue #87）
+ * DB の upgrade が他のタブに妨げられたとき・初期化が終わらないときに待機中の表示を出すことも検証する（Issue #110）
  */
 import { act, fireEvent, screen, within } from "@testing-library/react";
+import Dexie from "dexie";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapApp } from "./bootstrap";
@@ -24,6 +26,35 @@ const createDbThatFailsToOpen = async (name: string): Promise<LuminaDB> => {
   });
   return new LuminaDB(name);
 };
+
+/**
+ * LuminaDB の v1 の DB を作り、別タブの古い接続を模して開いたままにする。
+ * versionchange を受けても閉じないため、LuminaDB（v2）の open は blocked になる
+ */
+const holdOldVersionConnection = async (name: string): Promise<IDBDatabase> => {
+  const v1 = new Dexie(name);
+  v1.version(1).stores({
+    papers: "id, publishedAt, *categories",
+    paperSummaries: "++, paperId, language, [paperId+language]",
+    searchHistories: "id, createdAt",
+    userInteractions: "id, paperId, type",
+  });
+  await v1.open();
+  v1.close();
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(name);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+/** 別タブが新しい版で DB を開くのを模す（他の接続が閉じるまで完了しない） */
+const openNewerVersion = (name: string, version: number): Promise<IDBDatabase> =>
+  new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(name, version);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 
 let dbCounter = 0;
 const uniqueDbName = () => `LuminaDB-bootstrap-test-${Date.now()}-${dbCounter++}`;
@@ -169,5 +200,73 @@ describe("bootstrapApp", () => {
 
     await within(rootElement).findByRole("button", { name: "再読み込み" });
     expect(within(rootElement).queryByRole("link", { name: "arXiv で開く" })).toBeNull();
+  });
+
+  it("他のタブの古い接続で upgrade が blocked になったら、他のタブを閉じる案内を出し、閉じたら起動を続ける（Issue #110）", async () => {
+    const name = uniqueDbName();
+    const oldConnection = await holdOldVersionConnection(name);
+    db = new LuminaDB(name);
+    const reload = vi.fn();
+
+    const pending = bootstrapApp(rootElement, { db, reload });
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "他のタブを閉じてください" })
+    ).toBeInTheDocument();
+    expect(document.title).toBe("起動待ち - Lumina");
+    fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    // 他のタブが接続を閉じると upgrade が進み、アプリに切り替わる
+    oldConnection.close();
+    root = await pending;
+
+    const view = within(rootElement);
+    expect(await view.findByRole("banner")).toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "他のタブを閉じてください" })).toBeNull();
+    expect(document.title).toBe("Lumina");
+  });
+
+  it("初期化が一定時間で終わらなければ待機中の表示に切り替え、終わったらアプリを描画する（Issue #110）", async () => {
+    db = new LuminaDB(uniqueDbName());
+    let finishRead: (value: never[]) => void = () => {};
+    vi.spyOn(db.userInteractions, "toArray").mockReturnValue(
+      new Promise<never[]>((resolve) => {
+        finishRead = resolve;
+      }) as unknown as ReturnType<typeof db.userInteractions.toArray>
+    );
+
+    const pending = bootstrapApp(rootElement, { db, reload: vi.fn(), slowInitMs: 10 });
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Lumina の起動に時間がかかっています" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "再読み込み" })).toBeInTheDocument();
+
+    finishRead([]);
+    root = await pending;
+
+    expect(await within(rootElement).findByRole("banner")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Lumina の起動に時間がかかっています" })
+    ).toBeNull();
+  });
+
+  it("起動後に他のタブが新しい版で DB を開いたら、このタブの接続を閉じて再読み込みを促す（Issue #110）", async () => {
+    const name = uniqueDbName();
+    db = new LuminaDB(name);
+    const reload = vi.fn();
+    root = await bootstrapApp(rootElement, { db, reload });
+    expect(await within(rootElement).findByRole("banner")).toBeInTheDocument();
+    expect(db.isOpen()).toBe(true);
+
+    // このタブが接続を閉じないと完了しない
+    const newer = await openNewerVersion(name, 1000);
+    newer.close();
+
+    expect(db.isOpen()).toBe(false);
+    expect(await screen.findByText("別のタブで保存データの更新が始まりました")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
