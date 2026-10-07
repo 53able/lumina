@@ -10,10 +10,13 @@
  * 合成データ: 次元 EMBEDDING_DIMENSION（1536）、各成分は一様乱数（シード固定）
  */
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
-import { EMBEDDING_DIMENSION } from "../src/shared/schemas/embedding";
-import { createPaperEmbeddingIndex, type PaperEmbeddingInput } from "../src/client/lib/paperIndex/core";
+import {
+  createPaperEmbeddingIndex,
+  type PaperEmbeddingInput,
+} from "../src/client/lib/paperIndex/core";
 import { createPaperIndexHost } from "../src/client/lib/paperIndex/host";
 import type { PaperIndexRequest, PaperIndexResponse } from "../src/client/lib/paperIndex/protocol";
+import { EMBEDDING_DIMENSION } from "../src/shared/schemas/embedding";
 
 /** 検索Aを送ってから中止するまでの時間（ms） */
 const ABORT_AFTER_MS = 20;
@@ -163,7 +166,9 @@ if (!isMainThread) {
   await sleep(200);
   await worker.terminate();
 
-  console.log(`件数 ${count}・次元 ${EMBEDDING_DIMENSION}・試行 ${runs} 回（Node ${process.version}）`);
+  console.log(
+    `件数 ${count}・次元 ${EMBEDDING_DIMENSION}・試行 ${runs} 回（Node ${process.version}）`
+  );
   console.log(`core.search（同一スレッド）: ${format(coreTimes)}`);
   console.log(`Worker 検索1回（送信→結果）: ${format(singleTimes)}`);
   console.log(
