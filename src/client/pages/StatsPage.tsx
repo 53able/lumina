@@ -197,7 +197,8 @@ export const StatsPage: FC = () => {
                     size="sm"
                     onClick={handleStopSyncFromDate}
                     disabled={isStoppingSyncFromDate}
-                    aria-label={isStoppingSyncFromDate ? "停止しています" : "取得を停止"}
+                    // 名前は表示文（「停止中…」「停止」）を含める（WCAG 2.5.3）
+                    aria-label={isStoppingSyncFromDate ? "取得を停止中…" : "取得を停止"}
                     aria-busy={isStoppingSyncFromDate}
                     className="h-auto px-2 py-1 text-xs"
                   >
