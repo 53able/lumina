@@ -161,7 +161,6 @@ vi.mock("./stores/summaryStore", () => ({
 vi.mock("./stores/searchHistoryStore", () => ({
   useSearchHistoryStore: () => ({
     addHistory: vi.fn(),
-    getRecentHistories: () => [],
     deleteHistory: vi.fn(),
   }),
 }));

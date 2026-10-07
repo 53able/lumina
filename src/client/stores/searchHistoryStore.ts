@@ -43,8 +43,6 @@ interface SearchHistoryActions {
   addHistory: (history: SearchHistory) => Promise<void>;
   /** IDで検索履歴を取得する */
   getHistoryById: (id: string) => SearchHistory | undefined;
-  /** 最新N件の検索履歴を取得する */
-  getRecentHistories: (limit: number) => SearchHistory[];
   /**
    * 検索履歴を削除する
    * DB削除の成功後に一覧から外し、元のレコードを deletedHistories に退避する。
@@ -134,10 +132,6 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
 
       getHistoryById: (id) => {
         return get().histories.find((h) => h.id === id);
-      },
-
-      getRecentHistories: (limit) => {
-        return get().histories.slice(0, limit);
       },
 
       deleteHistory: async (id) => {
