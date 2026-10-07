@@ -6,6 +6,7 @@ import { HomeFooter } from "./components/HomeFooter";
 import { HomeHeader } from "./components/HomeHeader";
 import { HomeMain } from "./components/HomeMain";
 import { SearchStatusPanel } from "./components/SearchStatusPanel";
+import { SkipLinks } from "./components/SkipLinks";
 import { useHomeSearch } from "./hooks/useHomeSearch";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { usePaperSummary } from "./hooks/usePaperSummary";
@@ -396,6 +397,9 @@ const HomePage: FC = () => {
 
   return (
     <div className="grid min-h-dvh grid-rows-[auto_1fr_auto] bg-background bg-gradient-bold bg-particles">
+      {/* スキップリンク（ページで最初の Tab の到達先。ヘッダー・サイドバーを通らずに検索欄・論文一覧へ移る） */}
+      <SkipLinks />
+
       {/* Header */}
       <HomeHeader
         onOpenSettings={() => setIsSettingsOpen(true)}

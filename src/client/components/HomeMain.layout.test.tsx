@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
 import { usePaperStore } from "../stores/paperStore";
@@ -147,5 +148,34 @@ describe("HomeMain の配置（#68）", () => {
     const stop = screen.getByRole("button", { name: "同期を停止" });
     expect(precedes(searchbox, stop)).toBe(true);
     expect(screen.getByTestId("sync-error")).toHaveTextContent("論文の同期に失敗しました");
+  });
+
+  it("デスクトップ: 同期の停止・再試行へは Tab で届き、見た目の順（左のサイドバー → 右の検索欄）と同じく検索欄より先に通る", async () => {
+    // 検索欄・論文一覧へ直接移るスキップリンクは App のヘッダーより前に置く（App.test.tsx で確認）
+    const user = userEvent.setup();
+
+    /** 文書の先頭から検索欄に届くまで Tab を押し、通った要素を返す */
+    const tabUntilSearchbox = async () => {
+      const searchbox = screen.getByRole("searchbox");
+      const visited: Element[] = [];
+      for (let i = 0; i < 30 && document.activeElement !== searchbox; i++) {
+        await user.tab();
+        if (document.activeElement) visited.push(document.activeElement);
+      }
+      expect(searchbox).toHaveFocus();
+      return visited;
+    };
+
+    // 進行中: 停止
+    renderHomeMain(true);
+    expect(await tabUntilSearchbox()).toContain(screen.getByRole("button", { name: "同期を停止" }));
+    cleanup();
+
+    // 失敗後（進行中でない）: 再試行。進行中は再試行が無効のため、取得を止めた状態で確かめる
+    useSyncStore.setState({ isFetching: false });
+    renderHomeMain(true);
+    expect(await tabUntilSearchbox()).toContain(
+      screen.getByRole("button", { name: "同期を再試行" })
+    );
   });
 });

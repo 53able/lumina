@@ -15,6 +15,9 @@ import { PaperCard } from "./PaperCard";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 
+/** 論文一覧の領域の id（ページ先頭のスキップリンク「論文一覧へ移動」の移動先） */
+export const PAPER_LIST_ID = "paper-list";
+
 /** カードの最小幅（px） */
 const MIN_CARD_WIDTH = 300;
 

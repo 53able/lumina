@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -326,6 +326,93 @@ describe("App", () => {
       await user.click(screen.getByRole("button", { name: /^検索履歴/ }));
 
       expect(screen.getByText("検索履歴がありません")).toBeVisible();
+    });
+  });
+
+  describe("キーボードの順序（デスクトップ、#68）", () => {
+    const originalMatchMedia = window.matchMedia;
+
+    beforeEach(() => {
+      // デスクトップ幅（lg 以上）。サイドバー（同期・検索履歴）を表示する
+      window.matchMedia = (query: string) => ({
+        ...originalMatchMedia(query),
+        matches: query.includes("min-width: 1024px"),
+      });
+    });
+
+    afterEach(() => {
+      window.matchMedia = originalMatchMedia;
+    });
+
+    it("最初の Tab はスキップリンク「検索へ移動」に届き、Enter で検索欄へ移る", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<App />);
+      expect(screen.getByRole("complementary")).toBeInTheDocument();
+
+      await user.tab();
+      expect(screen.getByRole("link", { name: "検索へ移動" })).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("searchbox")).toHaveFocus();
+      // フラグメント移動はしない（URL に # を付けず、React Router の location とずらさない）
+      expect(window.location.hash).toBe("");
+    });
+
+    it("2つ目の Tab は「論文一覧へ移動」に届き、Enter で一覧へ移って次の Tab は一覧の中に届く", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<App />);
+
+      await user.tab();
+      await user.tab();
+      expect(screen.getByRole("link", { name: "論文一覧へ移動" })).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+      const list = screen.getByRole("region", { name: "論文一覧" });
+      expect(list).toHaveFocus();
+      expect(window.location.hash).toBe("");
+
+      await user.tab();
+      expect(list.contains(document.activeElement)).toBe(true);
+    });
+
+    it("スキップリンクを使わなければ、見た目の順（左のサイドバー → 右の検索欄）で Tab が進み、サイドバーの検索履歴にも届く", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<App />);
+      const sidebar = screen.getByRole("complementary");
+      const searchbox = screen.getByRole("searchbox");
+
+      // 検索欄に届くまでに通った要素
+      const visited: Element[] = [];
+      for (let i = 0; i < 50 && document.activeElement !== searchbox; i++) {
+        await user.tab();
+        if (document.activeElement) visited.push(document.activeElement);
+      }
+
+      expect(searchbox).toHaveFocus();
+      expect(visited).toContain(screen.getByRole("button", { name: /^強化学習/ }));
+      // サイドバーの操作はすべて検索欄より前に通る（Tab の順と見た目の順が逆転しない）
+      const sidebarControls = within(sidebar)
+        .queryAllByRole("button")
+        .filter((button) => !button.hasAttribute("disabled"));
+      for (const control of sidebarControls) {
+        expect(visited).toContain(control);
+      }
+    });
+  });
+
+  describe("キーボードの順序（モバイル、#68）", () => {
+    // テスト環境の matchMedia はモバイル幅（lg 未満）。サイドバーはなく、検索欄の手前に検索履歴の折りたたみがある
+    it("最初の Tab はスキップリンク「検索へ移動」に届き、Enter で検索履歴の折りたたみを飛ばして検索欄へ移る", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<App />);
+      expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+
+      await user.tab();
+      expect(screen.getByRole("link", { name: "検索へ移動" })).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("searchbox")).toHaveFocus();
+      expect(window.location.hash).toBe("");
     });
   });
 

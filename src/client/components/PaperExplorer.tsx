@@ -15,7 +15,7 @@ import {
 import { cn } from "../lib/utils";
 import { usePaperStore } from "../stores/paperStore";
 import { CategoryFilter } from "./CategoryFilter";
-import { PaperList } from "./PaperList";
+import { PAPER_LIST_ID, PaperList } from "./PaperList";
 import { PaperSearch } from "./PaperSearch";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
@@ -695,58 +695,66 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         ) : null}
       </section>
 
-      {/* 論文リスト */}
-      <PaperList
-        papers={filteredPapers}
-        isLoading={isListLoading}
-        isSearchLoading={isListLoading}
-        // 検索結果そのものが0件のときだけ検索の理由を出す。絞り込みで0件なら一覧の「条件に一致しない」に任せる
-        emptyMessage={
-          hasSearched &&
-          !isSearchLoading &&
-          filteredPapers.length === 0 &&
-          displayPapers.length === 0
-            ? emptySearchMessage
-            : undefined
-        }
-        showCount={hasSearched && !isSearchLoading && filteredPapers.length > 0}
-        renderCountAccessory={
-          hasSearched && !isSearchLoading && (searchResultCounts || renderSearchResultTools)
-            ? (displayedCount) => (
-                <>
-                  {searchResultCounts ? (
-                    <p
-                      className="text-xs text-muted-foreground/70"
-                      data-testid="search-result-breakdown"
-                    >
-                      {formatSearchResultBreakdown(
-                        searchResultCounts,
-                        displayPapers.length - filteredPapers.length
-                      )}
-                    </p>
-                  ) : null}
-                  {renderSearchResultTools?.(displayedCount)}
-                </>
-              )
-            : undefined
-        }
-        onPaperClick={onPaperClick}
-        whyReadMap={whyReadMap}
-        // 検索結果表示中、カテゴリフィルタ中、いいね/ブックマークフィルタ中は追加読み込みを無効化
-        onRequestSync={
-          hasSearched || selectedCategories.size > 0 || filterMode !== "all"
-            ? undefined
-            : onRequestSync
-        }
-        // インライン展開
-        expandedPaperId={expandedPaperId}
-        renderExpandedDetail={renderExpandedDetail}
-        onSync={onSync}
-        onRetrySync={onRetrySync}
-        isSyncPending={isSyncPending}
-        onOpenSettings={onOpenSettings}
-        onClearConditions={hasSearched || activeFilterCount > 0 ? handleClear : undefined}
-      />
+      {/* 論文リスト（スキップリンクの移動先。フォーカスは受けるが Tab の停止点にはしない） */}
+      <section
+        id={PAPER_LIST_ID}
+        aria-label="論文一覧"
+        tabIndex={-1}
+        // 強制カラーモードでも残るよう、box-shadow の ring ではなく不透明な outline で示す
+        className="rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
+        <PaperList
+          papers={filteredPapers}
+          isLoading={isListLoading}
+          isSearchLoading={isListLoading}
+          // 検索結果そのものが0件のときだけ検索の理由を出す。絞り込みで0件なら一覧の「条件に一致しない」に任せる
+          emptyMessage={
+            hasSearched &&
+            !isSearchLoading &&
+            filteredPapers.length === 0 &&
+            displayPapers.length === 0
+              ? emptySearchMessage
+              : undefined
+          }
+          showCount={hasSearched && !isSearchLoading && filteredPapers.length > 0}
+          renderCountAccessory={
+            hasSearched && !isSearchLoading && (searchResultCounts || renderSearchResultTools)
+              ? (displayedCount) => (
+                  <>
+                    {searchResultCounts ? (
+                      <p
+                        className="text-xs text-muted-foreground/70"
+                        data-testid="search-result-breakdown"
+                      >
+                        {formatSearchResultBreakdown(
+                          searchResultCounts,
+                          displayPapers.length - filteredPapers.length
+                        )}
+                      </p>
+                    ) : null}
+                    {renderSearchResultTools?.(displayedCount)}
+                  </>
+                )
+              : undefined
+          }
+          onPaperClick={onPaperClick}
+          whyReadMap={whyReadMap}
+          // 検索結果表示中、カテゴリフィルタ中、いいね/ブックマークフィルタ中は追加読み込みを無効化
+          onRequestSync={
+            hasSearched || selectedCategories.size > 0 || filterMode !== "all"
+              ? undefined
+              : onRequestSync
+          }
+          // インライン展開
+          expandedPaperId={expandedPaperId}
+          renderExpandedDetail={renderExpandedDetail}
+          onSync={onSync}
+          onRetrySync={onRetrySync}
+          isSyncPending={isSyncPending}
+          onOpenSettings={onOpenSettings}
+          onClearConditions={hasSearched || activeFilterCount > 0 ? handleClear : undefined}
+        />
+      </section>
     </div>
   );
 };
