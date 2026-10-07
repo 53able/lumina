@@ -224,7 +224,7 @@ describe("StatsPage", () => {
     renderWithRouter(<StatsPage />);
 
     const stop = screen.getByRole("button", { name: "取得を停止" });
-    expect(stop).toHaveTextContent("停止");
+    expect(stop).toHaveTextContent(/^停止$/);
     await user.click(stop);
 
     const stopping = screen.getByRole("button", { name: "取得を停止中…" });
