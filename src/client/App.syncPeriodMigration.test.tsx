@@ -67,7 +67,6 @@ vi.mock("@/client/stores/interactionStore", () => ({
 vi.mock("@/client/stores/searchHistoryStore", () => ({
   useSearchHistoryStore: () => ({
     histories: [],
-    getRecentHistories: () => [],
     deleteHistory: vi.fn(),
   }),
 }));
