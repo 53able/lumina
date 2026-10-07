@@ -64,8 +64,13 @@ const setVisibility = (state: DocumentVisibilityState) => {
 /** 経過時間（Date.now に足す） */
 let elapsed = 0;
 const realNow = Date.now.bind(Date);
+/**
+ * 時計を止め、elapsed だけで進める
+ * （実時間を足すと、背面に回ってから戻るまでの実行時間でしきい値を越え、負荷次第で結果が変わるため）
+ */
 const mockClock = () => {
-  vi.spyOn(Date, "now").mockImplementation(() => realNow() + elapsed);
+  const base = realNow();
+  vi.spyOn(Date, "now").mockImplementation(() => base + elapsed);
 };
 
 /** 背面に回り、ms だけ経ってから前面に戻る */
