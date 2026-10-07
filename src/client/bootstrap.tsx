@@ -119,13 +119,14 @@ export const bootstrapApp = async (
     db.on.blocked.unsubscribe(onBlocked);
   }
 
-  // 他のタブが DB を更新・削除しようとしたら、このタブの接続を閉じて妨げないようにする。
-  // 次に DB を使うときは自動で開き直すが、このタブのコードは古い版のままなので再読み込みを促す
+  // 他のタブが DB を更新・削除しようとしたら、このタブの接続を閉じて妨げないようにする（Dexie の既定と同じ）。
+  // 次に DB を使うときは Dexie が自動で開き直すため、このタブは古い版のコードのまま動き続ける。再読み込みを促す
   db.on("versionchange", () => {
     db.close({ disableAutoOpen: false });
     toast.warning("別のタブで保存データの更新が始まりました", {
       id: "db-versionchange",
-      description: "このタブの接続を閉じました。最新の状態で使うには再読み込みしてください。",
+      description:
+        "このタブは古い版のまま動いています。保存データを正しく扱うため、再読み込みしてください。",
       duration: Number.POSITIVE_INFINITY,
       action: { label: "再読み込み", onClick: reload },
     });

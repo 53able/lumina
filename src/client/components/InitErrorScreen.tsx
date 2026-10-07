@@ -65,12 +65,16 @@ export const InitErrorScreen: FC<InitErrorScreenProps> = ({
 }) => {
   const arxivId = getArxivIdFromPath(pathname);
   const { heading, description } = MESSAGES[reason];
+  const isFailed = reason === "failed";
 
   return (
     <main className="min-h-dvh bg-background bg-gradient-lumina">
       <div className="mx-auto max-w-2xl px-4 py-16 space-y-6">
-        <h1 className="text-2xl font-bold">{heading}</h1>
-        <p>{description}</p>
+        {/* 待機中（blocked / slow）は起動中に切り替わる表示なので、支援技術に変化を伝える。failed は画面全体として読まれるため付けない */}
+        <div role={isFailed ? undefined : "status"} className="space-y-6">
+          <h1 className="text-2xl font-bold">{heading}</h1>
+          <p>{description}</p>
+        </div>
         <section aria-labelledby="init-error-data-heading" className="space-y-2">
           <h2 id="init-error-data-heading" className="text-lg font-bold">
             保存済みのデータについて
@@ -79,9 +83,12 @@ export const InitErrorScreen: FC<InitErrorScreenProps> = ({
             論文・要約・検索履歴などはこのブラウザ内に保存されています。この画面が出ても、Lumina
             がデータを削除することはありません。
           </p>
-          <p className="text-sm text-muted-foreground">
-            再読み込みで直らない場合は、ストレージの空きを確保するか、プライベートブラウジングではない通常のウィンドウで開いてください。ブラウザの設定でこのサイトのデータを削除すると直る場合がありますが、保存済みのデータはすべて失われます。
-          </p>
+          {/* サイトデータの削除は元に戻せないため、失敗が確定したときだけ案内する（待機中は待てば直る場合がある） */}
+          {isFailed && (
+            <p className="text-sm text-muted-foreground">
+              再読み込みで直らない場合は、ストレージの空きを確保するか、プライベートブラウジングではない通常のウィンドウで開いてください。ブラウザの設定でこのサイトのデータを削除すると直る場合がありますが、保存済みのデータはすべて失われます。
+            </p>
+          )}
         </section>
         <div className="flex flex-wrap gap-3">
           <Button type="button" onClick={onReload}>

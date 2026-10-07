@@ -7,6 +7,7 @@
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import Dexie from "dexie";
 import type { Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapApp } from "./bootstrap";
 import { LuminaDB } from "./db/db";
@@ -60,6 +61,12 @@ let dbCounter = 0;
 const uniqueDbName = () => `LuminaDB-bootstrap-test-${Date.now()}-${dbCounter++}`;
 
 const ERROR_HEADING = { level: 1, name: "Lumina を起動できませんでした" } as const;
+const BLOCKED_HEADING = { level: 1, name: "他のタブを閉じてください" } as const;
+const SLOW_HEADING = { level: 1, name: "Lumina の起動に時間がかかっています" } as const;
+/** 元に戻せないサイトデータ削除の案内（失敗が確定したときだけ出す） */
+const SITE_DATA_DELETION = /サイトのデータを削除/;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("bootstrapApp", () => {
   let rootElement: HTMLDivElement;
@@ -78,6 +85,9 @@ describe("bootstrapApp", () => {
   });
 
   afterEach(() => {
+    act(() => {
+      toast.dismiss();
+    });
     act(() => root?.unmount());
     root = undefined;
     db?.close();
@@ -205,26 +215,39 @@ describe("bootstrapApp", () => {
   it("他のタブの古い接続で upgrade が blocked になったら、他のタブを閉じる案内を出し、閉じたら起動を続ける（Issue #110）", async () => {
     const name = uniqueDbName();
     const oldConnection = await holdOldVersionConnection(name);
-    db = new LuminaDB(name);
-    const reload = vi.fn();
+    try {
+      db = new LuminaDB(name);
+      const reload = vi.fn();
 
-    const pending = bootstrapApp(rootElement, { db, reload });
+      // blocked の案内が出た後に時間切れになるよう、時間切れを少し遅らせる
+      const pending = bootstrapApp(rootElement, { db, reload, slowInitMs: 300 });
 
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "他のタブを閉じてください" })
-    ).toBeInTheDocument();
-    expect(document.title).toBe("起動待ち - Lumina");
-    fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
-    expect(reload).toHaveBeenCalledTimes(1);
+      const heading = await screen.findByRole("heading", BLOCKED_HEADING);
+      expect(within(screen.getByRole("status")).getByRole("heading", BLOCKED_HEADING)).toBe(
+        heading
+      );
+      expect(document.title).toBe("起動待ち - Lumina");
+      // 失敗が確定していないので、元に戻せないサイトデータ削除は案内しない
+      expect(rootElement.textContent).not.toMatch(SITE_DATA_DELETION);
+      fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
+      expect(reload).toHaveBeenCalledTimes(1);
 
-    // 他のタブが接続を閉じると upgrade が進み、アプリに切り替わる
-    oldConnection.close();
-    root = await pending;
+      // 時間切れになっても blocked の案内を残す
+      await act(() => wait(400));
+      expect(screen.getByRole("heading", BLOCKED_HEADING)).toBeInTheDocument();
+      expect(screen.queryByRole("heading", SLOW_HEADING)).toBeNull();
 
-    const view = within(rootElement);
-    expect(await view.findByRole("banner")).toBeInTheDocument();
-    expect(view.queryByRole("heading", { name: "他のタブを閉じてください" })).toBeNull();
-    expect(document.title).toBe("Lumina");
+      // 他のタブが接続を閉じると upgrade が進み、アプリに切り替わる
+      oldConnection.close();
+      root = await pending;
+
+      const view = within(rootElement);
+      expect(await view.findByRole("banner")).toBeInTheDocument();
+      expect(view.queryByRole("heading", BLOCKED_HEADING)).toBeNull();
+      expect(document.title).toBe("Lumina");
+    } finally {
+      oldConnection.close();
+    }
   });
 
   it("初期化が一定時間で終わらなければ待機中の表示に切り替え、終わったらアプリを描画する（Issue #110）", async () => {
@@ -238,18 +261,53 @@ describe("bootstrapApp", () => {
 
     const pending = bootstrapApp(rootElement, { db, reload: vi.fn(), slowInitMs: 10 });
 
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Lumina の起動に時間がかかっています" })
-    ).toBeInTheDocument();
+    const heading = await screen.findByRole("heading", SLOW_HEADING);
+    expect(within(screen.getByRole("status")).getByRole("heading", SLOW_HEADING)).toBe(heading);
+    expect(document.title).toBe("起動待ち - Lumina");
     expect(screen.getByRole("button", { name: "再読み込み" })).toBeInTheDocument();
+    expect(rootElement.textContent).not.toMatch(SITE_DATA_DELETION);
 
     finishRead([]);
     root = await pending;
 
     expect(await within(rootElement).findByRole("banner")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("heading", { name: "Lumina の起動に時間がかかっています" })
-    ).toBeNull();
+    expect(screen.queryByRole("heading", SLOW_HEADING)).toBeNull();
+  });
+
+  it("待機中の表示から初期化が失敗したら、エラー画面とタイトルに切り替える（Issue #110）", async () => {
+    db = new LuminaDB(uniqueDbName());
+    let failRead: () => void = () => {};
+    const readGate = new Promise<void>((resolve) => {
+      failRead = resolve;
+    });
+    vi.spyOn(db.userInteractions, "toArray").mockImplementation((async () => {
+      await readGate;
+      throw new Error("read failed");
+    }) as unknown as typeof db.userInteractions.toArray);
+
+    const pending = bootstrapApp(rootElement, { db, reload: vi.fn(), slowInitMs: 10 });
+    expect(await screen.findByRole("heading", SLOW_HEADING)).toBeInTheDocument();
+
+    failRead();
+    root = await pending;
+
+    expect(await screen.findByRole("heading", ERROR_HEADING)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", SLOW_HEADING)).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(document.title).toBe("起動エラー - Lumina");
+    expect(rootElement.textContent).toMatch(SITE_DATA_DELETION);
+  });
+
+  it("時間切れより前に初期化が終わったら、後から待機中の表示に切り替えない（Issue #110）", async () => {
+    db = new LuminaDB(uniqueDbName());
+
+    root = await bootstrapApp(rootElement, { db, reload: vi.fn(), slowInitMs: 50 });
+    expect(await within(rootElement).findByRole("banner")).toBeInTheDocument();
+
+    await act(() => wait(100));
+    expect(screen.queryByRole("heading", SLOW_HEADING)).toBeNull();
+    expect(within(rootElement).getByRole("banner")).toBeInTheDocument();
+    expect(document.title).toBe("Lumina");
   });
 
   it("起動後に他のタブが新しい版で DB を開いたら、このタブの接続を閉じて再読み込みを促す（Issue #110）", async () => {
@@ -264,8 +322,10 @@ describe("bootstrapApp", () => {
     const newer = await openNewerVersion(name, 1000);
     newer.close();
 
+    // 接続を閉じること自体は Dexie 標準の versionchange ハンドラでも成り立つ。このテストで修正を検証しているのはトースト
     expect(db.isOpen()).toBe(false);
     expect(await screen.findByText("別のタブで保存データの更新が始まりました")).toBeInTheDocument();
+    expect(screen.getByText(/このタブは古い版のまま動いています/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     expect(reload).toHaveBeenCalledTimes(1);
   });
