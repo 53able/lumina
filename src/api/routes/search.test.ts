@@ -1,3 +1,4 @@
+import { RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import { createApp } from "../app";
@@ -41,6 +42,54 @@ describe("検索API", () => {
   });
 
   describe("POST /api/v1/search", () => {
+    describe("失敗（上流のエラー文を返さない）", () => {
+      const upstreamMessage = "Incorrect API key provided: sk-proj-abcd...wxyz";
+
+      const postSearch = () =>
+        app.request(
+          new Request("http://localhost/api/v1/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": openAIKeyHeader },
+            body: JSON.stringify({ query: "深層学習" }),
+          })
+        );
+
+      it.each([
+        [401, 401, "auth", false],
+        [403, 401, "auth", false],
+        [429, 429, "rate_limit", true],
+        [500, 500, "upstream", true],
+      ] as const)("異常系: クエリ拡張が上流 %s で失敗した場合は %s・安全な分類だけを返す", async (upstreamStatus, status, code, retryable) => {
+        vi.mocked(expandQuery).mockRejectedValueOnce(
+          Object.assign(new Error(upstreamMessage), { statusCode: upstreamStatus })
+        );
+
+        const response = await postSearch();
+
+        expect(response.status).toBe(status);
+        const body = await response.json();
+        expect(body).toEqual({ error: "検索に失敗しました", code, retryable });
+        expect(JSON.stringify(body)).not.toContain("sk-");
+        expect(JSON.stringify(body)).not.toContain("Incorrect API key");
+      });
+
+      it("異常系: Embedding 生成の RetryError に包まれた429も rate_limit として429で返す", async () => {
+        vi.mocked(createEmbedding).mockRejectedValueOnce(
+          new RetryError({
+            message: `Failed after 3 attempts. Last error: ${upstreamMessage}`,
+            reason: "maxRetriesExceeded",
+            errors: [Object.assign(new Error(upstreamMessage), { statusCode: 429 })],
+          })
+        );
+
+        const response = await postSearch();
+
+        expect(response.status).toBe(429);
+        const body = await response.json();
+        expect(body).toEqual({ error: "検索に失敗しました", code: "rate_limit", retryable: true });
+      });
+    });
+
     it("正常系: APIキーなしでスタブ結果を返す", async () => {
       // Arrange
       const request = new Request("http://localhost/api/v1/search", {
@@ -216,9 +265,9 @@ describe("検索API", () => {
           false
         );
 
-        expect(response.status).toBe(500);
+        expect(response.status).toBe(401);
         const body = await response.json();
-        expect(body).toHaveProperty("error");
+        expect(body).toEqual({ error: "検索に失敗しました", code: "auth", retryable: false });
         expect(body).not.toHaveProperty("expandedQuery");
         expect(createEmbedding).not.toHaveBeenCalled();
       });
