@@ -523,11 +523,13 @@ describe("searchApi・embeddingApi のエラー応答（上流のエラー文を
   const upstreamMessage = "Incorrect API key provided: sk-proj-abcd...wxyz";
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.stubGlobal("fetch", mockFetch);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -555,12 +557,10 @@ describe("searchApi・embeddingApi のエラー応答（上流のエラー文を
       })
     );
 
-    // 前のテストが進めた偽の時計の送信時刻が残るため、送信間隔の待機を十分に進める
-    vi.useFakeTimers();
+    // 共有の送信間隔の状態に依らず待機を終わらせる
     const pending = embeddingApi({ text: "t" }).catch((e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(1_000_000);
+    await vi.runAllTimersAsync();
     const error = await pending;
-    vi.useRealTimers();
 
     expect(error).toBeInstanceOf(Error);
     expect((error as { status: number }).status).toBe(500);
