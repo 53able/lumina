@@ -21,10 +21,10 @@ describe("classifyEmbeddingBackfillError", () => {
     expect(failure.guidance).toContain(guidance);
   });
 
-  it("500 の理由にはステータスを含め、詳細にサーバーのメッセージを残す", () => {
+  it("500 の理由にはステータスを含め、詳細（固定文言の繰り返し）は残さない", () => {
     const failure = classifyEmbeddingBackfillError(new EmbeddingApiError("upstream down", 500));
     expect(failure.reason).toContain("500");
-    expect(failure.detail).toBe("upstream down");
+    expect(failure.detail).toBeUndefined();
   });
   it("認証エラーの詳細（APIキーの一部を含みうる）は残さない", () => {
     const failure = classifyEmbeddingBackfillError(

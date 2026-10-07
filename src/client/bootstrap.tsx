@@ -2,9 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { App } from "./App";
-import { InitErrorScreen } from "./components/InitErrorScreen";
+import { InitErrorScreen, type InitScreenReason } from "./components/InitErrorScreen";
 import { InteractionProvider } from "./contexts/InteractionContext";
 import { type LuminaDB, luminaDb } from "./db/db";
 import { warmupCrypto } from "./lib/crypto";
@@ -30,9 +30,20 @@ const queryClient = new QueryClient({
   },
 });
 
+/** 初期化がこの時間で終わらなければ、待機中の表示に切り替える */
+const SLOW_INIT_MS = 10_000;
+
+const INIT_SCREEN_TITLES: Record<InitScreenReason, string> = {
+  failed: "起動エラー - Lumina",
+  blocked: "起動待ち - Lumina",
+  slow: "起動待ち - Lumina",
+};
+
 interface BootstrapOptions {
   db?: LuminaDB;
   reload?: () => void;
+  /** 待機中の表示に切り替えるまでの時間（テスト用） */
+  slowInitMs?: number;
 }
 
 /**
@@ -43,11 +54,41 @@ interface BootstrapOptions {
  *
  * 保存済み論文は Web Worker で段階的に読み込み、全件の完了を待たずに描画する（Issue #65）。
  * 論文の読み込み失敗はエラー画面にせず、画面内の読み込み状態（再試行）で示す。
+ *
+ * 他のタブの接続が DB の upgrade を妨げている（blocked）ときや、初期化が一定時間で終わらないときは、
+ * 白い画面のまま待たずに理由と復旧方法を表示する。初期化が終われば、その時点でアプリに切り替える（Issue #110）。
+ * 起動後に他のタブが DB を更新しようとしたら（versionchange）、このタブの接続を閉じて再読み込みを促す。
  */
 export const bootstrapApp = async (
   rootElement: HTMLElement,
-  { db = luminaDb, reload = () => window.location.reload() }: BootstrapOptions = {}
+  {
+    db = luminaDb,
+    reload = () => window.location.reload(),
+    slowInitMs = SLOW_INIT_MS,
+  }: BootstrapOptions = {}
 ): Promise<Root> => {
+  const root = createRoot(rootElement);
+  const appTitle = document.title;
+  const renderInitScreen = (reason: InitScreenReason) => {
+    document.title = INIT_SCREEN_TITLES[reason];
+    root.render(
+      <StrictMode>
+        <InitErrorScreen reason={reason} pathname={window.location.pathname} onReload={reload} />
+      </StrictMode>
+    );
+  };
+
+  // 初期化を待つ間に blocked・時間切れになったら待機中の表示に切り替える。blocked の案内を時間切れで上書きしない
+  let waitingReason: InitScreenReason | null = null;
+  const showWaiting = (reason: InitScreenReason) => {
+    if (waitingReason === "blocked") return;
+    waitingReason = reason;
+    renderInitScreen(reason);
+  };
+  const onBlocked = () => showWaiting("blocked");
+  db.on("blocked", onBlocked);
+  const slowTimer = setTimeout(() => showWaiting("slow"), slowInitMs);
+
   // アプリ起動前に Web Crypto を先にウォームアップしてから IndexedDB 初期化（リロード直後の検索で復号失敗しないよう）
   await warmupCrypto().catch(() => {});
 
@@ -71,17 +112,27 @@ export const bootstrapApp = async (
   } catch (error) {
     // 原因の調査用に開発者ツールには残す。画面にはメッセージもスタックも出さない
     console.error("Failed to initialize local data", error);
-    document.title = "起動エラー - Lumina";
-    const root = createRoot(rootElement);
-    root.render(
-      <StrictMode>
-        <InitErrorScreen pathname={window.location.pathname} onReload={reload} />
-      </StrictMode>
-    );
+    renderInitScreen("failed");
     return root;
+  } finally {
+    clearTimeout(slowTimer);
+    db.on.blocked.unsubscribe(onBlocked);
   }
 
-  const root = createRoot(rootElement);
+  // 他のタブが DB を更新・削除しようとしたら、このタブの接続を閉じて妨げないようにする（Dexie の既定と同じ）。
+  // 次に DB を使うときは Dexie が自動で開き直すため、このタブは古い版のコードのまま動き続ける。再読み込みを促す
+  db.on("versionchange", () => {
+    db.close({ disableAutoOpen: false });
+    toast.warning("別のタブで保存データの更新が始まりました", {
+      id: "db-versionchange",
+      description:
+        "このタブは古い版のまま動いています。保存データを正しく扱うため、再読み込みしてください。",
+      duration: Number.POSITIVE_INFINITY,
+      action: { label: "再読み込み", onClick: reload },
+    });
+  });
+
+  document.title = appTitle;
   root.render(
     <StrictMode>
       <BrowserRouter>

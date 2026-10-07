@@ -217,7 +217,15 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   const [focusVersionId, setFocusVersionId] = useState<number | null>(null);
   const versionListId = `summary-versions-${paperId}-${selectedLanguage}`;
   const versionHeadingId = (id: number) => `${versionListId}-${id}`;
-  const regenerateDisabledReasonId = `summary-regenerate-api-disabled-${paperId}-${selectedLanguage}`;
+  /** API利用OFFで生成を止めている理由の要素ID（生成系ボタンの aria-describedby の参照先。要約の有無で表示場所は排他） */
+  const apiDisabledReasonId = `summary-api-disabled-${paperId}-${selectedLanguage}`;
+  const apiDisabledReason = `API利用OFFのため生成を停止中。${getApiResumeHint(hasApiKey)}`;
+  /** 生成系ボタンに付ける、API利用OFF時の無効化と理由の関連付け */
+  const apiDisabledProps = {
+    // 生成中は disabled にするとフォーカスが外れるため、aria-disabled（generateButtonDisabledProps）に任せる
+    disabled: !apiEnabled && !isLoading,
+    "aria-describedby": apiEnabled ? undefined : apiDisabledReasonId,
+  };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 採用した版が決まったときだけ移す
   useEffect(() => {
@@ -327,10 +335,19 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   /** 再試行で解決しない失敗の対処方法（部分成功・全体の失敗・説明文のみの生成の失敗に共通） */
   const nonRetryableGuidance = getNonRetryableGuidance(error, hasApiKey);
   /** 全体の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
-  const errorGuidance = nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで再試行できます。`;
+  /**
+   * API利用OFF中は生成ボタンが無効で、停止理由と再開方法を別に示している。
+   * そのため再試行の案内と、API利用OFFによる失敗の再開方法は重ねて出さない
+   */
+  const hideGuidance =
+    !apiEnabled && (nonRetryableGuidance === null || error instanceof ApiDisabledError);
+  const errorGuidance = hideGuidance
+    ? ""
+    : (nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで再試行できます。`);
   /** 説明文工程の失敗の案内（再試行で解決しない失敗は、再試行ではなく対処方法を案内する） */
-  const partialGuidance =
-    nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`;
+  const partialGuidance = hideGuidance
+    ? ""
+    : (nonRetryableGuidance ?? `「${retryButtonLabel}」ボタンで説明文だけを再試行できます。`);
 
   // 自動要約生成: 論文が表示され、要約がなく、自動生成が有効な場合に発火
   useEffect(() => {
@@ -409,6 +426,8 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   const handleGenerate = (target: GenerateTarget) => {
     // 生成中はボタンを残したまま無効にしている（aria-disabled はクリックを止めないため、ここで止める）
     if (isLoading) return;
+    // API利用OFF中は生成しない（生成中の切替でボタンを disabled にしない場合にも止める）
+    if (!apiEnabled) return;
     onGenerate?.(paperId, selectedLanguage, target);
   };
 
@@ -604,6 +623,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         >
           <Button
             onClick={() => handleGenerate("both")}
+            {...apiDisabledProps}
             {...generateButtonDisabledProps}
             className={cn("gap-2", busyButtonClassName)}
           >
@@ -615,6 +635,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             要約 + 説明文
           </Button>
           {isLoading && loadingText}
+          {!apiEnabled && (
+            <p id={apiDisabledReasonId} className="text-xs text-muted-foreground text-center">
+              {apiDisabledReason}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground text-center">
             要約: Abstractの記述を簡潔にまとめます
             <br />
@@ -711,6 +736,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 <div className="flex items-center gap-2 pt-2 border-t">
                   <Button
                     onClick={() => handleGenerate("explanation")}
+                    {...apiDisabledProps}
                     {...generateButtonDisabledProps}
                     variant="ghost"
                     size="sm"
@@ -869,8 +895,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
               )}
               <Button
                 onClick={() => handleGenerate("both")}
-                disabled={!apiEnabled}
-                aria-describedby={apiEnabled ? undefined : regenerateDisabledReasonId}
+                {...apiDisabledProps}
                 {...generateButtonDisabledProps}
                 variant="outline"
                 size="sm"
@@ -923,10 +948,10 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 </Button>
               )}
             </div>
-            {/* aria-describedby の参照先。再生成ボタンと同じ条件で出す */}
+            {/* aria-describedby の参照先。再生成・説明文の生成ボタンと同じ条件で出す */}
             {!apiEnabled && (
-              <p id={regenerateDisabledReasonId} className="text-xs text-muted-foreground">
-                API利用OFFのため再生成を停止中。{getApiResumeHint(hasApiKey)}
+              <p id={apiDisabledReasonId} className="text-xs text-muted-foreground">
+                {apiDisabledReason}
               </p>
             )}
           </div>
