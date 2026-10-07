@@ -408,6 +408,32 @@ describe("API利用OFF時の実行境界", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  // 旧形式の ID のスラッシュでパスのセグメントが分かれないよう、%2F にして送る（Issue #108）
+  it.each([
+    ["2401.00001", "/api/v1/summary/2401.00001"],
+    ["math.GT/0309136", "/api/v1/summary/math.GT%2F0309136"],
+  ])("summaryApi は論文ID（%s）を1つのパスセグメントとして送る", async (paperId, pathname) => {
+    mockApiEnabled(true);
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          paperId,
+          summary: "要約",
+          keyPoints: [],
+          language: "ja",
+          createdAt: "2024-01-01T00:00:00.000Z",
+        }),
+        { status: 200, headers: new Headers() }
+      )
+    );
+
+    await summaryApi(paperId, { language: "ja" });
+
+    const [urlOrRequest] = mockFetch.mock.calls[0] as [string | Request];
+    const url = urlOrRequest instanceof Request ? urlOrRequest.url : urlOrRequest;
+    expect(new URL(url, "http://localhost").pathname).toBe(pathname);
+  });
+
   it("OFF のとき syncApi は arXiv 同期を続け、skipEmbedding: true を送る", async () => {
     mockApiEnabled(false);
     mockFetch.mockResolvedValueOnce(okSyncResponse());

@@ -41,13 +41,22 @@ describe("vercel.json rewrites", () => {
   it.each([
     "/papers/2512.18131",
     "/papers/2512.18131v2",
+    // 旧形式の ID（Issue #108）。スラッシュのまま・%2F のどちらでも SPA に届く
+    "/papers/math.GT/0309136",
+    "/papers/math.GT%2F0309136",
     "/stats",
     "/",
   ])("%s は SPA の index.html を返す", (path) => {
     expect(resolveDestination(path)).toBe("/index.html");
   });
 
-  it.each(["/api/v1/search", "/api/v1/x", "/api", "/health"])("%s は API 関数へ届く", (path) => {
+  it.each([
+    "/api/v1/search",
+    "/api/v1/x",
+    "/api/v1/summary/math.GT%2F0309136",
+    "/api",
+    "/health",
+  ])("%s は API 関数へ届く", (path) => {
     expect(resolveDestination(path)).toBe("/api");
   });
 

@@ -350,3 +350,41 @@ describe("App: 検索文の確認・編集（#31, #72）", () => {
     expect(countRequests("/api/v1/search")).toBe(1);
   });
 });
+
+// App のルート定義（/papers/:id/*）で、旧形式の ID の論文詳細を開ける（Issue #108）
+describe("App: 旧形式の arXiv ID の論文詳細", () => {
+  const legacyPaper = {
+    ...mockPapers[0],
+    id: "math.GT/0309136",
+    title: "Legacy Topology Paper",
+    categories: ["math.GT"],
+    pdfUrl: "https://arxiv.org/pdf/math.GT/0309136",
+    arxivUrl: "https://arxiv.org/abs/math.GT/0309136",
+  };
+
+  beforeEach(() => {
+    mockPapers.push(legacyPaper);
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    useSettingsStore.getState().resetAllSettings();
+    // 自動要約・自動同期を走らせない
+    useSettingsStore.setState({ apiEnabled: false, lastSyncedAt: new Date().toISOString() });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    mockPapers.splice(mockPapers.indexOf(legacyPaper), 1);
+  });
+
+  it.each([
+    "/papers/math.GT/0309136",
+    "/papers/math.GT%2F0309136",
+  ])("%s から論文詳細を表示する", async (path) => {
+    renderApp(path);
+
+    expect(
+      await screen.findByRole("heading", { name: "Legacy Topology Paper" })
+    ).toBeInTheDocument();
+  });
+});
