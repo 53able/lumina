@@ -408,7 +408,7 @@ const readSummaries = async (
  * 別タブで変更された論文の要約を IndexedDB から読み直し、Store のその論文の版を置き換える
  * （別タブで生成した要約を未生成と誤認して重複生成しないため。Issue #109）
  */
-const reloadSummaries = (db: LuminaDB, paperIds: string[] | null): Promise<void> =>
+export const reloadSummaries = (db: LuminaDB, paperIds: string[] | null): Promise<void> =>
   reloadUnlessChanged(
     () => useSummaryStore.getState().summaries,
     () => readSummaries(db, paperIds),

@@ -7,10 +7,12 @@ import userEvent from "@testing-library/user-event";
 import { type FC, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
+import { installFakeLockManager } from "../../test/fakeLockManager";
 import { createLuminaDb, type LuminaDB } from "../db/db";
 import { usePaperSummary } from "../hooks/usePaperSummary";
 import { ApiDisabledError, getApiResumeHint } from "../lib/api";
 import { PartialSummaryError, SummaryApiError } from "../lib/summaryErrorTypes";
+import { getSummaryLockName, runSummaryGenerationExclusively } from "../lib/summaryGenerationLock";
 import { useSettingsStore } from "../stores/settingsStore";
 import {
   getAdoptedSummaries,
@@ -71,6 +73,43 @@ describe("PaperSummary", () => {
 
       // paperId, language, target("both") が渡される
       expect(mockOnGenerate).toHaveBeenCalledWith("2401.00001", "ja", "both");
+    });
+
+    it("正常系: 別のタブが生成中で終了を待っている間は「別のタブで生成中」と表示する（Issue #128）", async () => {
+      const { locks, restore } = installFakeLockManager();
+      try {
+        let finishOtherTab: () => void = () => undefined;
+        void locks.request(
+          getSummaryLockName("2401.00001", "ja"),
+          () =>
+            new Promise<void>((resolve) => {
+              finishOtherTab = resolve;
+            })
+        );
+        const generate = vi.fn();
+        let waiting: Promise<unknown> = Promise.resolve();
+        act(() => {
+          waiting = runSummaryGenerationExclusively("2401.00001", "ja", generate);
+        });
+
+        const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+        expect(await screen.findByText("別のタブで生成中...")).toBeInTheDocument();
+        expect(screen.getByText("別のタブで要約を生成しています")).toBeInTheDocument();
+        // 別の言語の生成中は、このタブでの生成として表示する
+        rerender(<PaperSummary paperId="2401.00001" selectedLanguage="en" isLoading />);
+        expect(screen.getByText("生成中...")).toBeInTheDocument();
+
+        rerender(<PaperSummary paperId="2401.00001" isLoading />);
+        await act(async () => {
+          finishOtherTab();
+          await waiting;
+        });
+        // 待ち終えたら（次の生成を始めても）このタブでの生成として表示する
+        expect(screen.getByText("生成中...")).toBeInTheDocument();
+        expect(generate).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
     });
   });
 

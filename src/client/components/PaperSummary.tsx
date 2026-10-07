@@ -35,6 +35,7 @@ import {
   PartialSummaryError,
   SummaryApiError,
 } from "../lib/summaryErrorTypes";
+import { useIsSummaryGeneratingInOtherTab } from "../lib/summaryGenerationLock";
 import { cn } from "../lib/utils";
 import { useSettingsStore } from "../stores/settingsStore";
 import { getAdoptedSummaries, type SummaryVersion } from "../stores/summaryStore";
@@ -431,8 +432,15 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
     onGenerate?.(paperId, selectedLanguage, target);
   };
 
+  /** 別のタブが同じ論文・言語を生成中で、その終了を待っているか（このタブでは要約APIを呼ばない） */
+  const isGeneratingInOtherTab =
+    useIsSummaryGeneratingInOtherTab(paperId, selectedLanguage) && isLoading;
   /** 生成中の表示（押したボタンの隣に出す。読み上げは live region が担う） */
-  const loadingText = <span className="text-xs text-muted-foreground">生成中...</span>;
+  const loadingText = (
+    <span className="text-xs text-muted-foreground">
+      {isGeneratingInOtherTab ? "別のタブで生成中..." : "生成中..."}
+    </span>
+  );
   /**
    * 説明文だけを生成中か。それ以外の生成中は、要約があれば「再生成」で始めたものとして表示する
    * （generatingTarget が null の生成中＝対象が渡されない場合も、再生成として扱う）
@@ -594,7 +602,9 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
       */}
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {isLoading
-          ? "要約を生成しています"
+          ? isGeneratingInOtherTab
+            ? "別のタブで要約を生成しています"
+            : "要約を生成しています"
           : (versionMessage ??
             (generationResult === "success" ? "要約の生成が完了しました" : null))}
       </output>
