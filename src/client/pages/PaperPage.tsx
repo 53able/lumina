@@ -30,10 +30,9 @@ type StoredPaperLookup =
  */
 export const PaperPage: FC = () => {
   // 旧形式の ID（math.GT/0309136）はスラッシュを含むため、ルート /papers/:id/* の後続セグメントをつなぐ（Issue #108）
-  // 末尾のスラッシュ（/papers/2512.18131/ 等）は ID に含めない
+  // 末尾のスラッシュ（/papers/2512.18131/ や、%2F が / に戻った /papers/2512.18131%2F）は ID に含めない
   const { id: head, "*": rest } = useParams();
-  const tail = rest?.replace(/\/+$/, "");
-  const id = head !== undefined && tail ? `${head}/${tail}` : head;
+  const id = (head !== undefined && rest ? `${head}/${rest}` : head)?.replace(/\/+$/, "");
   // 保存時に版番号 vN を除いているため、検索時だけ除く（arXiv へのリンクは元の id を使う）
   const storedId = id?.replace(/v\d+$/, "");
   const storePaper = usePaperStore((s) =>

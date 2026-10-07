@@ -125,9 +125,12 @@ describe("PaperPage の状態表示", () => {
     expect(screen.queryByRole("heading", NOT_SAVED_HEADING)).not.toBeInTheDocument();
   });
 
-  it("新形式のIDは末尾にスラッシュが付いても同じ論文を表示する", () => {
+  it.each([
+    ["スラッシュ", `/papers/${paper.id}/`],
+    ["%2F", `/papers/${paper.id}%2F`],
+  ])("新形式のIDは末尾に%sが付いても同じ論文を表示する", (_label, path) => {
     seedPaperStoreForTest([paper], db);
-    renderAt(`/papers/${paper.id}/`);
+    renderAt(path);
 
     expect(screen.getByText(paper.title)).toBeInTheDocument();
   });
@@ -137,6 +140,7 @@ describe("PaperPage の状態表示", () => {
     ["スラッシュをエンコード", `/papers/${encodeURIComponent(legacyPaper.id)}`],
     ["版番号付き", `/papers/${legacyPaper.id}v1`],
     ["末尾スラッシュ付き", `/papers/${legacyPaper.id}/`],
+    ["末尾に %2F 付き", `/papers/${legacyPaper.id}%2F`],
   ])("旧形式のIDの論文を表示する（%s）", (_label, path) => {
     seedPaperStoreForTest([paper, legacyPaper], db);
     renderAt(path);
