@@ -2,7 +2,12 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import { type PaperSummary, SUMMARY_CORRECTION_MAX_LENGTH } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
-import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
+import {
+  isSameRecords,
+  notifyDbChange,
+  reloadUnlessChanged,
+  subscribeDbChanges,
+} from "../lib/dbChangeChannel";
 
 /**
  * 保存済みの要約の版（IndexedDB の主キーを id として持つ）
@@ -366,7 +371,7 @@ export const initializeSummaryStore = async (db: LuminaDB): Promise<void> => {
   useSummaryStore.setState({ isLoading: true, _db: db });
   unsubscribeRemoteChanges?.();
   unsubscribeRemoteChanges = subscribeDbChanges(db, "paperSummaries", ({ paperIds }) => {
-    reloadSummaries(db, paperIds).catch((error: unknown) => {
+    return reloadSummaries(db, paperIds).catch((error: unknown) => {
       console.warn("Failed to reload summaries changed in another tab", error);
     });
   });
@@ -414,6 +419,7 @@ export const reloadSummaries = (db: LuminaDB, paperIds: string[] | null): Promis
     () => readSummaries(db, paperIds),
     (fresh) => {
       if (paperIds === null) {
+        if (isSameRecords(useSummaryStore.getState().summaries, fresh)) return;
         useSummaryStore.setState({ summaries: fresh });
         return;
       }

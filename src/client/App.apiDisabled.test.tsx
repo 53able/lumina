@@ -74,7 +74,6 @@ vi.mock("@/client/stores/searchHistoryStore", () => ({
   useSearchHistoryStore: vi.fn((selector?: (s: unknown) => unknown) => {
     const state = {
       histories: [],
-      getRecentHistories: () => [],
       addHistory: vi.fn(),
       deleteHistory: vi.fn(),
     };

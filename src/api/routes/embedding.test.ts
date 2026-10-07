@@ -1,4 +1,4 @@
-import { RetryError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import { createApp } from "../app";
@@ -14,6 +14,25 @@ vi.mock("../services/openai", async (importOriginal) => {
 });
 
 import { createEmbedding, createEmbeddingsBatch } from "../services/openai";
+
+/** OpenAI が残高不足で返す 429（本文の code が insufficient_quota） */
+const quotaError = () => {
+  const data = {
+    error: {
+      message: "You exceeded your current quota",
+      type: "insufficient_quota",
+      code: "insufficient_quota",
+    },
+  };
+  return new APICallError({
+    message: data.error.message,
+    url: "https://api.openai.com/v1/embeddings",
+    requestBodyValues: {},
+    statusCode: 429,
+    responseBody: JSON.stringify(data),
+    data,
+  });
+};
 
 describe("Embedding API", () => {
   const app = createApp();
@@ -225,6 +244,32 @@ describe("Embedding API", () => {
         code: "rate_limit",
         retryable: true,
       });
+    });
+
+    it("異常系: 429 + insufficient_quota は quota として402で返し、上流の文言を返さない", async () => {
+      vi.mocked(createEmbeddingsBatch).mockRejectedValueOnce(
+        new RetryError({
+          message: "Failed after 3 attempts",
+          reason: "maxRetriesExceeded",
+          errors: [quotaError()],
+        })
+      );
+      const request = new Request("http://localhost/api/v1/embedding/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": openAIKeyHeader },
+        body: JSON.stringify({ texts: ["a"] }),
+      });
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(402);
+      const body = await response.json();
+      expect(body).toEqual({
+        error: "Embeddingの生成に失敗しました",
+        code: "quota",
+        retryable: false,
+      });
+      expect(JSON.stringify(body)).not.toContain("exceeded your current quota");
     });
 
     it("異常系: OpenAI の認証エラーは401として返す", async () => {

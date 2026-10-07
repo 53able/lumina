@@ -96,7 +96,6 @@ vi.mock("@/client/stores/interactionStore", () => ({
 const addHistory = vi.hoisted(() => vi.fn(async (_history: { originalQuery: string }) => {}));
 const searchHistoryState = vi.hoisted(() => ({
   histories: [],
-  getRecentHistories: () => [],
   addHistory,
   deleteHistory: async () => {},
 }));

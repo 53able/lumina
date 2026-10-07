@@ -1,4 +1,4 @@
-import { RetryError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import { createApp } from "../app";
@@ -14,6 +14,25 @@ vi.mock("../services/openai", async (importOriginal) => {
 });
 
 import { createEmbedding, expandQuery } from "../services/openai";
+
+/** OpenAI が残高不足で返す 429（本文の code が insufficient_quota） */
+const quotaError = () => {
+  const data = {
+    error: {
+      message: "You exceeded your current quota",
+      type: "insufficient_quota",
+      code: "insufficient_quota",
+    },
+  };
+  return new APICallError({
+    message: data.error.message,
+    url: "https://api.openai.com/v1/chat/completions",
+    requestBodyValues: {},
+    statusCode: 429,
+    responseBody: JSON.stringify(data),
+    data,
+  });
+};
 
 describe("検索API", () => {
   const app = createApp();
@@ -71,6 +90,17 @@ describe("検索API", () => {
         expect(body).toEqual({ error: "検索に失敗しました", code, retryable });
         expect(JSON.stringify(body)).not.toContain("sk-");
         expect(JSON.stringify(body)).not.toContain("Incorrect API key");
+      });
+
+      it("異常系: 429 + insufficient_quota は quota として402で返し、上流の文言を返さない", async () => {
+        vi.mocked(expandQuery).mockRejectedValueOnce(quotaError());
+
+        const response = await postSearch();
+
+        expect(response.status).toBe(402);
+        const body = await response.json();
+        expect(body).toEqual({ error: "検索に失敗しました", code: "quota", retryable: false });
+        expect(JSON.stringify(body)).not.toContain("exceeded your current quota");
       });
 
       it("異常系: Embedding 生成の RetryError に包まれた429も rate_limit として429で返す", async () => {

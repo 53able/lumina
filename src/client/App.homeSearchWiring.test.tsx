@@ -85,7 +85,6 @@ vi.mock("@/client/stores/interactionStore", () => ({
 // URL 起点の検索の effect が render のたびに再実行されて、クリア直後に検索がやり直される）
 const searchHistoryState = vi.hoisted(() => ({
   histories: [],
-  getRecentHistories: () => [],
   addHistory: async () => {},
   deleteHistory: async () => {},
 }));
