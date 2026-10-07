@@ -700,7 +700,8 @@ export const PaperExplorer: FC<PaperExplorerProps> = ({
         id={PAPER_LIST_ID}
         aria-label="論文一覧"
         tabIndex={-1}
-        className="rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        // 強制カラーモードでも残るよう、box-shadow の ring ではなく不透明な outline で示す
+        className="rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <PaperList
           papers={filteredPapers}

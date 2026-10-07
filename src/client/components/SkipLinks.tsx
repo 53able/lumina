@@ -12,13 +12,11 @@ const SKIP_TARGETS = [
  * 移動先にフォーカスする。
  * フラグメントへの移動だけでは、フォーカスできない要素（一覧の領域）へフォーカスが移らないブラウザがあり、
  * URL の # も検索クエリ（?q=）と一緒に履歴へ残るため、既定の動作を止めて直接フォーカスする。
- * 移動先がない場合（描画前など）は既定の動作に任せる。
+ * 移動先がない場合（描画前など）も既定の動作は止め、何もしない（# を付けて React Router の location とずらさない）。
  */
 const focusTarget = (event: MouseEvent<HTMLAnchorElement>, id: string) => {
-  const target = document.getElementById(id);
-  if (!target) return;
   event.preventDefault();
-  target.focus();
+  document.getElementById(id)?.focus();
 };
 
 /**

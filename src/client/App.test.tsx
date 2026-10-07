@@ -354,6 +354,8 @@ describe("App", () => {
 
       await user.keyboard("{Enter}");
       expect(screen.getByRole("searchbox")).toHaveFocus();
+      // フラグメント移動はしない（URL に # を付けず、React Router の location とずらさない）
+      expect(window.location.hash).toBe("");
     });
 
     it("2つ目の Tab は「論文一覧へ移動」に届き、Enter で一覧へ移って次の Tab は一覧の中に届く", async () => {
@@ -367,6 +369,7 @@ describe("App", () => {
       await user.keyboard("{Enter}");
       const list = screen.getByRole("region", { name: "論文一覧" });
       expect(list).toHaveFocus();
+      expect(window.location.hash).toBe("");
 
       await user.tab();
       expect(list.contains(document.activeElement)).toBe(true);
@@ -394,6 +397,22 @@ describe("App", () => {
       for (const control of sidebarControls) {
         expect(visited).toContain(control);
       }
+    });
+  });
+
+  describe("キーボードの順序（モバイル、#68）", () => {
+    // テスト環境の matchMedia はモバイル幅（lg 未満）。サイドバーはなく、検索欄の手前に検索履歴の折りたたみがある
+    it("最初の Tab はスキップリンク「検索へ移動」に届き、Enter で検索履歴の折りたたみを飛ばして検索欄へ移る", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<App />);
+      expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+
+      await user.tab();
+      expect(screen.getByRole("link", { name: "検索へ移動" })).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("searchbox")).toHaveFocus();
+      expect(window.location.hash).toBe("");
     });
   });
 
