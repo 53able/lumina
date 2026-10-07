@@ -8,6 +8,7 @@ import {
   type PaperIndexLoadHandlers,
   PaperLoadError,
 } from "./client";
+import { SEARCH_CHUNK_SIZE } from "./core";
 import type { PaperIndexRequest, PaperIndexResponse } from "./protocol";
 
 const createPaper = (id: string, day: number, embedding?: number[]): Paper => ({
@@ -84,6 +85,37 @@ describe("createInProcessPaperIndexClient", () => {
     client.dispose();
 
     await expect(client.search([1], 0, 10)).rejects.toBeInstanceOf(PaperLoadError);
+  });
+
+  it("破棄すると実行中の検索を reject し、索引での計算も打ち切る（#111）", async () => {
+    let yields = 0;
+    const Original = globalThis.MessageChannel;
+    vi.stubGlobal(
+      "MessageChannel",
+      class extends Original {
+        constructor() {
+          super();
+          yields += 1;
+        }
+      }
+    );
+    try {
+      const client = createInProcessPaperIndexClient(db);
+      // チャンクに分けて計算される件数（3チャンク分）
+      client.upsert(
+        Array.from({ length: SEARCH_CHUNK_SIZE * 3 }, (_, i) => createPaper(`p${i}`, 1, [1, i]))
+      );
+
+      const pending = client.search([1, 0], 0, 10);
+      client.dispose();
+
+      await expect(pending).rejects.toBeInstanceOf(PaperLoadError);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // 最初のチャンクの後に1回処理を返したところで打ち切られる（打ち切らなければ3回）
+      expect(yields).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

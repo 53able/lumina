@@ -1309,5 +1309,45 @@ describe("useSemanticSearch", () => {
       expect(result.current.resultQuery).toBe("second");
       expect(result.current.results.map((r) => r.paper.id)).toEqual(["2401.00003"]);
     });
+
+    it("再計算中に論文が更新されると前の再計算を中止し、中止を再計算の失敗にしない", async () => {
+      const { source, calls } = createAbortableSource();
+      const { result, rerender } = renderHook(
+        ({ papers }) => useSemanticSearch({ papers, searchSource: source }),
+        { initialProps: { papers: mockPapers } }
+      );
+
+      let first!: Promise<unknown>;
+      act(() => {
+        first = result.current.searchWithSavedData(
+          mockSearchResponse.expandedQuery,
+          createMockEmbedding(1)
+        );
+      });
+      await waitFor(() => expect(calls).toHaveLength(1));
+      await act(async () => {
+        calls[0]?.resolve({ matches: [{ id: "2401.00001", score: 0.9 }], totalMatchCount: 1 });
+        await first;
+      });
+      expect(result.current.searchPhase).toBe("done");
+
+      rerender({ papers: [...mockPapers] });
+      await waitFor(() => expect(calls).toHaveLength(2));
+      rerender({ papers: [...mockPapers] });
+      await waitFor(() => expect(calls).toHaveLength(3));
+
+      expect(calls[1]?.signal?.aborted).toBe(true);
+      expect(calls[2]?.signal?.aborted).toBe(false);
+      // 中止した再計算の reject を反映させてから確認する
+      await act(async () => {});
+      expect(result.current.recomputeError).toBeNull();
+      expect(result.current.searchPhase).toBe("done");
+
+      await act(async () => {
+        calls[2]?.resolve({ matches: [{ id: "2401.00002", score: 0.8 }], totalMatchCount: 1 });
+      });
+      expect(result.current.recomputeError).toBeNull();
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(["2401.00002"]);
+    });
   });
 });

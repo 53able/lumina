@@ -178,6 +178,10 @@ const createPaperIndexClient = (
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      // 実行中の検索の計算を打ち切る（同一スレッド版は close の後も索引の計算が続くため）
+      for (const requestId of pendingSearches.keys()) {
+        channel.send({ type: "cancelSearch", requestId });
+      }
       rejectPendingSearches(new PaperLoadError("検索用データは破棄されました"));
       channel.close();
     },

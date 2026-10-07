@@ -171,6 +171,7 @@ export interface PaperEmbeddingIndex {
    * search と同じ結果を、chunkSize 件の類似度を計算するごとに yield しながら求める。
    * 呼び出し側は yield の合間に next を呼ばないことで計算を打ち切れる。
    * 開始時点の索引を対象にし、計算中の upsert は結果に含めない（従来の同期の検索と同じ）。
+   * 同じクエリ・同じ索引の検索は実行中（打ち切られて止まった）の計算を共有し、続きから進める。
    */
   searchInChunks: (
     queryEmbedding: number[],
@@ -225,10 +226,22 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
   let lastScored: { queryEmbedding: number[]; sorted: PaperSearchMatch[] } | null = null;
   /** 索引の更新回数（チャンクに分けた計算の途中で更新されたかを判定する） */
   let version = 0;
+  /**
+   * 実行中（または中止されて途中で止まった）全件スコアの計算。
+   * 同じクエリ・同じ索引の検索はこの計算を共有して続きから進める。
+   * 中止→同じクエリで再検索（しきい値の連続変更など）のたびに最初から計算し直さないため。
+   */
+  let scoring: {
+    queryEmbedding: number[];
+    version: number;
+    task: Generator<void, PaperSearchMatch[], void>;
+    sorted: PaperSearchMatch[] | null;
+  } | null = null;
 
   const upsert = (papers: PaperEmbeddingInput[]): void => {
     if (papers.length > 0) {
       lastScored = null;
+      scoring = null;
       version += 1;
     }
     for (const paper of papers) {
@@ -294,11 +307,36 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
     if (lastScored !== null && isSameQuery(lastScored.queryEmbedding, queryEmbedding)) {
       sorted = lastScored.sorted;
     } else {
-      const query = [...queryEmbedding];
-      const startVersion = version;
-      sorted = yield* scoreAll(query, chunkSize);
-      // 計算中に索引が更新されたら、開始時点の索引で求めた一覧を後の検索に使い回さない
-      if (version === startVersion) lastScored = { queryEmbedding: query, sorted };
+      let current = scoring;
+      if (
+        current === null ||
+        current.version !== version ||
+        !isSameQuery(current.queryEmbedding, queryEmbedding)
+      ) {
+        const query = [...queryEmbedding];
+        current = {
+          queryEmbedding: query,
+          version,
+          task: scoreAll(query, chunkSize),
+          sorted: null,
+        };
+        scoring = current;
+      }
+      // 共有する計算を1チャンクずつ進める（他の検索が先に完了させていれば、その結果を使う）
+      while (current.sorted === null) {
+        const step = current.task.next();
+        if (!step.done) {
+          yield;
+          continue;
+        }
+        current.sorted = step.value;
+        if (scoring === current) scoring = null;
+        // 計算中に索引が更新されたら、開始時点の索引で求めた一覧を後の検索に使い回さない
+        if (current.version === version) {
+          lastScored = { queryEmbedding: current.queryEmbedding, sorted: step.value };
+        }
+      }
+      sorted = current.sorted;
     }
 
     // スコア降順なので、しきい値以上の一致は先頭からの連続した範囲になる
