@@ -6,7 +6,7 @@ import { PaperDetail } from "../components/PaperDetail";
 import { Button } from "../components/ui/button";
 import { usePaperSummary } from "../hooks/usePaperSummary";
 import { ARXIV_ID_PATTERN } from "../lib/arxivId";
-import { subscribeDbChanges } from "../lib/dbChangeChannel";
+import { subscribeDbChanges, subscribeResume } from "../lib/dbChangeChannel";
 import { type PaperListItem, toPaperListItem } from "../lib/paperIndex/core";
 import { showSummaryErrorToast } from "../lib/summaryErrors";
 import { usePaperStore } from "../stores/paperStore";
@@ -81,9 +81,15 @@ export const PaperPage: FC = () => {
   const lookupFailed = lookup !== null && lookup.id === storedId && lookup.status === "error";
   useEffect(() => {
     if (!lookupFailed || !db || storedId === undefined) return;
-    return subscribeDbChanges(db, "papers", ({ paperIds }) => {
+    const unsubscribeChanges = subscribeDbChanges(db, "papers", ({ paperIds }) => {
       if (paperIds.includes(storedId)) setLookupAttempt((n) => n + 1);
     });
+    // bfcache・長く背面にいた間は通知が届かないことがあるため、復帰時にもこの1件を読み直す
+    const unsubscribeResume = subscribeResume(() => setLookupAttempt((n) => n + 1));
+    return () => {
+      unsubscribeChanges();
+      unsubscribeResume();
+    };
   }, [lookupFailed, db, storedId]);
 
   // 現在の ID に対する読み込み結果だけを使う

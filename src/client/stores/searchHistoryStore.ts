@@ -2,7 +2,12 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { SearchHistory } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
-import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
+import {
+  isSameRecords,
+  notifyDbChange,
+  reloadUnlessChanged,
+  subscribeDbChanges,
+} from "../lib/dbChangeChannel";
 
 /**
  * 検索履歴の個別操作（削除・復元）の失敗
@@ -319,6 +324,8 @@ const reloadHistories = (db: LuminaDB): Promise<void> =>
     () => useSearchHistoryStore.getState().histories,
     () => readHistories(db),
     (histories) => {
+      // 内容が同じなら反映しない（復帰のたびに参照を差し替えて再描画させない）
+      if (isSameRecords(useSearchHistoryStore.getState().histories, histories)) return;
       const ids = new Set(histories.map((h) => h.id));
       useSearchHistoryStore.setState((state) => ({
         histories,

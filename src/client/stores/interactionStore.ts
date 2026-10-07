@@ -3,7 +3,12 @@ import { devtools } from "zustand/middleware";
 import type { InteractionType, UserInteraction } from "../../shared/schemas/index";
 import { now } from "../../shared/utils/dateTime";
 import type { LuminaDB } from "../db/db";
-import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
+import {
+  isSameRecords,
+  notifyDbChange,
+  reloadUnlessChanged,
+  subscribeDbChanges,
+} from "../lib/dbChangeChannel";
 
 /**
  * interactionStore の状態型
@@ -199,6 +204,7 @@ const reloadInteractions = (db: LuminaDB, paperIds: string[] | null): Promise<vo
         : db.userInteractions.where("paperId").anyOf(paperIds).toArray(),
     (fresh) => {
       if (paperIds === null) {
+        if (isSameRecords(useInteractionStore.getState().interactions, fresh)) return;
         useInteractionStore.setState({ interactions: fresh });
         return;
       }
