@@ -98,6 +98,16 @@ describe("PaperCard", () => {
       // 日付のフォーマットに応じてテスト
       expect(screen.getByText(/2024/)).toBeInTheDocument();
     });
+
+    // 旧形式の ID はスラッシュを含むまま /papers/:id/* のルートで受ける（Issue #108）
+    it.each([
+      ["2401.00001", "/papers/2401.00001"],
+      ["math.GT/0309136", "/papers/math.GT/0309136"],
+    ])("正常系: 詳細ページへのリンクは論文ID（%s）をそのままパスに含む", (id, href) => {
+      renderWithRouter(<PaperCard paper={createSamplePaper({ id })} />);
+
+      expect(screen.getByRole("link", { name: "詳細ページを開く" })).toHaveAttribute("href", href);
+    });
   });
 
   describe("インタラクション", () => {

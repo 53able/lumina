@@ -29,7 +29,10 @@ type StoredPaperLookup =
  * DB にも無い場合は、無効IDと未保存IDを区別して表示する（Issue #67）。
  */
 export const PaperPage: FC = () => {
-  const { id } = useParams<{ id: string }>();
+  // 旧形式の ID（math.GT/0309136）はスラッシュを含むため、ルート /papers/:id/* の後続セグメントをつなぐ（Issue #108）
+  // 末尾のスラッシュ（/papers/2512.18131/ や、%2F が / に戻った /papers/2512.18131%2F）は ID に含めない
+  const { id: head, "*": rest } = useParams();
+  const id = (head !== undefined && rest ? `${head}/${rest}` : head)?.replace(/\/+$/, "");
   // 保存時に版番号 vN を除いているため、検索時だけ除く（arXiv へのリンクは元の id を使う）
   const storedId = id?.replace(/v\d+$/, "");
   const storePaper = usePaperStore((s) =>

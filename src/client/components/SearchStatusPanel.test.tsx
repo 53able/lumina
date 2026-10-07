@@ -71,7 +71,7 @@ describe("SearchStatusPanel（#71）", () => {
     ["認証（403）", new SearchApiError("forbidden", 403), false, true],
     ["キー復号失敗", Object.assign(new Error("decrypt"), { name: "OperationError" }), false, true],
     ["上限（429）", new SearchApiError("too many", 429), true, false],
-    ["サーバー（500）", new SearchApiError("upstream", 500), true, true],
+    ["サーバー（500）", new SearchApiError("upstream", 500), true, false],
     ["論文の読み込み失敗", Object.assign(new Error("db"), { name: "PaperLoadError" }), true, false],
     ["索引での計算の失敗", new SearchComputeError("worker"), true, false],
     ["その他", new Error("network"), true, false],

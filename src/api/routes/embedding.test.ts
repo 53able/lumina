@@ -166,17 +166,23 @@ describe("Embedding API", () => {
       // Assert
       expect(response.status).toBe(401);
       const body = await response.json();
-      expect(body.error).toContain("API key");
+      expect(body).toEqual({
+        error: "Embeddingの生成に失敗しました",
+        code: "auth",
+        retryable: false,
+      });
     });
 
     it.each([
-      [401, 401],
-      [403, 403],
-      [429, 429],
-      [502, 500],
-    ])("異常系: OpenAI が %i を返したときは %i を返す", async (upstreamStatus, expectedStatus) => {
+      [401, 401, "auth", false],
+      [403, 401, "auth", false],
+      [429, 429, "rate_limit", true],
+      [502, 500, "upstream", true],
+    ] as const)("異常系: OpenAI が %i を返したときは %i・安全な分類だけを返す", async (upstreamStatus, expectedStatus, code, retryable) => {
       vi.mocked(createEmbedding).mockRejectedValueOnce(
-        Object.assign(new Error("upstream error"), { statusCode: upstreamStatus })
+        Object.assign(new Error("Incorrect API key provided: sk-proj-abcd...wxyz"), {
+          statusCode: upstreamStatus,
+        })
       );
       const request = new Request("http://localhost/api/v1/embedding", {
         method: "POST",
@@ -187,6 +193,10 @@ describe("Embedding API", () => {
       const response = await app.request(request);
 
       expect(response.status).toBe(expectedStatus);
+      const body = await response.json();
+      expect(body).toEqual({ error: "Embeddingの生成に失敗しました", code, retryable });
+      expect(JSON.stringify(body)).not.toContain("sk-");
+      expect(JSON.stringify(body)).not.toContain("Incorrect API key");
     });
   });
 
@@ -209,6 +219,12 @@ describe("Embedding API", () => {
       const response = await app.request(request);
 
       expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body).toEqual({
+        error: "Embeddingの生成に失敗しました",
+        code: "rate_limit",
+        retryable: true,
+      });
     });
 
     it("異常系: OpenAI の認証エラーは401として返す", async () => {
@@ -225,7 +241,12 @@ describe("Embedding API", () => {
 
       expect(response.status).toBe(401);
       const body = await response.json();
-      expect(body.error).toContain("Incorrect API key");
+      expect(body).toEqual({
+        error: "Embeddingの生成に失敗しました",
+        code: "auth",
+        retryable: false,
+      });
+      expect(JSON.stringify(body)).not.toContain("Incorrect API key");
     });
 
     it("正常系: 複数テキストからEmbeddingを一括生成できる", async () => {

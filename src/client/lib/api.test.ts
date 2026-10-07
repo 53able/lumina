@@ -408,6 +408,32 @@ describe("API利用OFF時の実行境界", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  // 旧形式の ID のスラッシュでパスのセグメントが分かれないよう、%2F にして送る（Issue #108）
+  it.each([
+    ["2401.00001", "/api/v1/summary/2401.00001"],
+    ["math.GT/0309136", "/api/v1/summary/math.GT%2F0309136"],
+  ])("summaryApi は論文ID（%s）を1つのパスセグメントとして送る", async (paperId, pathname) => {
+    mockApiEnabled(true);
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          paperId,
+          summary: "要約",
+          keyPoints: [],
+          language: "ja",
+          createdAt: "2024-01-01T00:00:00.000Z",
+        }),
+        { status: 200, headers: new Headers() }
+      )
+    );
+
+    await summaryApi(paperId, { language: "ja" });
+
+    const [urlOrRequest] = mockFetch.mock.calls[0] as [string | Request];
+    const url = urlOrRequest instanceof Request ? urlOrRequest.url : urlOrRequest;
+    expect(new URL(url, "http://localhost").pathname).toBe(pathname);
+  });
+
   it("OFF のとき syncApi は arXiv 同期を続け、skipEmbedding: true を送る", async () => {
     mockApiEnabled(false);
     mockFetch.mockResolvedValueOnce(okSyncResponse());
@@ -515,5 +541,56 @@ describe("summaryApi のエラー応答", () => {
 
     expect(error.code).toBe("upstream");
     expect(error.retryable).toBe(true);
+  });
+});
+
+describe("searchApi・embeddingApi のエラー応答（上流のエラー文を使わない）", () => {
+  const mockFetch = vi.fn();
+  const upstreamMessage = "Incorrect API key provided: sk-proj-abcd...wxyz";
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("searchApi: 応答の error に上流のエラー文があってもメッセージに含めず、status を保つ", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: upstreamMessage }), {
+        status: 401,
+        headers: new Headers(),
+      })
+    );
+
+    const error = await searchApi({ query: "q" } as never).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { status: number }).status).toBe(401);
+    expect((error as Error).message).not.toContain("sk-");
+    expect((error as Error).message).not.toContain("Incorrect API key");
+  });
+
+  it("embeddingApi: 応答の error に上流のエラー文があってもメッセージに含めず、status を保つ", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: upstreamMessage }), {
+        status: 500,
+        headers: new Headers(),
+      })
+    );
+
+    // 共有の送信間隔の状態に依らず待機を終わらせる
+    const pending = embeddingApi({ text: "t" }).catch((e: unknown) => e);
+    await vi.runAllTimersAsync();
+    const error = await pending;
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { status: number }).status).toBe(500);
+    expect((error as Error).message).not.toContain("sk-");
+    expect((error as Error).message).not.toContain("Incorrect API key");
   });
 });

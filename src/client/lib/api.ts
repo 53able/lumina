@@ -180,7 +180,7 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
 /**
  * 検索API（/api/v1/search）が失敗ステータスを返したときに投げるエラー。
  * status で「設定を直す（401/403）」「時間をおいて再試行する（429）」などの案内を出し分ける。
- * message はサーバー（上流）のエラー文のため、画面には表示しない。
+ * message は固定文言（上流のエラー文は含めない）。
  */
 export class SearchApiError extends Error {
   readonly status: number;
@@ -211,15 +211,11 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
   );
 
   if (!res.ok) {
-    // hono-rate-limiter の 429 はプレーンテキストのため、JSON でなくても status で失敗を分類できるようにする
-    const body: unknown = await res.json().catch(() => null);
-    const message =
-      body && typeof body === "object" && "error" in body
-        ? String((body as { error: unknown }).error)
-        : "検索に失敗しました";
+    // 応答の error（旧形式では上流のエラー文）は使わない。hono-rate-limiter の 429 はプレーンテキストのため、
+    // 本文ではなく status で失敗を分類する
     // RPC の型はサーバーが返すステータスだけに絞られるため、ミドルウェア・ゲートウェイの値も扱えるよう number で受ける
     const status: number = res.status;
-    throw new SearchApiError(message, status);
+    throw new SearchApiError("検索に失敗しました", status);
   }
 
   // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される
@@ -372,12 +368,8 @@ const handleEmbeddingResponse = async <T>(res: Response): Promise<T> => {
   }
 
   if (!res.ok) {
-    const error = await res.json().catch(() => null);
-    const message =
-      error && typeof error === "object" && "error" in error
-        ? String((error as { error: unknown }).error)
-        : "Embeddingの取得に失敗しました";
-    throw new EmbeddingApiError(message, res.status);
+    // 応答の error（旧形式では上流のエラー文）は使わず、status で分類する
+    throw new EmbeddingApiError("Embeddingの取得に失敗しました", res.status);
   }
 
   lastEmbeddingSentAtMs = Date.now();
@@ -604,7 +596,8 @@ export const summaryApi = async (
   assertApiEnabled();
   const res = await client.api.v1.summary[":id"].$post(
     {
-      param: { id: paperId },
+      // RPC クライアントはパスパラメータをエンコードしないため、旧形式の ID のスラッシュを %2F にする（Issue #108）
+      param: { id: encodeURIComponent(paperId) },
       json: {
         language: request.language,
         abstract: request.abstract,
