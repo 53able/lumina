@@ -181,12 +181,18 @@ const findFailureAlert = async () =>
 const getLocationSearch = () => screen.getByTestId("location-search").textContent;
 const heading = () => screen.getByRole("heading", { level: 2 });
 
-/** ?q=A の検索を完了させ、前回の結果（1件）がある状態にする */
+/**
+ * ?q=A の検索を完了させ、前回の結果（1件）がある状態にする。
+ * 見出し「"A" の検索結果」は URL の q から出るため検索中（一覧はローディング表示）から表示される。
+ * 検索の完了は、確定した結果にだけ出る「N件の論文」と履歴の追加で待つ。
+ */
 const renderWithPreviousResult = async () => {
   renderApp("/?q=A");
-  await waitFor(() => expect(heading()).toHaveTextContent('"A" の検索結果'));
-  expect(screen.getByText(/件の論文/)).toHaveTextContent("1件の論文");
-  expect(addHistory).toHaveBeenCalledTimes(1);
+  await waitFor(() => {
+    expect(screen.getByText(/件の論文/)).toHaveTextContent("1件の論文");
+    expect(addHistory).toHaveBeenCalledTimes(1);
+  });
+  expect(heading()).toHaveTextContent('"A" の検索結果');
 };
 
 /** 検索欄の入力を B に置き換えて検索する */
@@ -343,10 +349,10 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
     {
       label: "500（上流のエラー）",
       inject: () => jsonResponse({ error: "upstream secret detail" }, 500),
-      // サーバーは上流の認証・上限の失敗も 500 で返すため、設定の確認も案内する
-      reason: "時間をおいて再試行するか、設定でAPIキーを確認してください",
+      // 上流の認証失敗は 401、上限は 429 で届くため、500 は再試行だけを案内する
+      reason: "時間をおいて再試行してください",
       canRetry: true,
-      suggestSettings: true,
+      suggestSettings: false,
     },
     {
       label: "タイムアウト・通信失敗",
@@ -498,7 +504,9 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
     await act(async () => {
       pending.respond(searchSuccess("A"));
     });
-    await waitFor(() => expect(heading()).toHaveTextContent('"A" の検索結果'));
+    // 見出しは検索中から「"A" の検索結果」なので、完了は「N件の論文」で待つ
+    await waitFor(() => expect(screen.getByText(/件の論文/)).toHaveTextContent("1件の論文"));
+    expect(heading()).toHaveTextContent('"A" の検索結果');
     expect(document.activeElement).toBe(document.body);
   });
 

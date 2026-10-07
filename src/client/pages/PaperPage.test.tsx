@@ -5,6 +5,7 @@
  * - Issue #67: ロード中・このデバイスに未保存・無効ID・有効IDを区別して表示する
  * - Issue #65: 保存済み論文の読み込み中に、一覧に未読み込みの論文を DB から1件読み、
  *   「保存されていない」と誤判定しない
+ * - Issue #108: 旧形式の ID（math.GT/0309136）はスラッシュを含んでも開ける
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen } from "@testing-library/react";
@@ -38,6 +39,16 @@ const paper: Paper = {
   embedding: [0.1, 0.2],
 };
 
+/** 旧形式の arXiv ID の論文（2007年以前） */
+const legacyPaper: Paper = {
+  ...paper,
+  id: "math.GT/0309136",
+  title: "Legacy Topology Paper",
+  categories: ["math.GT"],
+  pdfUrl: "https://arxiv.org/pdf/math.GT/0309136",
+  arxivUrl: "https://arxiv.org/abs/math.GT/0309136",
+};
+
 const NOT_SAVED_HEADING = {
   name: "この論文はこのデバイスに保存されていません",
 } as const;
@@ -48,7 +59,7 @@ const renderAt = (path: string) =>
       <MemoryRouter initialEntries={[path]}>
         <InteractionProvider>
           <Routes>
-            <Route path="/papers/:id" element={<PaperPage />} />
+            <Route path="/papers/:id/*" element={<PaperPage />} />
           </Routes>
         </InteractionProvider>
       </MemoryRouter>
@@ -112,6 +123,58 @@ describe("PaperPage の状態表示", () => {
 
     expect(screen.getByText(paper.title)).toBeInTheDocument();
     expect(screen.queryByRole("heading", NOT_SAVED_HEADING)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["スラッシュ", `/papers/${paper.id}/`],
+    ["%2F", `/papers/${paper.id}%2F`],
+  ])("新形式のIDは末尾に%sが付いても同じ論文を表示する", (_label, path) => {
+    seedPaperStoreForTest([paper], db);
+    renderAt(path);
+
+    expect(screen.getByText(paper.title)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["スラッシュのまま", `/papers/${legacyPaper.id}`],
+    ["スラッシュをエンコード", `/papers/${encodeURIComponent(legacyPaper.id)}`],
+    ["版番号付き", `/papers/${legacyPaper.id}v1`],
+    ["末尾スラッシュ付き", `/papers/${legacyPaper.id}/`],
+    ["末尾に %2F 付き", `/papers/${legacyPaper.id}%2F`],
+  ])("旧形式のIDの論文を表示する（%s）", (_label, path) => {
+    seedPaperStoreForTest([paper, legacyPaper], db);
+    renderAt(path);
+
+    expect(screen.getByText(legacyPaper.title)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", NOT_SAVED_HEADING)).not.toBeInTheDocument();
+  });
+
+  it("旧形式のIDで読み込み中に一覧にまだない論文は、DB から1件読んで表示する", async () => {
+    await db.papers.add(legacyPaper);
+    usePaperStore.setState({ papers: [], loadStatus: "loading", isLoading: true, _db: db });
+    renderAt(`/papers/${legacyPaper.id}`);
+
+    expect(await screen.findByText(legacyPaper.title)).toBeInTheDocument();
+  });
+
+  it("旧形式のIDでこのデバイスに無い論文は、スラッシュを含むIDで arXiv へのリンクを出す", async () => {
+    seedPaperStoreForTest([], db);
+    renderAt("/papers/math.GT/0309136");
+
+    expect(await screen.findByRole("heading", NOT_SAVED_HEADING)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /arXiv で開く/ })).toHaveAttribute(
+      "href",
+      "https://arxiv.org/abs/math.GT/0309136"
+    );
+  });
+
+  it("スラッシュの後ろが余分なIDは、無効IDとして扱う", async () => {
+    seedPaperStoreForTest([], db);
+    renderAt("/papers/2512.18131/extra");
+
+    expect(
+      await screen.findByRole("heading", { name: "論文IDの形式が正しくありません" })
+    ).toBeInTheDocument();
   });
 
   it("有効なIDでもこのデバイスに無い論文は、arXiv への回復導線と一覧への導線を表示する", async () => {

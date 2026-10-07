@@ -325,4 +325,168 @@ describe("settingsStore", () => {
       expect(useSettingsStore.getState().syncPeriodDays).toBe("3");
     });
   });
+  describe("別タブとの設定の同期（#104）", () => {
+    /** 同じ localStorage を共有する2つのタブを、別々のモジュールインスタンスで模す */
+    const openTwoTabs = async () => {
+      const tabA = (await import("./settingsStore")).useSettingsStore;
+      vi.resetModules();
+      const tabB = (await import("./settingsStore")).useSettingsStore;
+      return { tabA, tabB };
+    };
+
+    const readStored = () => JSON.parse(localStorage.getItem("lumina-settings") || "{}").state;
+
+    beforeEach(() => {
+      localStorage.setItem(
+        "lumina-settings",
+        JSON.stringify({
+          state: { apiKey: "enc:old-key", apiEnabled: true, autoGenerateSummary: true },
+          version: 0,
+        })
+      );
+    });
+
+    it("タブBで API利用・自動要約を OFF にした後、古い状態のタブAが同期日時を書いても ON に戻らない", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().setApiEnabled(false);
+      tabB.getState().setAutoGenerateSummary(false);
+
+      // storage イベントが届く前に、古い状態のタブAが同期を終えて書き込む
+      tabA.getState().setLastSyncedAt(new Date("2026-10-04T04:41:00.000Z"));
+
+      const stored = readStored();
+      expect(stored.apiEnabled).toBe(false);
+      expect(stored.autoGenerateSummary).toBe(false);
+      expect(stored.lastSyncedAt).toBe("2026-10-04T04:41:00.000Z");
+    });
+
+    it("タブBで APIキーを削除した後、タブAの操作でキーが復活しない", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().clearApiKey();
+
+      tabA.getState().setSearchScoreThreshold(0.5);
+      tabA.getState().setSelectedCategories(["cs.CV"]);
+
+      const stored = readStored();
+      expect(stored.apiKey).toBe("");
+      expect(stored.searchScoreThreshold).toBe(0.5);
+      expect(stored.selectedCategories).toEqual(["cs.CV"]);
+    });
+
+    it("storage イベントを受けると、タブAの状態に他タブの変更が反映される", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+      expect(tabA.getState().canUseApi()).toBe(true);
+
+      tabB.getState().setApiEnabled(false);
+      tabB.getState().setAutoGenerateSummary(false);
+      tabB.getState().clearApiKey();
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: localStorage })
+      );
+
+      const state = tabA.getState();
+      expect(state.apiEnabled).toBe(false);
+      expect(state.autoGenerateSummary).toBe(false);
+      expect(state.apiKey).toBe("");
+      expect(state.canUseApi()).toBe(false);
+    });
+
+    it("他タブの変更を取り込んだ後のタブAの書き込みでも、OFF とキー削除が保たれる", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().setApiEnabled(false);
+      tabB.getState().clearApiKey();
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: localStorage })
+      );
+
+      tabA.getState().setLastSyncedAt(new Date("2026-10-05T00:00:00.000Z"));
+
+      const stored = readStored();
+      expect(stored.apiEnabled).toBe(false);
+      expect(stored.apiKey).toBe("");
+      expect(stored.lastSyncedAt).toBe("2026-10-05T00:00:00.000Z");
+    });
+
+    it("タブA自身が変更した項目は、他タブの値より後勝ちで保存される", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().setSearchScoreThreshold(0.4);
+      tabA.getState().setSearchScoreThreshold(0.6);
+
+      expect(readStored().searchScoreThreshold).toBe(0.6);
+    });
+
+    it("古い状態のタブAが表示中と同じ値（ON）を設定し直しても、他タブの OFF は上書きされない", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().setApiEnabled(false);
+      tabA.getState().setApiEnabled(true);
+
+      expect(readStored().apiEnabled).toBe(false);
+    });
+
+    it("別のキーの storage イベントでは再読み込みせず、lumina-settings のイベントで反映される", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().setApiEnabled(false);
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "other-key", storageArea: localStorage })
+      );
+
+      expect(tabA.getState().apiEnabled).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: localStorage })
+      );
+
+      expect(tabA.getState().apiEnabled).toBe(false);
+    });
+
+    it("sessionStorage の storage イベントでは再読み込みしない", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().setApiEnabled(false);
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: sessionStorage })
+      );
+
+      expect(tabA.getState().apiEnabled).toBe(true);
+    });
+
+    it("別タブで localStorage.clear() されると（key が null）、既定値を取り込みキーが空になる", async () => {
+      const { tabA } = await openTwoTabs();
+      expect(tabA.getState().canUseApi()).toBe(true);
+
+      localStorage.clear();
+      window.dispatchEvent(new StorageEvent("storage", { key: null, storageArea: localStorage }));
+
+      const state = tabA.getState();
+      expect(state.apiKey).toBe("");
+      expect(state.autoGenerateSummary).toBe(false);
+      expect(state.canUseApi()).toBe(false);
+    });
+
+    it("保存値が無い状態で書くと変えた項目だけが保存され、次に開いたタブでは既定値で補われキーは空になる", async () => {
+      const { tabA } = await openTwoTabs();
+
+      // 別タブで localStorage.clear() された後、storage イベントが届く前にタブAが同期日時を書く
+      localStorage.clear();
+      tabA.getState().setLastSyncedAt(new Date("2026-10-06T00:00:00.000Z"));
+
+      expect(readStored()).toEqual({ lastSyncedAt: "2026-10-06T00:00:00.000Z" });
+
+      vi.resetModules();
+      const nextTab = (await import("./settingsStore")).useSettingsStore;
+      const state = nextTab.getState();
+      expect(state.apiKey).toBe("");
+      expect(state.apiEnabled).toBe(true);
+      expect(state.autoGenerateSummary).toBe(false);
+      expect(state.selectedCategories).toEqual(["cs.AI", "cs.LG", "cs.CL", "stat.ML"]);
+      expect(state.lastSyncedAt).toBe("2026-10-06T00:00:00.000Z");
+      expect(state.canUseApi()).toBe(false);
+    });
+  });
 });

@@ -25,6 +25,14 @@ export type PaperIndexRequest =
       queryEmbedding: number[];
       scoreThreshold: number;
       limit: number;
+    }
+  | {
+      /**
+       * 実行中の検索を中止する。索引は類似度の計算をチャンクの合間で打ち切り、結果を返さない。
+       * 終了済み・未知の requestId は無視する。
+       */
+      type: "cancelSearch";
+      requestId: number;
     };
 
 /** 索引 → 画面 */

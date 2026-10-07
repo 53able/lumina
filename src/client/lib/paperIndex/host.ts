@@ -23,14 +23,32 @@ const toMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 /**
+ * 処理中のメッセージ（中止・後続の検索など）を先に受け取れるよう、イベントループへ処理を返す。
+ * setTimeout(0) の最短間隔の制限（入れ子で 4ms）を避けるため MessageChannel を使う。
+ */
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => {
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
+
+/**
  * 論文索引の処理本体（Web Worker と、Worker を使えない環境の同一スレッド版で共有する）
  *
  * - load: 保存済みの論文をバッチで読み込み、Embedding は索引へ、一覧用の論文は画面へ送る
  * - upsert: 画面側で保存した論文の Embedding を索引へ反映する
- * - search: 索引を検索して一致した論文 ID とスコアを返す
+ * - search: 索引を検索して一致した論文 ID とスコアを返す。類似度はチャンクに分けて計算し、
+ *   チャンクの合間に届いた cancelSearch で打ち切る（結果は返さない。後続の検索を待たせない）
+ * - cancelSearch: 実行中の検索を中止する
  */
 export const createPaperIndexHost = ({ post, openDb }: PaperIndexHostDeps) => {
   const index = createPaperEmbeddingIndex();
+  /** 実行中の検索の requestId（中止された検索はここから外し、チャンクの合間に打ち切る） */
+  const runningSearches = new Set<number>();
 
   const load = async (request: Extract<PaperIndexRequest, { type: "load" }>): Promise<void> => {
     let dbHandle: PaperIndexDbHandle | null = null;
@@ -53,6 +71,30 @@ export const createPaperIndexHost = ({ post, openDb }: PaperIndexHostDeps) => {
     }
   };
 
+  const search = async (request: Extract<PaperIndexRequest, { type: "search" }>): Promise<void> => {
+    const { requestId } = request;
+    runningSearches.add(requestId);
+    try {
+      const task = index.searchInChunks(
+        request.queryEmbedding,
+        request.scoreThreshold,
+        request.limit
+      );
+      let step = task.next();
+      while (!step.done) {
+        await yieldToEventLoop();
+        if (!runningSearches.has(requestId)) return;
+        step = task.next();
+      }
+      const { matches, totalMatchCount } = step.value;
+      post({ type: "searchResult", requestId, matches, totalMatchCount });
+    } catch (error) {
+      post({ type: "searchError", requestId, message: toMessage(error) });
+    } finally {
+      runningSearches.delete(requestId);
+    }
+  };
+
   const handle = (request: PaperIndexRequest): void => {
     switch (request.type) {
       case "load":
@@ -62,16 +104,10 @@ export const createPaperIndexHost = ({ post, openDb }: PaperIndexHostDeps) => {
         index.upsert(request.papers);
         return;
       case "search":
-        try {
-          const { matches, totalMatchCount } = index.search(
-            request.queryEmbedding,
-            request.scoreThreshold,
-            request.limit
-          );
-          post({ type: "searchResult", requestId: request.requestId, matches, totalMatchCount });
-        } catch (error) {
-          post({ type: "searchError", requestId: request.requestId, message: toMessage(error) });
-        }
+        void search(request);
+        return;
+      case "cancelSearch":
+        runningSearches.delete(request.requestId);
         return;
     }
   };

@@ -75,6 +75,25 @@ describe("要約API", () => {
       expect(generateSummary).not.toHaveBeenCalled();
     });
 
+    // 旧形式の ID はクライアントが %2F にして送り、ルートで元の ID に戻す（Issue #108）
+    it("正常系: スラッシュを %2F にした旧形式の ID を元の ID として受け取る", async () => {
+      const paperId = "math.GT/0309136";
+      const request = new Request(
+        `http://localhost/api/v1/summary/${encodeURIComponent(paperId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language: "ja" }),
+        }
+      );
+
+      const response = await app.request(request);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.paperId).toBe(paperId);
+    });
+
     it("正常系: abstractありでOpenAI APIを使用して要約を生成できる", async () => {
       // Arrange
       const paperId = "2401.12345";

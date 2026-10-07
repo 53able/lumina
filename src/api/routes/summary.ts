@@ -1,14 +1,9 @@
 import { zValidator } from "@hono/zod-validator";
-import { RetryError } from "ai";
 import { Hono } from "hono";
 import { z } from "zod";
 import { now } from "../../shared/utils/dateTime";
-import {
-  generateExplanation,
-  generateSummary,
-  getOpenAIConfig,
-  OpenAIApiKeyNotConfiguredError,
-} from "../services/openai";
+import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError";
+import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai";
 import type { Env } from "../types/env";
 
 /**
@@ -38,39 +33,8 @@ const SummaryRequestSchema = z.object({
   includeExplanation: z.boolean().optional(),
 });
 
-/**
- * 工程の失敗を、上流のエラー文を含まない安全な分類へ変換する
- * クライアントは code から案内文を作る（rate_limit: 待つ / auth: 設定を直す / それ以外: 再試行）
- */
-const toStageError = (
-  error: unknown
-): { code: "rate_limit" | "auth" | "invalid_output" | "upstream"; retryable: boolean } => {
-  if (error instanceof OpenAIApiKeyNotConfiguredError) return { code: "auth", retryable: false };
-  // generateExplanation は AI の出力を JSON.parse → zod で検証する
-  if (error instanceof SyntaxError || error instanceof z.ZodError) {
-    return { code: "invalid_output", retryable: true };
-  }
-  // AI SDK は 429 などを再試行し、上限到達時は RetryError に包んで投げる（statusCode は lastError 側）
-  const source = RetryError.isInstance(error) ? error.lastError : error;
-  const statusCode =
-    source && typeof source === "object" && "statusCode" in source
-      ? (source as { statusCode: unknown }).statusCode
-      : undefined;
-  if (statusCode === 401 || statusCode === 403) return { code: "auth", retryable: false };
-  if (statusCode === 429) return { code: "rate_limit", retryable: true };
-  return { code: "upstream", retryable: true };
-};
-
 /** 全体の失敗時に error として返す固定文言（上流のエラー文の代わり） */
 const SUMMARY_FAILED_MESSAGE = "要約の生成に失敗しました";
-
-/** 分類ごとの HTTP ステータス（キー未設定・401/403 → 401、429 → 429、それ以外 → 500） */
-const SUMMARY_ERROR_STATUS = {
-  auth: 401,
-  rate_limit: 429,
-  invalid_output: 500,
-  upstream: 500,
-} as const satisfies Record<ReturnType<typeof toStageError>["code"], number>;
 
 /**
  * スタブ用の要約を生成（abstractがない場合のフォールバック）
@@ -179,7 +143,7 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
       const stageError = toStageError(error);
       return c.json(
         { error: SUMMARY_FAILED_MESSAGE, ...stageError },
-        SUMMARY_ERROR_STATUS[stageError.code]
+        UPSTREAM_ERROR_STATUS[stageError.code]
       );
     }
   }
