@@ -46,7 +46,7 @@ const LoadingFallback: FC = () => (
  *
  * ルーティング設定:
  * - / : 論文一覧（HomePage）
- * - /papers/:id : 論文詳細ページ（PaperPage）
+ * - /papers/:id/* : 論文詳細ページ（PaperPage）。旧形式の ID（math.GT/0309136）はスラッシュを含むため後続のセグメントも受ける
  * - /stats : 論文キャッシュの時系列（StatsPage）
  */
 export const App: FC = () => {
@@ -71,7 +71,7 @@ export const App: FC = () => {
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
         <Route
-          path="/papers/:id"
+          path="/papers/:id/*"
           element={
             <Suspense fallback={<LoadingFallback />}>
               <PaperPage />

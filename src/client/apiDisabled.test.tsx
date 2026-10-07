@@ -63,7 +63,7 @@ const renderPaperPage = () => {
       <MemoryRouter initialEntries={[`/papers/${paper.id}`]}>
         <InteractionProvider>
           <Routes>
-            <Route path="/papers/:id" element={<PaperPage />} />
+            <Route path="/papers/:id/*" element={<PaperPage />} />
           </Routes>
         </InteractionProvider>
       </MemoryRouter>

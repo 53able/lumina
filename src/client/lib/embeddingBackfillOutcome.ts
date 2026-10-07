@@ -117,7 +117,6 @@ export const classifyEmbeddingBackfillError = (error: unknown): EmbeddingBackfil
       kind: "server",
       reason: `サーバーでエラーが発生しました（${status}）`,
       guidance: "時間をおいて、未処理分を再試行してください。",
-      detail: message,
     };
   }
 
@@ -125,7 +124,6 @@ export const classifyEmbeddingBackfillError = (error: unknown): EmbeddingBackfil
     kind: "unknown",
     reason: "Embeddingを取得できませんでした",
     guidance: "未処理分を再試行してください。解決しない場合は設定を確認してください。",
-    detail: message,
   };
 };
 

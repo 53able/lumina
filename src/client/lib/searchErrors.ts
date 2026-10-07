@@ -18,7 +18,7 @@ export class SearchComputeError extends Error {
  * - paper_load: 保存済み論文の読み込みに失敗（読み込み直してから手動で再試行する）
  * - compute: 索引での計算に失敗（手動で再試行する。続くなら画面を再読み込みする）
  * - rate_limit: 利用上限（時間をおいて手動で再試行する）
- * - server: サーバーエラー（5xx。サーバーは上流の認証・上限の失敗も 500 で返すため、設定の確認も案内する）
+ * - server: サーバーエラー（5xx。サーバーは上流の認証失敗を 401、上限を 429 で返すため、それ以外の失敗として再試行を案内する）
  * - other: 通信失敗など（手動で再試行する）
  */
 export type SearchFailureKind =
@@ -40,7 +40,7 @@ export const SEARCH_FAILURE_MESSAGES: Record<Exclude<SearchFailureKind, "api_dis
   compute:
     "検索結果の計算に失敗しました。再試行してください。続く場合は画面を再読み込みしてください。",
   rate_limit: "検索の利用上限に達しました。時間をおいて再試行してください。",
-  server: "検索に失敗しました。時間をおいて再試行するか、設定でAPIキーを確認してください。",
+  server: "検索に失敗しました。時間をおいて再試行してください。",
   other: "検索に失敗しました。通信状況を確認して再試行してください。",
 };
 
@@ -115,8 +115,8 @@ export const describeSearchFailure = (error: Error): SearchFailure => {
       return failure("rate_limit", { canRetry: true, suggestSettings: false });
     }
     if (error.status >= 500) {
-      // サーバーは上流の認証失敗も 500 で返すため、再試行と設定の確認の両方を出す
-      return failure("server", { canRetry: true, suggestSettings: true });
+      // 上流の認証失敗は 401、上限は 429 で届くため、5xx は再試行だけを案内する
+      return failure("server", { canRetry: true, suggestSettings: false });
     }
   }
   return failure("other", { canRetry: true, suggestSettings: false });
