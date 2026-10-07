@@ -66,6 +66,23 @@ describe("showSummaryErrorToast", () => {
     expect(toastError).toHaveBeenCalledWith("要約生成エラー", { description });
   });
 
+  it("残高不足は「設定を開く」を添え、押すと設定を開く", () => {
+    const onOpenSettings = vi.fn();
+
+    showSummaryErrorToast(new SummaryApiError("quota", false), "論文", undefined, onOpenSettings);
+
+    expect(toastError).toHaveBeenCalledWith("要約生成エラー", {
+      description: expect.stringContaining("Billing"),
+      action: { label: "設定を開く", onClick: onOpenSettings },
+    });
+  });
+
+  it("残高不足以外の失敗には「設定を開く」を添えない", () => {
+    showSummaryErrorToast(new SummaryApiError("rate_limit", true), "論文", undefined, vi.fn());
+
+    expect(toastError.mock.calls[0]?.[1].action).toBeUndefined();
+  });
+
   it("その他の失敗は要約生成エラーとして出す", () => {
     showSummaryErrorToast(new Error("timeout"), "論文");
 

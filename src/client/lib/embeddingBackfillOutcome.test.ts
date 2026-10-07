@@ -9,6 +9,8 @@ import {
 describe("classifyEmbeddingBackfillError", () => {
   it.each([
     ["429", new EmbeddingRateLimitError(), "rate_limit", "しばらく待って"],
+    ["402（残高不足）", new EmbeddingApiError("quota", 402, "quota"), "quota", "Billing"],
+    ["402（quota 以外・ゲートウェイ）", new EmbeddingApiError("pay", 402), "unknown", "再試行"],
     ["401", new EmbeddingApiError("Incorrect API key", 401), "auth", "APIキー"],
     ["403", new EmbeddingApiError("forbidden", 403), "auth", "APIキー"],
     ["キー未設定", new EmbeddingApiKeyMissingError(), "auth", "APIキー"],

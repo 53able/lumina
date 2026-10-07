@@ -37,32 +37,52 @@ describe("splitAbstractSentences", () => {
     ]);
   });
 
-  it("性能: 長い入力（各200KB）も線形時間で分割する（二乗時間なら数百ms以上かかる）", () => {
-    const size = 200_000;
+  it("性能: 入力を8倍にしても処理時間の伸びは線形の範囲に収まる（二乗時間なら約64倍になる）", () => {
+    // 絶対時間はマシンの性能・負荷で変わるため、同じ条件で測った小さい入力と大きい入力の時間の比で判定する
+    const smallSize = 25_000;
+    const scale = 8;
     const sentence = "Accuracy improves by 3.5 points (Fig. 2), e.g. on GLUE vs. baselines. ";
-    const inputs = [
-      sentence.repeat(Math.ceil(size / sentence.length)),
+    const patterns: ((size: number) => string)[] = [
+      (size) => sentence.repeat(Math.ceil(size / sentence.length)),
       // 終止符がない入力
-      "a".repeat(size),
+      (size) => "a".repeat(size),
       // 終止符だけが続く入力
-      ". ".repeat(size / 2),
+      (size) => ". ".repeat(size / 2),
       // 略語が続いて文が終わらない入力（文の先頭から走査し直すと二乗時間になる）
-      "e.g. X ".repeat(Math.ceil(size / 7)),
+      (size) => "e.g. X ".repeat(Math.ceil(size / 7)),
     ];
+    // 経過時間は他のプロセスに CPU を奪われた時間を含んで大きく揺れるため、このプロセスの CPU 時間（ms）で測る。
+    // process.cpuUsage() はプロセス全体の値なので、テストファイルごとに別プロセスで動く pool（forks、vitest 4 の既定）を前提にする。
+    // pool を threads に変えると他のテストファイルの CPU 時間も含まれるため、この測り方を見直すこと
+    const measure = (input: string) => {
+      const startedAt = process.cpuUsage();
+      splitAbstractSentences(input);
+      const { user, system } = process.cpuUsage(startedAt);
+      return (user + system) / 1000;
+    };
 
-    for (const input of inputs) {
-      // 他の処理による一時的な遅れを除くため、3回のうち最短の時間で判定する
-      const elapsed = Math.min(
-        ...Array.from({ length: 3 }, () => {
-          const startedAt = performance.now();
-          splitAbstractSentences(input);
-          return performance.now() - startedAt;
-        })
-      );
-      expect(elapsed).toBeLessThan(100);
+    for (const pattern of patterns) {
+      const small = pattern(smallSize);
+      const large = pattern(smallSize * scale);
+      // JIT の最適化前の時間を含めないよう、計測前に両方を一度実行する
+      // 大きい入力が1回で 500ms を超えるなら、その時点で二乗時間とみなして失敗させる
+      // （線形なら数十ms。5回の計測を続けてテストのタイムアウトで落ちるのを避ける）
+      measure(small);
+      expect(measure(large)).toBeLessThan(500);
+      // 他の処理による一時的な遅れを除くため、交互に5回ずつ測ってそれぞれ最短の時間を使う
+      let smallElapsed = Number.POSITIVE_INFINITY;
+      let largeElapsed = Number.POSITIVE_INFINITY;
+      for (let round = 0; round < 5; round++) {
+        smallElapsed = Math.min(smallElapsed, measure(small));
+        largeElapsed = Math.min(largeElapsed, measure(large));
+      }
+      // 線形なら約8倍、二乗なら約64倍。負荷の揺らぎを見込んで線形の3倍（24倍）を上限にする
+      expect(largeElapsed / Math.max(smallElapsed, 0.01)).toBeLessThan(scale * 3);
     }
-    expect(splitAbstractSentences(inputs[0])).toHaveLength(Math.ceil(size / sentence.length));
-    expect(splitAbstractSentences(inputs[3])).toHaveLength(1);
+    const largeSize = smallSize * scale;
+    const sentenceCount = Math.ceil(largeSize / sentence.length);
+    expect(splitAbstractSentences(sentence.repeat(sentenceCount))).toHaveLength(sentenceCount);
+    expect(splitAbstractSentences("e.g. X ".repeat(Math.ceil(largeSize / 7)))).toHaveLength(1);
   });
 
   it("正常系: 全角の終止符で区切る", () => {

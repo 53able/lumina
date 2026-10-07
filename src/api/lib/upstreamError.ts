@@ -3,11 +3,36 @@ import { z } from "zod";
 import { OpenAIApiKeyNotConfiguredError } from "../services/openai";
 
 /** 失敗の分類（上流のエラー文を含まない） */
-export type UpstreamErrorCode = "rate_limit" | "auth" | "invalid_output" | "upstream";
+export type UpstreamErrorCode = "rate_limit" | "quota" | "auth" | "invalid_output" | "upstream";
+
+/**
+ * 上流のエラー本文が insufficient_quota（残高・クレジット不足。error.code または error.type）か判定する
+ * AI SDK（@ai-sdk/openai）は本文を JSON として解析し APICallError.data（{ error: { code } }）へ入れる。
+ * 解析できなかった場合に備え、responseBody（文字列）も解析して確認する
+ */
+const isInsufficientQuota = (source: unknown): boolean => {
+  if (!source || typeof source !== "object") return false;
+  const { data, responseBody } = source as { data?: unknown; responseBody?: unknown };
+  // 互換プロバイダは code が null で type だけ insufficient_quota になる場合がある
+  const isQuotaBody = (body: unknown): boolean => {
+    if (!body || typeof body !== "object" || !("error" in body)) return false;
+    const inner = (body as { error: unknown }).error;
+    if (!inner || typeof inner !== "object") return false;
+    const { code, type } = inner as { code?: unknown; type?: unknown };
+    return code === "insufficient_quota" || type === "insufficient_quota";
+  };
+  if (isQuotaBody(data)) return true;
+  if (typeof responseBody !== "string") return false;
+  try {
+    return isQuotaBody(JSON.parse(responseBody));
+  } catch {
+    return false;
+  }
+};
 
 /**
  * 上流（OpenAI）の失敗を、上流のエラー文を含まない安全な分類へ変換する
- * クライアントは code から案内文を作る（rate_limit: 待つ / auth: 設定を直す / それ以外: 再試行）
+ * クライアントは code から案内文を作る（rate_limit: 待つ / quota: 残高・請求設定を確認する / auth: 設定を直す / それ以外: 再試行）
  */
 export const toStageError = (error: unknown): { code: UpstreamErrorCode; retryable: boolean } => {
   if (error instanceof OpenAIApiKeyNotConfiguredError) return { code: "auth", retryable: false };
@@ -22,14 +47,17 @@ export const toStageError = (error: unknown): { code: UpstreamErrorCode; retryab
       ? (source as { statusCode: unknown }).statusCode
       : undefined;
   if (statusCode === 401 || statusCode === 403) return { code: "auth", retryable: false };
+  // 残高不足も 429 で返るが、待っても直らないため rate_limit とは分ける
+  if (statusCode === 429 && isInsufficientQuota(source)) return { code: "quota", retryable: false };
   if (statusCode === 429) return { code: "rate_limit", retryable: true };
   return { code: "upstream", retryable: true };
 };
 
-/** 分類ごとの HTTP ステータス（キー未設定・401/403 → 401、429 → 429、それ以外 → 500） */
+/** 分類ごとの HTTP ステータス（キー未設定・401/403 → 401、429 → 429、残高不足 → 402、それ以外 → 500） */
 export const UPSTREAM_ERROR_STATUS = {
   auth: 401,
   rate_limit: 429,
+  quota: 402,
   invalid_output: 500,
   upstream: 500,
 } as const satisfies Record<UpstreamErrorCode, number>;

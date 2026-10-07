@@ -71,6 +71,8 @@ describe("SearchStatusPanel（#71）", () => {
     ["認証（403）", new SearchApiError("forbidden", 403), false, true],
     ["キー復号失敗", Object.assign(new Error("decrypt"), { name: "OperationError" }), false, true],
     ["上限（429）", new SearchApiError("too many", 429), true, false],
+    ["残高不足（402）", new SearchApiError("quota", 402, "quota"), false, true],
+    ["402（quota 以外・ゲートウェイ）", new SearchApiError("pay", 402), true, false],
     ["サーバー（500）", new SearchApiError("upstream", 500), true, false],
     ["論文の読み込み失敗", Object.assign(new Error("db"), { name: "PaperLoadError" }), true, false],
     ["索引での計算の失敗", new SearchComputeError("worker"), true, false],
@@ -82,6 +84,14 @@ describe("SearchStatusPanel（#71）", () => {
     expect(screen.queryByRole("button", { name: "設定を開く" }) !== null).toBe(suggestSettings);
     expect(screen.getByRole("button", { name: "条件を編集" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "前結果を見る" })).toBeInTheDocument();
+  });
+
+  it("残高不足（402）は時間をおく案内ではなく、残高・請求設定の確認を案内する", () => {
+    render(<SearchStatusPanel {...baseProps} error={new SearchApiError("quota", 402, "quota")} />);
+
+    expect(screen.getByText(SEARCH_FAILURE_MESSAGES.quota)).toBeInTheDocument();
+    expect(SEARCH_FAILURE_MESSAGES.quota).toContain("Billing");
+    expect(SEARCH_FAILURE_MESSAGES.quota).not.toContain("時間をおいて");
   });
 
   it("前回の結果がない失敗では「前結果を見る」を出さない", () => {
