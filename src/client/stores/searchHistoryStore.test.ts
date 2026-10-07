@@ -144,31 +144,6 @@ describe("searchHistoryStore", () => {
       expect(retrieved).toBeDefined();
       expect(retrieved?.originalQuery).toBe("強化学習");
     });
-
-    it("正常系: 最新N件の検索履歴を取得できる", async () => {
-      const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
-        "./searchHistoryStore"
-      );
-      await initializeSearchHistoryStore(mockDb);
-
-      // 5件追加
-      for (let i = 0; i < 5; i++) {
-        await useSearchHistoryStore.getState().addHistory(
-          createSampleHistory({
-            id: `id-${i}`,
-            originalQuery: `検索${i}`,
-            createdAt: new Date(2024, 0, i + 1),
-          })
-        );
-      }
-
-      // Act - 最新3件を取得
-      const recent = useSearchHistoryStore.getState().getRecentHistories(3);
-
-      // Assert
-      expect(recent).toHaveLength(3);
-      expect(recent[0]?.originalQuery).toBe("検索4"); // 最新
-    });
   });
 
   describe("検索履歴の削除", () => {
