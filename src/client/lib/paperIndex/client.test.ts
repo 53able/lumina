@@ -8,6 +8,7 @@ import {
   type PaperIndexLoadHandlers,
   PaperLoadError,
 } from "./client";
+import { SEARCH_CHUNK_SIZE } from "./core";
 import type { PaperIndexRequest, PaperIndexResponse } from "./protocol";
 
 const createPaper = (id: string, day: number, embedding?: number[]): Paper => ({
@@ -84,6 +85,37 @@ describe("createInProcessPaperIndexClient", () => {
     client.dispose();
 
     await expect(client.search([1], 0, 10)).rejects.toBeInstanceOf(PaperLoadError);
+  });
+
+  it("破棄すると実行中の検索を reject し、索引での計算も打ち切る（#111）", async () => {
+    let yields = 0;
+    const Original = globalThis.MessageChannel;
+    vi.stubGlobal(
+      "MessageChannel",
+      class extends Original {
+        constructor() {
+          super();
+          yields += 1;
+        }
+      }
+    );
+    try {
+      const client = createInProcessPaperIndexClient(db);
+      // チャンクに分けて計算される件数（3チャンク分）
+      client.upsert(
+        Array.from({ length: SEARCH_CHUNK_SIZE * 3 }, (_, i) => createPaper(`p${i}`, 1, [1, i]))
+      );
+
+      const pending = client.search([1, 0], 0, 10);
+      client.dispose();
+
+      await expect(pending).rejects.toBeInstanceOf(PaperLoadError);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // 最初のチャンクの後に1回処理を返したところで打ち切られる（打ち切らなければ3回）
+      expect(yields).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -178,6 +210,58 @@ describe("createWorkerPaperIndexClient", () => {
 
     expect((await first).matches[0]?.id).toBe("a");
     expect((await second).matches[0]?.id).toBe("b");
+  });
+
+  it("signal で中止すると AbortError で reject し、Worker へ中止を送り、後から届いた結果は無視する（#111）", async () => {
+    const client = createWorkerPaperIndexClient("LuminaDB");
+    const worker = FakeWorker.instances[0] as FakeWorker;
+    const controller = new AbortController();
+
+    const aborted = client.search([1], 0.3, 10, controller.signal);
+    const [request] = worker.sent as Extract<PaperIndexRequest, { type: "search" }>[];
+    controller.abort();
+
+    await expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+    expect(worker.sent).toEqual([request, { type: "cancelSearch", requestId: request?.requestId }]);
+
+    const next = client.search([2], 0.3, 10);
+    const nextRequest = worker.sent[2] as Extract<PaperIndexRequest, { type: "search" }>;
+    expect(nextRequest.requestId).not.toBe(request?.requestId);
+    worker.respond({
+      type: "searchResult",
+      requestId: request?.requestId ?? -1,
+      matches: [{ id: "old", score: 0.9 }],
+      totalMatchCount: 1,
+    });
+    worker.respond({
+      type: "searchResult",
+      requestId: nextRequest.requestId,
+      matches: [{ id: "new", score: 0.8 }],
+      totalMatchCount: 1,
+    });
+    expect((await next).matches.map((m) => m.id)).toEqual(["new"]);
+  });
+
+  it("結果が届いた後の中止・中止済みの signal では Worker へ中止・検索を送らない（#111）", async () => {
+    const client = createWorkerPaperIndexClient("LuminaDB");
+    const worker = FakeWorker.instances[0] as FakeWorker;
+    const controller = new AbortController();
+
+    const done = client.search([1], 0.3, 10, controller.signal);
+    const [request] = worker.sent as Extract<PaperIndexRequest, { type: "search" }>[];
+    worker.respond({
+      type: "searchResult",
+      requestId: request?.requestId ?? -1,
+      matches: [{ id: "a", score: 0.9 }],
+      totalMatchCount: 1,
+    });
+    expect((await done).matches.map((m) => m.id)).toEqual(["a"]);
+    controller.abort();
+
+    await expect(client.search([2], 0.3, 10, controller.signal)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(worker.sent).toEqual([request]);
   });
 
   it("読み込みの失敗を PaperLoadError として通知する", () => {

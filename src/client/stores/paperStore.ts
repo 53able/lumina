@@ -57,11 +57,12 @@ interface PaperActions {
   addPapers: (papers: Paper[]) => Promise<void>;
   /** IDで論文を取得する */
   getPaperById: (id: string) => PaperListItem | undefined;
-  /** 全件の準備完了を待ってから検索用索引を検索する */
+  /** 全件の準備完了を待ってから検索用索引を検索する（signal で中止すると索引での計算も打ち切る） */
   searchPapers: (
     queryEmbedding: number[],
     scoreThreshold: number,
-    limit: number
+    limit: number,
+    signal?: AbortSignal
   ) => Promise<PaperSearchMatches>;
   /** 読み込みをやり直す（失敗時の再試行。表示中の一覧は消さずに統合する） */
   retryLoad: () => Promise<void>;
@@ -190,11 +191,11 @@ export const usePaperStore = create<PaperStore>()(
           return get().papers.find((p) => p.id === id);
         },
 
-        searchPapers: async (queryEmbedding, scoreThreshold, limit) => {
+        searchPapers: async (queryEmbedding, scoreThreshold, limit, signal) => {
           await whenPapersReady();
           const index = get()._index;
           if (!index) throw new PaperLoadError("検索用データがありません。再読み込みしてください");
-          return index.search(queryEmbedding, scoreThreshold, limit);
+          return index.search(queryEmbedding, scoreThreshold, limit, signal);
         },
 
         retryLoad: async () => {
@@ -215,8 +216,8 @@ export const usePaperStore = create<PaperStore>()(
 export const paperStoreSearchSource: PaperSearchSource = {
   isReady: () => usePaperStore.getState().loadStatus === "ready",
   whenReady: whenPapersReady,
-  search: (queryEmbedding, scoreThreshold, limit) =>
-    usePaperStore.getState().searchPapers(queryEmbedding, scoreThreshold, limit),
+  search: (queryEmbedding, scoreThreshold, limit, signal) =>
+    usePaperStore.getState().searchPapers(queryEmbedding, scoreThreshold, limit, signal),
 };
 
 /**
