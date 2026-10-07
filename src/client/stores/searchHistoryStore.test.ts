@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchHistory } from "../../shared/schemas/index";
 import { now, parseISO } from "../../shared/utils/dateTime";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { DB_CHANGE_CHANNEL_NAME, type DbChangeMessage } from "../lib/dbChangeChannel";
 
 /**
  * searchHistoryStore テスト
@@ -539,5 +540,158 @@ describe("searchHistoryStore", () => {
       // Assert
       expect(count).toBe(2);
     });
+  });
+});
+
+/**
+ * 別タブの変更の反映（Issue #109）
+ * 別タブは同じ IndexedDB に直接書き込み、別の BroadcastChannel から変更を通知するものとして模す
+ */
+describe("searchHistoryStore: 別タブの変更", () => {
+  let testDbCounter = 0;
+  let otherTab: BroadcastChannel;
+
+  beforeEach(() => {
+    testDbCounter += 1;
+    mockDb = createLuminaDb(`searchHistoryStore-crossTab-test-${testDbCounter}`);
+    otherTab = new BroadcastChannel(DB_CHANGE_CHANNEL_NAME);
+  });
+
+  afterEach(async () => {
+    otherTab.close();
+    vi.restoreAllMocks();
+    await mockDb.delete();
+  });
+
+  it("別タブで追加した検索履歴が反映され、このタブの削除の退避（Undo）は残る", async () => {
+    const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+      "./searchHistoryStore"
+    );
+    await initializeSearchHistoryStore(mockDb);
+    const deleted = createSampleHistory({
+      originalQuery: "削除した",
+      createdAt: parseISO("2024-01-01T00:00:00Z"),
+    });
+    await useSearchHistoryStore.getState().addHistory(deleted);
+    await useSearchHistoryStore.getState().deleteHistory(deleted.id);
+
+    const remote = createSampleHistory({
+      originalQuery: "別タブ",
+      createdAt: parseISO("2024-01-02T00:00:00Z"),
+    });
+    await mockDb.searchHistories.add(remote);
+    otherTab.postMessage({
+      dbName: mockDb.name,
+      table: "searchHistories",
+    } satisfies DbChangeMessage);
+
+    await vi.waitFor(() => {
+      expect(useSearchHistoryStore.getState().histories.map((h) => h.id)).toEqual([remote.id]);
+    });
+    expect(useSearchHistoryStore.getState().deletedHistories.map((h) => h.id)).toEqual([
+      deleted.id,
+    ]);
+
+    // 退避した履歴はそのまま戻せる（#80）
+    await useSearchHistoryStore.getState().restoreHistory(deleted.id);
+    expect(useSearchHistoryStore.getState().histories.map((h) => h.id)).toEqual([
+      remote.id,
+      deleted.id,
+    ]);
+  });
+
+  it("このタブで検索履歴を追加すると、別タブへ通知する", async () => {
+    const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+      "./searchHistoryStore"
+    );
+    await initializeSearchHistoryStore(mockDb);
+    const received: DbChangeMessage[] = [];
+    otherTab.addEventListener("message", (event: MessageEvent<DbChangeMessage>) => {
+      received.push(event.data);
+    });
+
+    await useSearchHistoryStore.getState().addHistory(createSampleHistory());
+
+    await vi.waitFor(() => {
+      expect(received).toContainEqual({ dbName: mockDb.name, table: "searchHistories" });
+    });
+  });
+
+  it("別タブの変更の読み直しが先に反映されても、このタブで復元した履歴は重複しない", async () => {
+    const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+      "./searchHistoryStore"
+    );
+    await initializeSearchHistoryStore(mockDb);
+    const history = createSampleHistory();
+    await useSearchHistoryStore.getState().addHistory(history);
+    await useSearchHistoryStore.getState().deleteHistory(history.id);
+
+    // 復元のコミット直後、Store の更新前に、別タブの通知による読み直しを割り込ませる
+    const transaction = mockDb.transaction.bind(mockDb) as (...args: unknown[]) => Promise<unknown>;
+    vi.spyOn(mockDb, "transaction").mockImplementationOnce((async (...args: unknown[]) => {
+      const result = await transaction(...args);
+      otherTab.postMessage({
+        dbName: mockDb.name,
+        table: "searchHistories",
+      } satisfies DbChangeMessage);
+      await vi.waitFor(() => {
+        expect(useSearchHistoryStore.getState().histories.map((h) => h.id)).toEqual([history.id]);
+      });
+      return result;
+    }) as never);
+
+    await useSearchHistoryStore.getState().restoreHistory(history.id);
+
+    const state = useSearchHistoryStore.getState();
+    expect(state.histories.map((h) => h.id)).toEqual([history.id]);
+    expect(state.deletedHistories).toEqual([]);
+  });
+
+  it("初期ロード中に届いた別タブの変更は、初期ロードの完了後も残る", async () => {
+    const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+      "./searchHistoryStore"
+    );
+    useSearchHistoryStore.setState({ histories: [] });
+
+    // 初期ロードの全件読み取りは、読み込み開始時点（空）の内容を読んだあと、反映を止めておく
+    let readStarted = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const orderBy = mockDb.searchHistories.orderBy.bind(mockDb.searchHistories);
+    vi.spyOn(mockDb.searchHistories, "orderBy").mockImplementationOnce(
+      (index: string) =>
+        ({
+          reverse: () => ({
+            toArray: async () => {
+              const rows = await orderBy(index).reverse().toArray();
+              readStarted = true;
+              await gate;
+              return rows;
+            },
+          }),
+        }) as never
+    );
+
+    const initializing = initializeSearchHistoryStore(mockDb);
+    await vi.waitFor(() => {
+      expect(readStarted).toBe(true);
+    });
+    const remote = createSampleHistory({ originalQuery: "別タブ" });
+    await mockDb.searchHistories.add(remote);
+    otherTab.postMessage({
+      dbName: mockDb.name,
+      table: "searchHistories",
+    } satisfies DbChangeMessage);
+    await vi.waitFor(() => {
+      expect(useSearchHistoryStore.getState().histories.map((h) => h.id)).toEqual([remote.id]);
+    });
+
+    release();
+    await initializing;
+
+    expect(useSearchHistoryStore.getState().histories.map((h) => h.id)).toEqual([remote.id]);
+    expect(useSearchHistoryStore.getState().isLoading).toBe(false);
   });
 });

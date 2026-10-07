@@ -240,6 +240,11 @@ export const useSemanticSearch = ({
    * 再計算では generationRef を進めない（実行中の検索APIを無効化しないため）。
    */
   const computeSeqRef = useRef(0);
+  /**
+   * 索引での計算の中止用。計算を無効化するたびに中止し、Worker 内の類似度計算も打ち切る
+   * （中止した計算の完了を後続の計算に待たせない。#111）。
+   */
+  const computeAbortRef = useRef<AbortController | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   /** 直近の検索の試行（失敗した検索を同じ経路で再試行するため） */
   const lastAttemptRef = useRef<SearchAttempt | null>(null);
@@ -264,6 +269,7 @@ export const useSemanticSearch = ({
   useEffect(
     () => () => {
       abortControllerRef.current?.abort();
+      computeAbortRef.current?.abort();
       generationRef.current += 1;
       computeSeqRef.current += 1;
     },
@@ -274,9 +280,20 @@ export const useSemanticSearch = ({
   const startGeneration = useCallback((): number => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    computeAbortRef.current?.abort();
+    computeAbortRef.current = null;
     generationRef.current += 1;
     computeSeqRef.current += 1;
     return generationRef.current;
+  }, []);
+
+  /** 索引での計算を新しく始める（実行中の計算は中止する）。計算の連番と中止用の signal を返す */
+  const startCompute = useCallback((): { seq: number; signal: AbortSignal } => {
+    computeAbortRef.current?.abort();
+    const controller = new AbortController();
+    computeAbortRef.current = controller;
+    computeSeqRef.current += 1;
+    return { seq: computeSeqRef.current, signal: controller.signal };
   }, []);
 
   /**
@@ -284,14 +301,14 @@ export const useSemanticSearch = ({
    * 結果の論文は papers から ID で引き、papers にない論文は除く。
    */
   const computeResults = useCallback(
-    async (embedding: number[] | null): Promise<ComputedSearchResults> => {
+    async (embedding: number[] | null, signal: AbortSignal): Promise<ComputedSearchResults> => {
       const currentPapers = papersRef.current;
       const currentThreshold = scoreThresholdRef.current;
       const currentLimit = limitRef.current;
       let found: PaperSearchMatches = NO_MATCHES;
       if (embedding && embedding.length > 0) {
         try {
-          found = await getSearchSource().search(embedding, currentThreshold, currentLimit);
+          found = await getSearchSource().search(embedding, currentThreshold, currentLimit, signal);
         } catch (e) {
           // 読み込みの失敗はそのまま、それ以外（Worker 内の計算の失敗など）は計算の失敗として区別する
           const err = toError(e);
@@ -337,11 +354,18 @@ export const useSemanticSearch = ({
       if (generation !== generationRef.current) return [];
 
       setSearchPhase("computing");
-      computeSeqRef.current += 1;
-      const seq = computeSeqRef.current;
+      const { seq, signal } = startCompute();
+      const isCurrent = () => generation === generationRef.current && seq === computeSeqRef.current;
       while (true) {
-        const result = await computeResults(embedding);
-        if (generation !== generationRef.current || seq !== computeSeqRef.current) return [];
+        let result: ComputedSearchResults;
+        try {
+          result = await computeResults(embedding, signal);
+        } catch (e) {
+          // 中止した（無効化された）計算の失敗は反映しない
+          if (!isCurrent()) return [];
+          throw e;
+        }
+        if (!isCurrent()) return [];
         // Worker の応答待ちに入力が変わったら、最新の条件で計算し直してから確定する。
         // 古い件数で done にすると、再計算前に検索履歴へ保存されてしまう。
         if (
@@ -360,7 +384,7 @@ export const useSemanticSearch = ({
         return result.results;
       }
     },
-    [computeResults, getSearchSource]
+    [computeResults, getSearchSource, startCompute]
   );
 
   /**
@@ -398,6 +422,8 @@ export const useSemanticSearch = ({
     }
     if (activeRecomputeFailure !== null) {
       // 失敗した入力に戻った（A→B→A）ときは、途中の入力（B）で実行中の再計算の結果を採用しない
+      computeAbortRef.current?.abort();
+      computeAbortRef.current = null;
       computeSeqRef.current += 1;
       return;
     }
@@ -421,10 +447,9 @@ export const useSemanticSearch = ({
         cancelled = true;
       };
     }
-    computeSeqRef.current += 1;
-    const seq = computeSeqRef.current;
+    const { seq, signal } = startCompute();
     const isCurrent = () => generation === generationRef.current && seq === computeSeqRef.current;
-    computeResults(key.queryEmbedding).then(
+    computeResults(key.queryEmbedding, signal).then(
       (next) => {
         if (isCurrent()) setComputed(next);
       },
@@ -441,6 +466,7 @@ export const useSemanticSearch = ({
     limit,
     computeResults,
     getSearchSource,
+    startCompute,
     sourceReadySignal,
   ]);
 

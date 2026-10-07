@@ -40,11 +40,12 @@ export interface PaperSearchSource {
   isReady: () => boolean;
   /** 全件の準備完了を待つ（読み込みに失敗したら reject） */
   whenReady: () => Promise<void>;
-  /** 索引を検索する */
+  /** 索引を検索する（signal で中止すると reject し、索引での計算も打ち切る） */
   search: (
     queryEmbedding: number[],
     scoreThreshold: number,
-    limit: number
+    limit: number,
+    signal?: AbortSignal
   ) => Promise<PaperSearchMatches>;
 }
 
@@ -152,6 +153,12 @@ interface IndexEntry {
   norm: number;
 }
 
+/**
+ * 類似度を計算する1チャンクの件数。
+ * Web Worker はチャンクの合間に中止・後続の検索のメッセージを受け取る（#111）。
+ */
+export const SEARCH_CHUNK_SIZE = 2000;
+
 /** 論文 Embedding の検索用索引 */
 export interface PaperEmbeddingIndex {
   /** 索引の件数 */
@@ -160,7 +167,47 @@ export interface PaperEmbeddingIndex {
   upsert: (papers: PaperEmbeddingInput[]) => void;
   /** 類似度が閾値以上の論文をスコア降順で返す */
   search: (queryEmbedding: number[], scoreThreshold: number, limit: number) => PaperSearchMatches;
+  /**
+   * search と同じ結果を、chunkSize 件の類似度を計算するごとに yield しながら求める。
+   * 呼び出し側は yield の合間に next を呼ばないことで計算を打ち切れる。
+   * 開始時点の索引を対象にし、計算中の upsert は結果に含めない（従来の同期の検索と同じ）。
+   * 同じクエリ・同じ索引の検索は実行中（打ち切られて止まった）の計算を共有し、続きから進める。
+   */
+  searchInChunks: (
+    queryEmbedding: number[],
+    scoreThreshold: number,
+    limit: number,
+    chunkSize?: number
+  ) => Generator<void, PaperSearchMatches, void>;
 }
+
+/**
+ * snapshot の [start, end) の類似度を計算して scored へ追加する
+ * （計算の本体。ジェネレーターの外に置き、最適化されやすくする）
+ */
+const scoreRange = (
+  snapshot: [string, IndexEntry][],
+  start: number,
+  end: number,
+  queryEmbedding: number[],
+  queryNorm: number,
+  scored: PaperSearchMatch[]
+): void => {
+  for (let index = start; index < end; index += 1) {
+    const [id, { vector, norm }] = snapshot[index] as [string, IndexEntry];
+    let score = 0;
+    const denominator = queryNorm * norm;
+    if (vector.length === queryEmbedding.length && denominator !== 0) {
+      let dotProduct = 0;
+      for (let i = 0; i < vector.length; i += 1) {
+        dotProduct += (vector[i] as number) * (queryEmbedding[i] as number);
+      }
+      score = dotProduct / denominator;
+    }
+    // 不正な値（NaN・Infinity）を含む Embedding は並び順を壊すため 0 とみなす
+    scored.push({ id, score: Number.isFinite(score) ? score : 0 });
+  }
+};
 
 /**
  * 論文 Embedding の検索用索引を作る
@@ -177,9 +224,26 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
    * 索引の更新で破棄する。
    */
   let lastScored: { queryEmbedding: number[]; sorted: PaperSearchMatch[] } | null = null;
+  /** 索引の更新回数（チャンクに分けた計算の途中で更新されたかを判定する） */
+  let version = 0;
+  /**
+   * 実行中（または中止されて途中で止まった）全件スコアの計算。
+   * 同じクエリ・同じ索引の検索はこの計算を共有して続きから進める。
+   * 中止→同じクエリで再検索（しきい値の連続変更など）のたびに最初から計算し直さないため。
+   */
+  let scoring: {
+    queryEmbedding: number[];
+    version: number;
+    task: Generator<void, PaperSearchMatch[], void>;
+    sorted: PaperSearchMatch[] | null;
+  } | null = null;
 
   const upsert = (papers: PaperEmbeddingInput[]): void => {
-    if (papers.length > 0) lastScored = null;
+    if (papers.length > 0) {
+      lastScored = null;
+      scoring = null;
+      version += 1;
+    }
     for (const paper of papers) {
       const embedding = paper.embedding;
       if (!embedding || !hasPaperEmbedding(paper)) {
@@ -196,45 +260,97 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
     }
   };
 
-  /** 全件の類似度を計算し、スコア降順に並べる（同点は索引の順を保つ） */
-  const scoreAll = (queryEmbedding: number[]): PaperSearchMatch[] => {
+  /**
+   * 全件の類似度を chunkSize 件ずつ計算し（チャンクの合間に yield する）、スコア降順に並べる
+   * （同点は索引の順を保つ）。開始時点の索引を対象にする。
+   */
+  function* scoreAll(
+    queryEmbedding: number[],
+    chunkSize: number
+  ): Generator<void, PaperSearchMatch[], void> {
     let querySumOfSquares = 0;
     for (const q of queryEmbedding) querySumOfSquares += q * q;
     const queryNorm = Math.sqrt(querySumOfSquares);
 
+    const snapshot = [...entries];
     const scored: PaperSearchMatch[] = [];
-    for (const [id, { vector, norm }] of entries) {
-      let score = 0;
-      const denominator = queryNorm * norm;
-      if (vector.length === queryEmbedding.length && denominator !== 0) {
-        let dotProduct = 0;
-        for (let i = 0; i < vector.length; i += 1) {
-          dotProduct += (vector[i] as number) * (queryEmbedding[i] as number);
-        }
-        score = dotProduct / denominator;
-      }
-      // 不正な値（NaN・Infinity）を含む Embedding は並び順を壊すため 0 とみなす
-      scored.push({ id, score: Number.isFinite(score) ? score : 0 });
+    for (let start = 0; start < snapshot.length; start += chunkSize) {
+      if (start > 0) yield;
+      scoreRange(
+        snapshot,
+        start,
+        Math.min(snapshot.length, start + chunkSize),
+        queryEmbedding,
+        queryNorm,
+        scored
+      );
     }
+    // 並べ替えの前にも中止を受け付ける
+    if (scored.length > 0) yield;
     scored.sort((a, b) => b.score - a.score);
     return scored;
-  };
+  }
 
   /** 直前の検索と同じクエリか（Worker へはコピーで届くため内容で比べる） */
   const isSameQuery = (a: number[], b: number[]): boolean =>
     a.length === b.length && a.every((value, i) => value === b[i]);
 
-  const search = (
+  function* searchInChunks(
     queryEmbedding: number[],
     scoreThreshold: number,
-    limit: number
-  ): PaperSearchMatches => {
+    limit: number,
+    chunkSize = SEARCH_CHUNK_SIZE
+  ): Generator<void, PaperSearchMatches, void> {
     if (queryEmbedding.length === 0) return { matches: [], totalMatchCount: 0 };
 
-    if (lastScored === null || !isSameQuery(lastScored.queryEmbedding, queryEmbedding)) {
-      lastScored = { queryEmbedding: [...queryEmbedding], sorted: scoreAll(queryEmbedding) };
+    let sorted: PaperSearchMatch[];
+    if (lastScored !== null && isSameQuery(lastScored.queryEmbedding, queryEmbedding)) {
+      sorted = lastScored.sorted;
+    } else {
+      let current = scoring;
+      if (
+        current === null ||
+        current.version !== version ||
+        !isSameQuery(current.queryEmbedding, queryEmbedding)
+      ) {
+        const query = [...queryEmbedding];
+        current = {
+          queryEmbedding: query,
+          version,
+          task: scoreAll(query, chunkSize),
+          sorted: null,
+        };
+        scoring = current;
+      }
+      // 共有する計算を1チャンクずつ進める（他の検索が先に完了させていれば、その結果を使う）
+      while (current.sorted === null) {
+        let step: IteratorResult<void, PaperSearchMatch[]>;
+        try {
+          step = current.task.next();
+        } catch (error) {
+          // 例外で終了した計算は共有しない（次の検索で最初から計算し直す）
+          if (scoring === current) scoring = null;
+          throw error;
+        }
+        if (!step.done) {
+          yield;
+          continue;
+        }
+        // 共有していた計算が他の検索で例外により終了していたら、結果がないためこの検索も失敗にする
+        // （共有を解除するので、次の検索は最初から計算し直す）
+        if (!Array.isArray(step.value)) {
+          if (scoring === current) scoring = null;
+          throw new Error("類似度の計算が中断されました。もう一度検索してください");
+        }
+        current.sorted = step.value;
+        if (scoring === current) scoring = null;
+        // 計算中に索引が更新されたら、開始時点の索引で求めた一覧を後の検索に使い回さない
+        if (current.version === version) {
+          lastScored = { queryEmbedding: current.queryEmbedding, sorted: step.value };
+        }
+      }
+      sorted = current.sorted;
     }
-    const { sorted } = lastScored;
 
     // スコア降順なので、しきい値以上の一致は先頭からの連続した範囲になる
     let totalMatchCount = 0;
@@ -245,6 +361,17 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
       totalMatchCount += 1;
     }
     return { matches: sorted.slice(0, Math.min(limit, totalMatchCount)), totalMatchCount };
+  }
+
+  const search = (
+    queryEmbedding: number[],
+    scoreThreshold: number,
+    limit: number
+  ): PaperSearchMatches => {
+    const task = searchInChunks(queryEmbedding, scoreThreshold, limit, Number.POSITIVE_INFINITY);
+    let step = task.next();
+    while (!step.done) step = task.next();
+    return step.value;
   };
 
   return {
@@ -253,5 +380,6 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
     },
     upsert,
     search,
+    searchInChunks,
   };
 };

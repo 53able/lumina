@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../../shared/schemas/index";
 import {
   createPaperEmbeddingIndex,
   hasPaperEmbedding,
   mergePapersDesc,
   type PaperListItem,
+  type PaperSearchMatches,
   toPaperListItem,
   toStoredPaper,
 } from "./core";
@@ -203,6 +204,144 @@ describe("createPaperEmbeddingIndex", () => {
     index.upsert([{ id: "a", embedding: [1, 0] }]);
 
     expect(index.search([], -1, 10)).toEqual({ matches: [], totalMatchCount: 0 });
+  });
+});
+
+describe("createPaperEmbeddingIndex の searchInChunks（#111）", () => {
+  const random = createRandom(111);
+  const papers = Array.from({ length: 25 }, (_, i) => ({
+    id: `p${i}`,
+    embedding: Array.from({ length: 8 }, () => random()),
+  }));
+  const query = Array.from({ length: 8 }, () => random());
+
+  /** 最後まで進めて結果と yield の回数を返す */
+  const runToEnd = (task: Generator<void, PaperSearchMatches, void>) => {
+    let yields = 0;
+    let step = task.next();
+    while (!step.done) {
+      yields += 1;
+      step = task.next();
+    }
+    return { result: step.value, yields };
+  };
+
+  it("チャンクごとに yield し、結果は search と一致する", () => {
+    const chunked = createPaperEmbeddingIndex();
+    chunked.upsert(papers);
+    const plain = createPaperEmbeddingIndex();
+    plain.upsert(papers);
+
+    const { result, yields } = runToEnd(chunked.searchInChunks(query, -1, 10, 10));
+
+    // 10件ごとの合間（2回）と並べ替えの前（1回）
+    expect(yields).toBe(3);
+    expect(result).toEqual(plain.search(query, -1, 10));
+  });
+
+  it("途中で打ち切った計算は、同じクエリ・同じ索引の次の検索が続きから進める", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+    const plain = createPaperEmbeddingIndex();
+    plain.upsert(papers);
+
+    const aborted = index.searchInChunks(query, -1, 10, 10);
+    aborted.next();
+    aborted.next();
+
+    const { result, yields } = runToEnd(index.searchInChunks(query, -1, 10, 10));
+    expect(yields).toBe(1);
+    expect(result).toEqual(plain.search(query, -1, 10));
+  });
+
+  it("中止→同じクエリで再検索を1チャンクごとに繰り返しても、計算は最初からやり直さずに完了する", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+    const plain = createPaperEmbeddingIndex();
+    plain.upsert(papers);
+
+    // しきい値を連続で変えたときのように、各検索は1チャンク進んだところで中止される
+    const thresholds = [0.9, 0.8, 0.7, 0.6, 0.5];
+    let finished: { threshold: number; result: PaperSearchMatches } | null = null;
+    for (const threshold of thresholds) {
+      const step = index.searchInChunks(query, threshold, 10, 10).next();
+      if (step.done) {
+        finished = { threshold, result: step.value };
+        break;
+      }
+    }
+
+    expect(finished).not.toBeNull();
+    expect(finished?.result).toEqual(plain.search(query, finished?.threshold ?? 0, 10));
+    // 完了後の再検索は直前のスコアを使い、yield しない
+    expect(runToEnd(index.searchInChunks(query, 0, 5, 10)).yields).toBe(0);
+  });
+
+  it("計算が例外で終わっても共有を解除し、同じクエリの再検索は最初から計算し直す", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+    const plain = createPaperEmbeddingIndex();
+    plain.upsert(papers);
+
+    // 同じ計算を共有している2つの検索のうち、一方で並べ替えが例外を投げる
+    const waiting = index.searchInChunks(query, -1, 10, 10);
+    waiting.next();
+    const sort = vi.spyOn(Array.prototype, "sort").mockImplementationOnce(() => {
+      throw new Error("sort failed");
+    });
+    try {
+      expect(() => runToEnd(index.searchInChunks(query, -1, 10, 10))).toThrow("sort failed");
+    } finally {
+      sort.mockRestore();
+    }
+
+    // 共有していたもう一方の検索は結果がないため失敗し、undefined を結果にしない
+    expect(() => runToEnd(waiting)).toThrow("類似度の計算が中断されました");
+    // 同じクエリの再検索は最初から計算し直して、正しい結果を返す
+    const { result, yields } = runToEnd(index.searchInChunks(query, -1, 10, 10));
+    expect(yields).toBe(3);
+    expect(result).toEqual(plain.search(query, -1, 10));
+  });
+
+  it("索引が更新されたら、打ち切られた計算を共有せず最初から計算する", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+
+    const aborted = index.searchInChunks(query, -1, 100, 10);
+    aborted.next();
+    index.upsert([{ id: "added", embedding: query }]);
+
+    const { result, yields } = runToEnd(index.searchInChunks(query, -1, 100, 10));
+    expect(yields).toBe(3);
+    expect(result.matches[0]?.id).toBe("added");
+    expect(result.totalMatchCount).toBe(papers.length + 1);
+  });
+
+  it("計算中に索引を更新しても開始時点の索引で計算し、その結果を後の検索に使い回さない", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+    const before = createPaperEmbeddingIndex();
+    before.upsert(papers);
+
+    const task = index.searchInChunks(query, -1, 100, 10);
+    task.next();
+    index.upsert([{ id: "added", embedding: query }]);
+    const { result } = runToEnd(task);
+
+    expect(result).toEqual(before.search(query, -1, 100));
+    const next = index.search(query, -1, 100);
+    expect(next.matches[0]?.id).toBe("added");
+    expect(next.totalMatchCount).toBe(papers.length + 1);
+  });
+
+  it("同じクエリの再検索は直前のスコアを使い、yield しない", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+    runToEnd(index.searchInChunks(query, -1, 10, 10));
+
+    const { result, yields } = runToEnd(index.searchInChunks(query, 0, 5, 10));
+    expect(yields).toBe(0);
+    expect(result).toEqual(index.search(query, 0, 5));
   });
 });
 

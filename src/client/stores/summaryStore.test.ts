@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaperSummary } from "../../shared/schemas/index";
 import { now } from "../../shared/utils/dateTime";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { DB_CHANGE_CHANNEL_NAME, type DbChangeMessage } from "../lib/dbChangeChannel";
 import type { SummaryVersion } from "./summaryStore";
 
 /**
@@ -688,5 +689,198 @@ describe("summaryStore", () => {
       expect(hasEn).toBe(false);
       expect(hasOther).toBe(false);
     });
+  });
+});
+
+/**
+ * 別タブの変更の反映（Issue #109）
+ * 別タブは同じ IndexedDB に直接書き込み、別の BroadcastChannel から変更を通知するものとして模す
+ */
+describe("summaryStore: 別タブの変更", () => {
+  let testDbCounter = 0;
+  let otherTab: BroadcastChannel;
+
+  beforeEach(() => {
+    testDbCounter += 1;
+    mockDb = createLuminaDb(`summaryStore-crossTab-test-${testDbCounter}`);
+    otherTab = new BroadcastChannel(DB_CHANGE_CHANNEL_NAME);
+  });
+
+  afterEach(async () => {
+    otherTab.close();
+    vi.restoreAllMocks();
+    await mockDb.delete();
+  });
+
+  const notifyFromOtherTab = (paperIds: string[] | null) => {
+    otherTab.postMessage({
+      dbName: mockDb.name,
+      table: "paperSummaries",
+      paperIds,
+    } satisfies DbChangeMessage);
+  };
+
+  it("別タブで生成した要約が、このタブで生成済みとして表示される（重複生成しない）", async () => {
+    const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+    await initializeSummaryStore(mockDb);
+    expect(useSummaryStore.getState().hasSummary("2401.00001", "ja")).toBe(false);
+
+    await mockDb.paperSummaries.add(
+      createSampleSummary({ summary: "別タブの要約", adopted: true })
+    );
+    notifyFromOtherTab(["2401.00001"]);
+
+    await vi.waitFor(() => {
+      expect(
+        useSummaryStore.getState().getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary
+      ).toBe("別タブの要約");
+    });
+  });
+
+  it("別タブでの版の採用・破棄に追従し、通知に含まれない論文の要約は変えない", async () => {
+    const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+    await initializeSummaryStore(mockDb);
+    await useSummaryStore.getState().addSummary(createSampleSummary({ summary: "版1" }));
+    await useSummaryStore.getState().addSummary(createSampleSummary({ summary: "版2" }));
+    await useSummaryStore
+      .getState()
+      .addSummary(createSampleSummary({ paperId: "2401.00002", summary: "別論文" }));
+    const [v1, v2] = useSummaryStore.getState().summaries;
+    if (!v1 || !v2) throw new Error("versions not found");
+
+    // 別タブ: 版1を採用し、版2（採用版）を破棄する
+    await mockDb.paperSummaries.where(":id").equals(v1.id).modify({ adopted: true });
+    await mockDb.paperSummaries.where(":id").equals(v2.id).delete();
+    notifyFromOtherTab(["2401.00001"]);
+
+    await vi.waitFor(() => {
+      const state = useSummaryStore.getState();
+      expect(state.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.id).toBe(v1.id);
+      expect(state.summaries.filter((s) => s.paperId === "2401.00001")).toHaveLength(1);
+    });
+    expect(
+      useSummaryStore.getState().getSummaryByPaperIdAndLanguage("2401.00002", "ja")?.summary
+    ).toBe("別論文");
+  });
+
+  it("別タブで全要約を削除すると、このタブの要約も消える", async () => {
+    const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+    await initializeSummaryStore(mockDb);
+    await useSummaryStore.getState().addSummary(createSampleSummary());
+
+    await mockDb.paperSummaries.clear();
+    notifyFromOtherTab(null);
+
+    await vi.waitFor(() => {
+      expect(useSummaryStore.getState().summaries).toEqual([]);
+    });
+  });
+
+  it("別の DB への変更通知では読み直さない", async () => {
+    const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+    await initializeSummaryStore(mockDb);
+    await mockDb.paperSummaries.add(createSampleSummary());
+    otherTab.postMessage({
+      dbName: "other-db",
+      table: "paperSummaries",
+      paperIds: ["2401.00001"],
+    } satisfies DbChangeMessage);
+    // 対照: 同じ DB への通知（届いた順に処理されるため、これが反映された時点で先の通知も処理済み）
+    await mockDb.paperSummaries.add(createSampleSummary({ paperId: "2401.00002" }));
+    notifyFromOtherTab(["2401.00002"]);
+
+    await vi.waitFor(() => {
+      expect(useSummaryStore.getState().hasSummary("2401.00002", "ja")).toBe(true);
+    });
+    expect(useSummaryStore.getState().hasSummary("2401.00001", "ja")).toBe(false);
+  });
+
+  it("このタブで要約を変更すると、別タブへ論文IDつきで通知する", async () => {
+    const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+    await initializeSummaryStore(mockDb);
+    const received: DbChangeMessage[] = [];
+    otherTab.addEventListener("message", (event: MessageEvent<DbChangeMessage>) => {
+      received.push(event.data);
+    });
+
+    await useSummaryStore.getState().addSummary(createSampleSummary());
+
+    await vi.waitFor(() => {
+      expect(received).toContainEqual({
+        dbName: mockDb.name,
+        table: "paperSummaries",
+        paperIds: ["2401.00001"],
+      });
+    });
+  });
+
+  it("別タブの変更の読み直しが先に反映されても、このタブで追加した版は重複しない", async () => {
+    const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+    await initializeSummaryStore(mockDb);
+
+    // 追加のコミット直後、Store の更新前に、別タブの通知による読み直しを割り込ませる
+    const transaction = mockDb.transaction.bind(mockDb) as (...args: unknown[]) => Promise<unknown>;
+    vi.spyOn(mockDb, "transaction").mockImplementationOnce((async (...args: unknown[]) => {
+      const result = await transaction(...args);
+      notifyFromOtherTab(["2401.00001"]);
+      await vi.waitFor(() => {
+        expect(useSummaryStore.getState().summaries).toHaveLength(1);
+      });
+      return result;
+    }) as never);
+
+    await useSummaryStore.getState().addSummary(createSampleSummary());
+
+    expect(await mockDb.paperSummaries.count()).toBe(1);
+    expect(useSummaryStore.getState().summaries).toHaveLength(1);
+    expect(useSummaryStore.getState().summaries[0]?.adopted).toBe(true);
+  });
+
+  it("初期ロード中に届いた別タブの変更は、初期ロードの完了後も残る", async () => {
+    const { useSummaryStore, initializeSummaryStore } = await import("./summaryStore");
+    useSummaryStore.setState({ summaries: [] });
+
+    // 初期ロードの全件読み取りは、読み込み開始時点（空）の内容を読んだあと、反映を止めておく
+    let readStarted = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const toCollection = mockDb.paperSummaries.toCollection.bind(mockDb.paperSummaries);
+    vi.spyOn(mockDb.paperSummaries, "toCollection").mockImplementationOnce(() => {
+      const collection = toCollection();
+      return {
+        each: async (
+          callback: (summary: PaperSummary, cursor: { primaryKey: unknown }) => void
+        ) => {
+          const rows: [PaperSummary, unknown][] = [];
+          await collection.each((summary, cursor) => {
+            rows.push([summary, cursor.primaryKey]);
+          });
+          readStarted = true;
+          await gate;
+          for (const [summary, primaryKey] of rows) callback(summary, { primaryKey });
+        },
+      } as never;
+    });
+
+    const initializing = initializeSummaryStore(mockDb);
+    await vi.waitFor(() => {
+      expect(readStarted).toBe(true);
+    });
+    await mockDb.paperSummaries.add(
+      createSampleSummary({ summary: "別タブの要約", adopted: true })
+    );
+    notifyFromOtherTab(["2401.00001"]);
+    await vi.waitFor(() => {
+      expect(useSummaryStore.getState().hasSummary("2401.00001", "ja")).toBe(true);
+    });
+
+    release();
+    await initializing;
+
+    const state = useSummaryStore.getState();
+    expect(state.getSummaryByPaperIdAndLanguage("2401.00001", "ja")?.summary).toBe("別タブの要約");
+    expect(state.isLoading).toBe(false);
   });
 });
