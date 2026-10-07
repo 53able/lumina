@@ -3,6 +3,7 @@ import { devtools } from "zustand/middleware";
 import type { InteractionType, UserInteraction } from "../../shared/schemas/index";
 import { now } from "../../shared/utils/dateTime";
 import type { LuminaDB } from "../db/db";
+import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
 
 /**
  * interactionStore の状態型
@@ -73,6 +74,7 @@ export const useInteractionStore = create<InteractionStore>()(
           set((state) => ({
             interactions: state.interactions.filter((i) => i.id !== existing.id),
           }));
+          notifyDbChange(db, { table: "userInteractions", paperIds: [paperId] });
         } else {
           // いいねを追加
           const newInteraction: UserInteraction = {
@@ -83,8 +85,12 @@ export const useInteractionStore = create<InteractionStore>()(
           };
           await db.userInteractions.add(newInteraction);
           set((state) => ({
-            interactions: [...state.interactions, newInteraction],
+            interactions: [
+              ...state.interactions.filter((i) => i.id !== newInteraction.id),
+              newInteraction,
+            ],
           }));
+          notifyDbChange(db, { table: "userInteractions", paperIds: [paperId] });
         }
       },
 
@@ -100,6 +106,7 @@ export const useInteractionStore = create<InteractionStore>()(
           set((state) => ({
             interactions: state.interactions.filter((i) => i.id !== existing.id),
           }));
+          notifyDbChange(db, { table: "userInteractions", paperIds: [paperId] });
         } else {
           // ブックマークを追加
           const newInteraction: UserInteraction = {
@@ -110,8 +117,12 @@ export const useInteractionStore = create<InteractionStore>()(
           };
           await db.userInteractions.add(newInteraction);
           set((state) => ({
-            interactions: [...state.interactions, newInteraction],
+            interactions: [
+              ...state.interactions.filter((i) => i.id !== newInteraction.id),
+              newInteraction,
+            ],
           }));
+          notifyDbChange(db, { table: "userInteractions", paperIds: [paperId] });
         }
       },
 
@@ -138,6 +149,7 @@ export const useInteractionStore = create<InteractionStore>()(
 
         // Storeを更新
         set({ interactions: [] });
+        notifyDbChange(db, { table: "userInteractions", paperIds: null });
       },
     }),
     { name: "interaction-store" }
@@ -152,6 +164,12 @@ export const useInteractionStore = create<InteractionStore>()(
  */
 export const initializeInteractionStore = async (db: LuminaDB): Promise<void> => {
   useInteractionStore.setState({ isLoading: true, _db: db });
+  unsubscribeRemoteChanges?.();
+  unsubscribeRemoteChanges = subscribeDbChanges(db, "userInteractions", ({ paperIds }) => {
+    reloadInteractions(db, paperIds).catch((error: unknown) => {
+      console.warn("Failed to reload interactions changed in another tab", error);
+    });
+  });
 
   // IndexedDBから全インタラクションをロード
   const interactions = await db.userInteractions.toArray();
@@ -161,3 +179,29 @@ export const initializeInteractionStore = async (db: LuminaDB): Promise<void> =>
     isLoading: false,
   });
 };
+
+/** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
+let unsubscribeRemoteChanges: (() => void) | null = null;
+
+/**
+ * 別タブで変更された論文のいいね・ブックマークを IndexedDB から読み直し、Store のその論文の分を置き換える
+ * （paperIds が null なら全件を読み直す）
+ */
+const reloadInteractions = (db: LuminaDB, paperIds: string[] | null): Promise<void> =>
+  reloadUnlessChanged(
+    () => useInteractionStore.getState().interactions,
+    () =>
+      paperIds === null
+        ? db.userInteractions.toArray()
+        : db.userInteractions.where("paperId").anyOf(paperIds).toArray(),
+    (fresh) => {
+      if (paperIds === null) {
+        useInteractionStore.setState({ interactions: fresh });
+        return;
+      }
+      const changed = new Set(paperIds);
+      useInteractionStore.setState((state) => ({
+        interactions: [...state.interactions.filter((i) => !changed.has(i.paperId)), ...fresh],
+      }));
+    }
+  );

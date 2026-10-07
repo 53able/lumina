@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { Paper } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
+import { notifyDbChange, subscribeDbChanges } from "../lib/dbChangeChannel";
 import {
   createDefaultPaperIndexClient,
   type PaperIndexClient,
@@ -168,6 +169,7 @@ export const usePaperStore = create<PaperStore>()(
         });
         get()._index?.upsert(stored);
         set((state) => ({ papers: mergePapersDesc(state.papers, stored.map(toPaperListItem)) }));
+        notifyDbChange(db, { table: "papers", paperIds: stored.map((p) => p.id) });
       };
 
       return {
@@ -343,5 +345,37 @@ export const initializePaperStore = (
 ): Promise<void> => {
   createIndexClient = options.createIndexClient ?? createDefaultPaperIndexClient;
   usePaperStore.setState({ papers: [] });
+  unsubscribeRemoteChanges?.();
+  unsubscribeRemoteChanges = subscribeDbChanges(db, "papers", ({ paperIds }) => {
+    reloadPapers(db, paperIds).catch((error: unknown) => {
+      console.warn("Failed to reload papers changed in another tab", error);
+    });
+  });
   return startPaperLoad(db);
+};
+
+/** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
+let unsubscribeRemoteChanges: (() => void) | null = null;
+
+/**
+ * 別タブで保存された論文を IndexedDB から読み直し、索引・一覧へ反映する（全件は読み直さない）
+ *
+ * 全件の準備完了を待ってから反映する（読み込み中の索引・一覧と二重にしない）。
+ * 読み込みに失敗している間は反映しない（再試行の読み込みで DB から読み直される）。
+ */
+const reloadPapers = async (db: LuminaDB, paperIds: string[]): Promise<void> => {
+  try {
+    await whenPapersReady();
+  } catch {
+    return;
+  }
+  const stored = (await db.papers.bulkGet(paperIds)).filter(
+    (paper): paper is Paper => paper !== undefined
+  );
+  if (stored.length === 0) return;
+  // savePapers と同じく、索引への反映は一覧の更新より前に行う
+  usePaperStore.getState()._index?.upsert(stored);
+  usePaperStore.setState((state) => ({
+    papers: mergePapersDesc(state.papers, stored.map(toPaperListItem)),
+  }));
 };

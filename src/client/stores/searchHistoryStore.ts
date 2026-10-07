@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { SearchHistory } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
+import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
 
 /**
  * 検索履歴の個別操作（削除・復元）の失敗
@@ -128,6 +129,7 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
             history,
           ]),
         }));
+        notifyDbChange(db, { table: "searchHistories" });
       },
 
       getHistoryById: (id) => {
@@ -154,6 +156,7 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
             histories: state.histories.filter((h) => h.id !== id),
             deletedHistories: [target, ...state.deletedHistories.filter((h) => h.id !== id)],
           }));
+          notifyDbChange(db, { table: "searchHistories" });
         } catch (error) {
           set((state) => ({
             historyErrors: {
@@ -190,6 +193,7 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
             await db.searchHistories.add(target);
             return null;
           });
+          if (!dbConflict) notifyDbChange(db, { table: "searchHistories" });
           if (dbConflict) {
             // DB にだけ同じクエリの履歴がある（一覧が古い）場合も、一覧へ反映して競合として見せる
             set((state) =>
@@ -211,7 +215,11 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
             findRestoreConflict(state.histories, target)
               ? {}
               : {
-                  histories: sortByCreatedAtDesc([...state.histories, target]),
+                  // 別タブの変更の読み直しで復元分を一覧へ反映済みの場合があるため、同じ履歴は除いてから足す
+                  histories: sortByCreatedAtDesc([
+                    ...state.histories.filter((h) => h.id !== id),
+                    target,
+                  ]),
                   deletedHistories: state.deletedHistories.filter((h) => h.id !== id),
                 }
           );
@@ -249,6 +257,7 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
 
         // Storeを更新（全件削除は元に戻せないため、個別削除の退避と失敗表示も破棄する）
         set({ histories: [], deletedHistories: [], historyErrors: {} });
+        notifyDbChange(db, { table: "searchHistories" });
       },
 
       getHistoryCount: () => {
@@ -274,12 +283,43 @@ export const initializeSearchHistoryStore = async (db: LuminaDB): Promise<void> 
     pendingHistoryIds: [],
     historyErrors: {},
   });
+  unsubscribeRemoteChanges?.();
+  unsubscribeRemoteChanges = subscribeDbChanges(db, "searchHistories", () => {
+    reloadHistories(db).catch((error: unknown) => {
+      console.warn("Failed to reload search histories changed in another tab", error);
+    });
+  });
 
   // IndexedDBから全検索履歴をロード（新しい順）
-  const histories = await db.searchHistories.orderBy("createdAt").reverse().toArray();
+  const histories = await readHistories(db);
 
   useSearchHistoryStore.setState({
     histories,
     isLoading: false,
   });
 };
+
+/** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
+let unsubscribeRemoteChanges: (() => void) | null = null;
+
+/** IndexedDB から全検索履歴を新しい順に読む */
+const readHistories = (db: LuminaDB): Promise<SearchHistory[]> =>
+  db.searchHistories.orderBy("createdAt").reverse().toArray();
+
+/**
+ * 別タブで変更された検索履歴を IndexedDB から読み直す
+ * 削除の退避（Undo）はこのタブのものなので残す。ただし DB に戻っている履歴は退避から外す
+ * （一覧にある履歴に「元に戻す」を残さないため）
+ */
+const reloadHistories = (db: LuminaDB): Promise<void> =>
+  reloadUnlessChanged(
+    () => useSearchHistoryStore.getState().histories,
+    () => readHistories(db),
+    (histories) => {
+      const ids = new Set(histories.map((h) => h.id));
+      useSearchHistoryStore.setState((state) => ({
+        histories,
+        deletedHistories: state.deletedHistories.filter((h) => !ids.has(h.id)),
+      }));
+    }
+  );

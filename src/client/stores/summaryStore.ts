@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import { type PaperSummary, SUMMARY_CORRECTION_MAX_LENGTH } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
+import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
 
 /**
  * 保存済みの要約の版（IndexedDB の主キーを id として持つ）
@@ -193,13 +194,19 @@ export const useSummaryStore = create<SummaryStore>()(
           return addedId;
         });
 
-        // Storeを更新
+        // Storeを更新（別タブの変更の読み直しで追加済みの場合があるため、同じ版は除いてから足す）
         set((state) => ({
           summaries: [
-            ...withAdopted(state.summaries, summary.paperId, summary.language, id),
+            ...withAdopted(
+              state.summaries.filter((s) => s.id !== id),
+              summary.paperId,
+              summary.language,
+              id
+            ),
             { ...summary, id, adopted: true },
           ],
         }));
+        notifyDbChange(db, { table: "paperSummaries", paperIds: [summary.paperId] });
       },
 
       updateSummary: async (paperId, language, changes) => {
@@ -221,6 +228,7 @@ export const useSummaryStore = create<SummaryStore>()(
         set((state) => ({
           summaries: state.summaries.map((s) => (s.id === adoptedId ? { ...s, ...changes } : s)),
         }));
+        notifyDbChange(db, { table: "paperSummaries", paperIds: [paperId] });
       },
 
       saveCorrection: async (id, text) => {
@@ -233,8 +241,8 @@ export const useSummaryStore = create<SummaryStore>()(
         const userCorrection = trimmed ? { text: trimmed, updatedAt: new Date() } : undefined;
 
         // 版が破棄されていないかを DB で確かめてから、その版の訂正だけを書き換える（AI生成の各フィールドは変更しない）
-        await db.transaction("rw", db.paperSummaries, async () => {
-          await readVersionById(db, id);
+        const target = await db.transaction("rw", db.paperSummaries, async () => {
+          const found = await readVersionById(db, id);
           await db.paperSummaries
             .where(":id")
             .equals(id)
@@ -242,6 +250,7 @@ export const useSummaryStore = create<SummaryStore>()(
               if (userCorrection) s.userCorrection = userCorrection;
               else delete s.userCorrection;
             });
+          return found;
         });
 
         // Storeを更新
@@ -252,6 +261,7 @@ export const useSummaryStore = create<SummaryStore>()(
             return userCorrection ? { ...rest, userCorrection } : rest;
           }),
         }));
+        notifyDbChange(db, { table: "paperSummaries", paperIds: [target.paperId] });
       },
 
       getSummaryByPaperIdAndLanguage: (paperId, language) => {
@@ -273,6 +283,7 @@ export const useSummaryStore = create<SummaryStore>()(
         set((state) => ({
           summaries: withAdopted(state.summaries, target.paperId, target.language, id),
         }));
+        notifyDbChange(db, { table: "paperSummaries", paperIds: [target.paperId] });
       },
 
       discardSummary: async (id) => {
@@ -304,6 +315,7 @@ export const useSummaryStore = create<SummaryStore>()(
                 : withAdopted(summaries, target.paperId, target.language, fallbackId),
           };
         });
+        notifyDbChange(db, { table: "paperSummaries", paperIds: [target.paperId] });
       },
 
       getSummariesByPaperId: (paperId) => {
@@ -321,6 +333,7 @@ export const useSummaryStore = create<SummaryStore>()(
         set((state) => ({
           summaries: state.summaries.filter((s) => s.paperId !== paperId),
         }));
+        notifyDbChange(db, { table: "paperSummaries", paperIds: [paperId] });
       },
 
       clearAllSummaries: async () => {
@@ -332,6 +345,7 @@ export const useSummaryStore = create<SummaryStore>()(
 
         // Storeを更新
         set({ summaries: [] });
+        notifyDbChange(db, { table: "paperSummaries", paperIds: null });
       },
 
       hasSummary: (paperId, language) => {
@@ -350,15 +364,57 @@ export const useSummaryStore = create<SummaryStore>()(
  */
 export const initializeSummaryStore = async (db: LuminaDB): Promise<void> => {
   useSummaryStore.setState({ isLoading: true, _db: db });
-
-  // IndexedDBから全要約を主キーつきでロード（主キー順 = 保存順）
-  const summaries: SummaryVersion[] = [];
-  await db.paperSummaries.each((summary, cursor) => {
-    summaries.push({ ...summary, id: cursor.primaryKey as unknown as number });
+  unsubscribeRemoteChanges?.();
+  unsubscribeRemoteChanges = subscribeDbChanges(db, "paperSummaries", ({ paperIds }) => {
+    reloadSummaries(db, paperIds).catch((error: unknown) => {
+      console.warn("Failed to reload summaries changed in another tab", error);
+    });
   });
 
   useSummaryStore.setState({
-    summaries,
+    summaries: await readSummaries(db, null),
     isLoading: false,
   });
 };
+
+/** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
+let unsubscribeRemoteChanges: (() => void) | null = null;
+
+/**
+ * IndexedDB から要約を主キーつきで読む（paperIds が null なら全件）
+ * 主キー順 = 保存順。論文IDの索引で読む場合も、同じ論文の版は主キー順に並ぶ
+ */
+const readSummaries = async (
+  db: LuminaDB,
+  paperIds: string[] | null
+): Promise<SummaryVersion[]> => {
+  const summaries: SummaryVersion[] = [];
+  const collection =
+    paperIds === null
+      ? db.paperSummaries.toCollection()
+      : db.paperSummaries.where("paperId").anyOf(paperIds);
+  await collection.each((summary, cursor) => {
+    summaries.push({ ...summary, id: cursor.primaryKey as unknown as number });
+  });
+  return summaries;
+};
+
+/**
+ * 別タブで変更された論文の要約を IndexedDB から読み直し、Store のその論文の版を置き換える
+ * （別タブで生成した要約を未生成と誤認して重複生成しないため。Issue #109）
+ */
+const reloadSummaries = (db: LuminaDB, paperIds: string[] | null): Promise<void> =>
+  reloadUnlessChanged(
+    () => useSummaryStore.getState().summaries,
+    () => readSummaries(db, paperIds),
+    (fresh) => {
+      if (paperIds === null) {
+        useSummaryStore.setState({ summaries: fresh });
+        return;
+      }
+      const changed = new Set(paperIds);
+      useSummaryStore.setState((state) => ({
+        summaries: [...state.summaries.filter((s) => !changed.has(s.paperId)), ...fresh],
+      }));
+    }
+  );

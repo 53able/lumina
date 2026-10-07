@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchHistory } from "../../shared/schemas/index";
 import { now, parseISO } from "../../shared/utils/dateTime";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { DB_CHANGE_CHANNEL_NAME, type DbChangeMessage } from "../lib/dbChangeChannel";
 
 /**
  * searchHistoryStore テスト
@@ -538,6 +539,80 @@ describe("searchHistoryStore", () => {
 
       // Assert
       expect(count).toBe(2);
+    });
+  });
+});
+
+/**
+ * 別タブの変更の反映（Issue #109）
+ * 別タブは同じ IndexedDB に直接書き込み、別の BroadcastChannel から変更を通知するものとして模す
+ */
+describe("searchHistoryStore: 別タブの変更", () => {
+  let testDbCounter = 0;
+  let otherTab: BroadcastChannel;
+
+  beforeEach(() => {
+    testDbCounter += 1;
+    mockDb = createLuminaDb(`searchHistoryStore-crossTab-test-${testDbCounter}`);
+    otherTab = new BroadcastChannel(DB_CHANGE_CHANNEL_NAME);
+  });
+
+  afterEach(async () => {
+    otherTab.close();
+    await mockDb.delete();
+  });
+
+  it("別タブで追加した検索履歴が反映され、このタブの削除の退避（Undo）は残る", async () => {
+    const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+      "./searchHistoryStore"
+    );
+    await initializeSearchHistoryStore(mockDb);
+    const deleted = createSampleHistory({
+      originalQuery: "削除した",
+      createdAt: parseISO("2024-01-01T00:00:00Z"),
+    });
+    await useSearchHistoryStore.getState().addHistory(deleted);
+    await useSearchHistoryStore.getState().deleteHistory(deleted.id);
+
+    const remote = createSampleHistory({
+      originalQuery: "別タブ",
+      createdAt: parseISO("2024-01-02T00:00:00Z"),
+    });
+    await mockDb.searchHistories.add(remote);
+    otherTab.postMessage({
+      dbName: mockDb.name,
+      table: "searchHistories",
+    } satisfies DbChangeMessage);
+
+    await vi.waitFor(() => {
+      expect(useSearchHistoryStore.getState().histories.map((h) => h.id)).toEqual([remote.id]);
+    });
+    expect(useSearchHistoryStore.getState().deletedHistories.map((h) => h.id)).toEqual([
+      deleted.id,
+    ]);
+
+    // 退避した履歴はそのまま戻せる（#80）
+    await useSearchHistoryStore.getState().restoreHistory(deleted.id);
+    expect(useSearchHistoryStore.getState().histories.map((h) => h.id)).toEqual([
+      remote.id,
+      deleted.id,
+    ]);
+  });
+
+  it("このタブで検索履歴を追加すると、別タブへ通知する", async () => {
+    const { useSearchHistoryStore, initializeSearchHistoryStore } = await import(
+      "./searchHistoryStore"
+    );
+    await initializeSearchHistoryStore(mockDb);
+    const received: DbChangeMessage[] = [];
+    otherTab.addEventListener("message", (event: MessageEvent<DbChangeMessage>) => {
+      received.push(event.data);
+    });
+
+    await useSearchHistoryStore.getState().addHistory(createSampleHistory());
+
+    await vi.waitFor(() => {
+      expect(received).toContainEqual({ dbName: mockDb.name, table: "searchHistories" });
     });
   });
 });

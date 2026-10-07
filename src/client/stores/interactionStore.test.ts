@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserInteraction } from "../../shared/schemas/index";
 import { now } from "../../shared/utils/dateTime";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { DB_CHANGE_CHANNEL_NAME, type DbChangeMessage } from "../lib/dbChangeChannel";
 
 /**
  * interactionStore テスト
@@ -285,6 +286,69 @@ describe("interactionStore", () => {
       // Assert - IndexedDB
       const dbInteractions = await mockDb.userInteractions.toArray();
       expect(dbInteractions).toHaveLength(0);
+    });
+  });
+});
+
+/**
+ * 別タブの変更の反映（Issue #109）
+ * 別タブは同じ IndexedDB に直接書き込み、別の BroadcastChannel から変更を通知するものとして模す
+ */
+describe("interactionStore: 別タブの変更", () => {
+  let testDbCounter = 0;
+  let otherTab: BroadcastChannel;
+
+  beforeEach(() => {
+    testDbCounter += 1;
+    mockDb = createLuminaDb(`interactionStore-crossTab-test-${testDbCounter}`);
+    otherTab = new BroadcastChannel(DB_CHANGE_CHANNEL_NAME);
+  });
+
+  afterEach(async () => {
+    otherTab.close();
+    await mockDb.delete();
+  });
+
+  it("別タブでのいいね・取り消しに追従し、通知に含まれない論文の状態は変えない", async () => {
+    const { useInteractionStore, initializeInteractionStore } = await import("./interactionStore");
+    await initializeInteractionStore(mockDb);
+    await useInteractionStore.getState().toggleLike("2401.00001");
+    await useInteractionStore.getState().toggleBookmark("2401.00002");
+
+    // 別タブ: 2401.00001 のいいねを取り消し、ブックマークする
+    await mockDb.userInteractions.where("paperId").equals("2401.00001").delete();
+    await mockDb.userInteractions.add(
+      createSampleInteraction({ paperId: "2401.00001", type: "bookmark" })
+    );
+    otherTab.postMessage({
+      dbName: mockDb.name,
+      table: "userInteractions",
+      paperIds: ["2401.00001"],
+    } satisfies DbChangeMessage);
+
+    await vi.waitFor(() => {
+      const state = useInteractionStore.getState();
+      expect(state.getLikedPaperIds().has("2401.00001")).toBe(false);
+      expect(state.getBookmarkedPaperIds()).toEqual(new Set(["2401.00001", "2401.00002"]));
+    });
+  });
+
+  it("このタブでいいねすると、別タブへ論文IDつきで通知する", async () => {
+    const { useInteractionStore, initializeInteractionStore } = await import("./interactionStore");
+    await initializeInteractionStore(mockDb);
+    const received: DbChangeMessage[] = [];
+    otherTab.addEventListener("message", (event: MessageEvent<DbChangeMessage>) => {
+      received.push(event.data);
+    });
+
+    await useInteractionStore.getState().toggleLike("2401.00001");
+
+    await vi.waitFor(() => {
+      expect(received).toContainEqual({
+        dbName: mockDb.name,
+        table: "userInteractions",
+        paperIds: ["2401.00001"],
+      });
     });
   });
 });
