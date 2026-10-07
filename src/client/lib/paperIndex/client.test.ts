@@ -180,6 +180,58 @@ describe("createWorkerPaperIndexClient", () => {
     expect((await second).matches[0]?.id).toBe("b");
   });
 
+  it("signal で中止すると AbortError で reject し、Worker へ中止を送り、後から届いた結果は無視する（#111）", async () => {
+    const client = createWorkerPaperIndexClient("LuminaDB");
+    const worker = FakeWorker.instances[0] as FakeWorker;
+    const controller = new AbortController();
+
+    const aborted = client.search([1], 0.3, 10, controller.signal);
+    const [request] = worker.sent as Extract<PaperIndexRequest, { type: "search" }>[];
+    controller.abort();
+
+    await expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+    expect(worker.sent).toEqual([request, { type: "cancelSearch", requestId: request?.requestId }]);
+
+    const next = client.search([2], 0.3, 10);
+    const nextRequest = worker.sent[2] as Extract<PaperIndexRequest, { type: "search" }>;
+    expect(nextRequest.requestId).not.toBe(request?.requestId);
+    worker.respond({
+      type: "searchResult",
+      requestId: request?.requestId ?? -1,
+      matches: [{ id: "old", score: 0.9 }],
+      totalMatchCount: 1,
+    });
+    worker.respond({
+      type: "searchResult",
+      requestId: nextRequest.requestId,
+      matches: [{ id: "new", score: 0.8 }],
+      totalMatchCount: 1,
+    });
+    expect((await next).matches.map((m) => m.id)).toEqual(["new"]);
+  });
+
+  it("結果が届いた後の中止・中止済みの signal では Worker へ中止・検索を送らない（#111）", async () => {
+    const client = createWorkerPaperIndexClient("LuminaDB");
+    const worker = FakeWorker.instances[0] as FakeWorker;
+    const controller = new AbortController();
+
+    const done = client.search([1], 0.3, 10, controller.signal);
+    const [request] = worker.sent as Extract<PaperIndexRequest, { type: "search" }>[];
+    worker.respond({
+      type: "searchResult",
+      requestId: request?.requestId ?? -1,
+      matches: [{ id: "a", score: 0.9 }],
+      totalMatchCount: 1,
+    });
+    expect((await done).matches.map((m) => m.id)).toEqual(["a"]);
+    controller.abort();
+
+    await expect(client.search([2], 0.3, 10, controller.signal)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(worker.sent).toEqual([request]);
+  });
+
   it("読み込みの失敗を PaperLoadError として通知する", () => {
     const client = createWorkerPaperIndexClient("LuminaDB");
     const { handlers } = createHandlers();

@@ -21,6 +21,9 @@ export class PaperLoadError extends Error {
   }
 }
 
+/** 中止した検索の reject に使うエラー */
+const createAbortError = (): DOMException => new DOMException("検索を中止しました", "AbortError");
+
 /** 読み込みの進捗と結果を受け取るハンドラー */
 export interface PaperIndexLoadHandlers {
   /** 総件数が分かったとき */
@@ -39,11 +42,15 @@ export interface PaperIndexClient {
   load: (handlers: PaperIndexLoadHandlers) => void;
   /** 保存した論文の Embedding を索引へ反映する（新規・更新分だけを送る） */
   upsert: (papers: Paper[]) => void;
-  /** 索引を検索する */
+  /**
+   * 索引を検索する。
+   * signal で中止すると AbortError で reject し、索引へ中止を送って類似度の計算を打ち切る。
+   */
   search: (
     queryEmbedding: number[],
     scoreThreshold: number,
-    limit: number
+    limit: number,
+    signal?: AbortSignal
   ) => Promise<PaperSearchMatches>;
   /** 索引を破棄する（実行中の検索は reject する） */
   dispose: () => void;
@@ -142,13 +149,29 @@ const createPaperIndexClient = (
         papers: papers.map((paper) => ({ id: paper.id, embedding: paper.embedding })),
       });
     },
-    search: (queryEmbedding, scoreThreshold, limit) => {
+    search: (queryEmbedding, scoreThreshold, limit, signal) => {
       if (disposed) return Promise.reject(new PaperLoadError("検索用データは破棄されました"));
       if (failure) return Promise.reject(failure);
+      if (signal?.aborted) return Promise.reject(createAbortError());
       nextRequestId += 1;
       const requestId = nextRequestId;
       return new Promise<PaperSearchMatches>((resolve, reject) => {
-        pendingSearches.set(requestId, { resolve, reject });
+        const onAbort = () => {
+          if (!pendingSearches.delete(requestId)) return;
+          channel.send({ type: "cancelSearch", requestId });
+          reject(createAbortError());
+        };
+        pendingSearches.set(requestId, {
+          resolve: (matches) => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve(matches);
+          },
+          reject: (error) => {
+            signal?.removeEventListener("abort", onAbort);
+            reject(error);
+          },
+        });
+        signal?.addEventListener("abort", onAbort, { once: true });
         channel.send({ type: "search", requestId, queryEmbedding, scoreThreshold, limit });
       });
     },
@@ -261,8 +284,8 @@ export const createDefaultPaperIndexClient = (db: LuminaDB): PaperIndexClient =>
       current().load(handlers);
     },
     upsert: (papers) => current().upsert(papers),
-    search: (queryEmbedding, scoreThreshold, limit) =>
-      current().search(queryEmbedding, scoreThreshold, limit),
+    search: (queryEmbedding, scoreThreshold, limit, signal) =>
+      current().search(queryEmbedding, scoreThreshold, limit, signal),
     dispose: () => {
       disposed = true;
       current().dispose();

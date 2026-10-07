@@ -1222,4 +1222,92 @@ describe("useSemanticSearch", () => {
       expect(result.current.results.map((r) => r.paper.id)).toEqual(previousIds);
     });
   });
+
+  describe("索引での計算の中止（#111）", () => {
+    type Matches = Awaited<ReturnType<PaperSearchSource["search"]>>;
+
+    /** 結果をテストから返し、signal で中止されたら AbortError で reject する検索の実行元 */
+    const createAbortableSource = () => {
+      const calls: { signal?: AbortSignal; resolve: (matches: Matches) => void }[] = [];
+      const source: PaperSearchSource = {
+        isReady: () => true,
+        whenReady: async () => {},
+        search: (_queryEmbedding, _scoreThreshold, _limit, signal) =>
+          new Promise<Matches>((resolve, reject) => {
+            calls.push({ signal, resolve });
+            signal?.addEventListener("abort", () =>
+              reject(new DOMException("検索を中止しました", "AbortError"))
+            );
+          }),
+      };
+      return { source, calls };
+    };
+
+    it("cancel で実行中の索引での計算を中止し、中止による失敗をエラーにしない", async () => {
+      const { source, calls } = createAbortableSource();
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: source })
+      );
+
+      let pending!: Promise<unknown>;
+      act(() => {
+        pending = result.current.searchWithSavedData(
+          mockSearchResponse.expandedQuery,
+          createMockEmbedding(1)
+        );
+      });
+      await waitFor(() => expect(calls).toHaveLength(1));
+      act(() => {
+        result.current.cancel();
+      });
+      await act(async () => {
+        await pending;
+      });
+
+      expect(calls[0]?.signal?.aborted).toBe(true);
+      expect(result.current.searchPhase).toBe("idle");
+      expect(result.current.error).toBeNull();
+      expect(result.current.results).toEqual([]);
+    });
+
+    it("新しい検索を始めると前の計算を中止し、新しい検索の結果だけを確定する", async () => {
+      const { source, calls } = createAbortableSource();
+      const { result } = renderHook(() =>
+        useSemanticSearch({ papers: mockPapers, searchSource: source })
+      );
+
+      act(() => {
+        void result.current.searchWithSavedData(
+          mockSearchResponse.expandedQuery,
+          createMockEmbedding(1),
+          "first"
+        );
+      });
+      await waitFor(() => expect(calls).toHaveLength(1));
+      let second!: Promise<unknown>;
+      act(() => {
+        second = result.current.searchWithSavedData(
+          { ...mockSearchResponse.expandedQuery, original: "second" },
+          createMockEmbedding(100),
+          "second"
+        );
+      });
+      await waitFor(() => expect(calls).toHaveLength(2));
+
+      expect(calls[0]?.signal?.aborted).toBe(true);
+      expect(calls[1]?.signal?.aborted).toBe(false);
+      await act(async () => {
+        calls[1]?.resolve({
+          matches: [{ id: "2401.00003", score: 0.9 }],
+          totalMatchCount: 1,
+        });
+        await second;
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.searchPhase).toBe("done");
+      expect(result.current.resultQuery).toBe("second");
+      expect(result.current.results.map((r) => r.paper.id)).toEqual(["2401.00003"]);
+    });
+  });
 });
