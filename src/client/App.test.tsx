@@ -89,14 +89,13 @@ const mockSearchHistories = [
     createdAt: new Date("2026-01-17T10:00:00Z"),
   },
 ];
-let mockRecentHistories = mockSearchHistories;
+let mockHistories = mockSearchHistories;
 const mockDeleteHistory = vi.fn();
 
 vi.mock("@/client/stores/searchHistoryStore", () => ({
   useSearchHistoryStore: vi.fn((selector) => {
     const state = {
-      histories: mockSearchHistories,
-      getRecentHistories: () => mockRecentHistories,
+      histories: mockHistories,
       deleteHistory: mockDeleteHistory,
     };
     return selector ? selector(state) : state;
@@ -159,7 +158,7 @@ describe("App", () => {
     vi.clearAllMocks();
     mockLikedPaperIds = new Set<string>();
     mockBookmarkedPaperIds = new Set<string>();
-    mockRecentHistories = mockSearchHistories;
+    mockHistories = mockSearchHistories;
   });
 
   describe("レンダリング", () => {
@@ -271,7 +270,7 @@ describe("App", () => {
 
   describe("検索履歴機能", () => {
     beforeEach(() => {
-      mockRecentHistories = mockSearchHistories;
+      mockHistories = mockSearchHistories;
     });
 
     // テスト環境の matchMedia はモバイル幅（lg未満）。履歴は検索欄の手前の折りたたみに出る
@@ -301,9 +300,27 @@ describe("App", () => {
       expect(mockDeleteHistory).toHaveBeenCalledWith("history-1");
     });
 
+    it("正常系: 10件より古い履歴も渡し、開閉ボタンに全件数を出して「さらに表示」で表示できる（#112）", async () => {
+      const user = userEvent.setup();
+      mockHistories = Array.from({ length: 11 }, (_, i) => ({
+        ...mockSearchHistories[0],
+        id: `history-${i + 1}`,
+        originalQuery: `検索${i + 1}`,
+        createdAt: new Date(Date.UTC(2026, 0, 20 - i)),
+      }));
+
+      renderWithProviders(<App />);
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      expect(toggle).toHaveAccessibleName("検索履歴、全11件");
+      await user.click(toggle);
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り1件）" }));
+
+      expect(screen.getByRole("button", { name: /^検索11/ })).toBeVisible();
+    });
+
     it("正常系: 検索履歴がない場合は空状態メッセージを表示する", async () => {
       const user = userEvent.setup();
-      mockRecentHistories = [];
+      mockHistories = [];
 
       renderWithProviders(<App />);
       await user.click(screen.getByRole("button", { name: /^検索履歴/ }));

@@ -159,6 +159,54 @@ describe("SearchHistory", () => {
     });
   });
 
+  describe("表示件数（#112）", () => {
+    const createHistories = (count: number) =>
+      Array.from({ length: count }, (_, i) =>
+        createSampleHistory({
+          originalQuery: `検索${i + 1}`,
+          createdAt: new Date(Date.UTC(2026, 0, 30 - i)),
+        })
+      );
+
+    it("正常系: 10件以下なら「さらに表示」を出さない", () => {
+      render(<SearchHistory histories={createHistories(10)} />);
+
+      expect(screen.getAllByRole("listitem")).toHaveLength(10);
+      expect(screen.queryByRole("button", { name: /^さらに表示/ })).not.toBeInTheDocument();
+    });
+
+    it("正常系: 直近10件を表示し、「さらに表示」で次の10件を表示して先頭の行へフォーカスを移す", async () => {
+      const user = userEvent.setup();
+      render(<SearchHistory histories={createHistories(25)} />);
+
+      expect(screen.getAllByRole("listitem")).toHaveLength(10);
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り15件）" }));
+
+      expect(screen.getAllByRole("listitem")).toHaveLength(20);
+      expect(screen.getByRole("button", { name: /^検索11/ })).toHaveFocus();
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り5件）" }));
+
+      expect(screen.getAllByRole("listitem")).toHaveLength(25);
+      expect(screen.getByRole("button", { name: /^検索21/ })).toHaveFocus();
+      expect(screen.queryByRole("button", { name: /^さらに表示/ })).not.toBeInTheDocument();
+    });
+
+    it("正常系: 11件目以降の履歴から再検索・削除できる", async () => {
+      const user = userEvent.setup();
+      const histories = createHistories(12);
+      const onReSearch = vi.fn();
+      const undo = createUndo();
+      render(<SearchHistory histories={histories} onReSearch={onReSearch} undo={undo} />);
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り2件）" }));
+
+      await user.click(screen.getByRole("button", { name: /^検索12/ }));
+      await user.click(screen.getByRole("button", { name: "「検索11」を削除" }));
+
+      expect(onReSearch).toHaveBeenCalledWith(histories[11]);
+      expect(undo.deleteHistory).toHaveBeenCalledWith(histories[10].id);
+    });
+  });
+
   describe("削除機能", () => {
     it("正常系: 削除と取り消しを渡さない場合は削除ボタンを出さない", () => {
       render(<SearchHistory histories={[createSampleHistory()]} />);
@@ -227,14 +275,14 @@ describe("SearchHistory", () => {
     let dbCounter = 0;
 
     /** HomeMain と同じく、ストアの履歴と deleteHistory を渡す */
-    /** App と同じく、useSearchHistoryUndo の削除と結果を渡す（limit は App の最近N件に相当） */
-    const ConnectedHistory: FC<{ limit?: number }> = ({ limit = 10 }) => {
-      const histories = useSearchHistoryStore((s) => s.histories).slice(0, limit);
+    /** App と同じく、すべての履歴と useSearchHistoryUndo の削除と結果を渡す（pageSize は最初に表示する件数） */
+    const ConnectedHistory: FC<{ pageSize?: number }> = ({ pageSize }) => {
+      const histories = useSearchHistoryStore((s) => s.histories);
       const undo = useSearchHistoryUndo();
       return (
         <>
           <input aria-label="検索" />
-          <SearchHistory histories={histories} undo={undo} compact />
+          <SearchHistory histories={histories} undo={undo} pageSize={pageSize} compact />
         </>
       );
     };
@@ -451,10 +499,10 @@ describe("SearchHistory", () => {
       ).toHaveLength(1);
     });
 
-    it("表示件数より古い位置に戻った履歴は、その旨を通知し一覧の先頭へフォーカスを移す", async () => {
+    it("表示件数より古い位置に戻った履歴は、その旨を通知し一覧の先頭へフォーカスを移す。「さらに表示」で表示できる", async () => {
       const user = userEvent.setup();
       await seed(["A検索", "B検索"]);
-      render(<ConnectedHistory limit={2} />);
+      render(<ConnectedHistory pageSize={2} />);
       await user.click(screen.getByRole("button", { name: "「A検索」を削除" }));
       const undo = await screen.findByRole("button", { name: "「A検索」を元に戻す" });
       await act(async () => {
@@ -469,10 +517,33 @@ describe("SearchHistory", () => {
 
       await waitFor(() =>
         expect(screen.getByRole("status")).toHaveTextContent(
-          "「A検索」を元に戻しました。古い履歴のため、この一覧には表示されません。"
+          "「A検索」を元に戻しました。古い履歴のため、「さらに表示」で表示できます。"
         )
       );
       expect(screen.getByRole("button", { name: /^E検索/ })).toHaveFocus();
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り2件）" }));
+      expect(screen.getByRole("button", { name: /^A検索/ })).toBeInTheDocument();
+    });
+
+    it("11件目以降は「さらに表示」で表示し、削除と元に戻すができる（#112）", async () => {
+      const user = userEvent.setup();
+      await seed(Array.from({ length: 12 }, (_, i) => `検索${i + 1}`));
+      render(<ConnectedHistory />);
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り2件）" }));
+
+      await user.click(screen.getByRole("button", { name: "「検索11」を削除" }));
+
+      const undo = await screen.findByRole("button", { name: "「検索11」を元に戻す" });
+      await waitFor(() => expect(screen.getByRole("button", { name: /^検索12/ })).toHaveFocus());
+      expect(await db.searchHistories.count()).toBe(11);
+
+      await user.click(undo);
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「検索11」を元に戻しました。")
+      );
+      expect(screen.getByRole("button", { name: /^検索11/ })).toHaveFocus();
+      expect(await db.searchHistories.count()).toBe(12);
     });
 
     it("連続で削除しても、それぞれの削除を通知する", async () => {

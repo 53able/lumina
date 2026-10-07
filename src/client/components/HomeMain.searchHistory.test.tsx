@@ -59,7 +59,7 @@ const ConnectedHomeMain: FC<{ onReSearch: (history: SearchHistoryType) => void }
   onReSearch,
 }) => {
   const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const histories = useSearchHistoryStore((s) => s.histories).slice(0, 10);
+  const histories = useSearchHistoryStore((s) => s.histories);
   const undo = useSearchHistoryUndo();
   return (
     <HomeMain
@@ -88,7 +88,7 @@ const ConnectedHomeMain: FC<{ onReSearch: (history: SearchHistoryType) => void }
       summaryLanguage="ja"
       onSummaryLanguageChange={noop}
       autoGenerateSummary={false}
-      recentHistories={histories}
+      searchHistories={histories}
       onReSearch={onReSearch}
       historyUndo={undo}
       onRunEmbeddingBackfill={noop}
@@ -235,13 +235,47 @@ describe("HomeMain の検索履歴", () => {
       expect(screen.getAllByRole("button", { name: /^A検索/, hidden: true })).toHaveLength(1);
     });
 
-    it("開閉ボタンに表示中の履歴の件数を「直近N件」として出す（0件でも分かる）", async () => {
+    it("開閉ボタンに保存しているすべての履歴の件数を「全N件」として出す（0件でも分かる）", async () => {
       await seed([]);
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
 
       expect(screen.getByRole("button", { name: /^検索履歴/ })).toHaveAccessibleName(
-        "検索履歴、直近0件"
+        "検索履歴、全0件"
       );
+    });
+
+    it("11件以上あれば開閉ボタンに全件数を出し、パネルの「さらに表示」で11件目以降から再検索できる（#112）", async () => {
+      const user = userEvent.setup();
+      await seed(Array.from({ length: 11 }, (_, i) => `検索${i + 1}`));
+      const onReSearch = vi.fn();
+      render(<ConnectedHomeMain onReSearch={onReSearch} />);
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      expect(toggle).toHaveAccessibleName("検索履歴、全11件");
+      await user.click(toggle);
+
+      expect(screen.queryByRole("button", { name: /^検索11/ })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り1件）" }));
+      expect(screen.getByRole("button", { name: /^検索11/ })).toHaveFocus();
+
+      await user.click(screen.getByRole("button", { name: /^検索11/ }));
+      expect(onReSearch).toHaveBeenCalledWith(expect.objectContaining({ originalQuery: "検索11" }));
+    });
+
+    it("「さらに表示」で出した11件目を削除・元に戻すと、開閉ボタンの件数も追従する（#112）", async () => {
+      const user = userEvent.setup();
+      await seed(Array.from({ length: 11 }, (_, i) => `検索${i + 1}`));
+      render(<ConnectedHomeMain onReSearch={vi.fn()} />);
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      await user.click(toggle);
+      await user.click(screen.getByRole("button", { name: "さらに表示（残り1件）" }));
+
+      await user.click(screen.getByRole("button", { name: "「検索11」を削除" }));
+      const undo = await screen.findByRole("button", { name: "「検索11」を元に戻す" });
+      expect(toggle).toHaveAccessibleName("検索履歴、全10件、元に戻せる1件");
+      await user.click(undo);
+
+      expect(await screen.findByRole("button", { name: /^検索11/ })).toBeVisible();
+      expect(toggle).toHaveAccessibleName("検索履歴、全11件");
     });
 
     it("通知の live region はパネルの外にあり、折りたたみ中も読み上げ対象になる", async () => {
@@ -280,7 +314,7 @@ describe("HomeMain の検索履歴", () => {
       await waitFor(() =>
         expect(screen.getByRole("status")).toHaveTextContent("「A検索」を削除しました")
       );
-      expect(toggle).toHaveAccessibleName("検索履歴、直近1件、元に戻せる1件");
+      expect(toggle).toHaveAccessibleName("検索履歴、全1件、元に戻せる1件");
       // 折りたたみ中はフォーカスを奪わない
       expect(toggle).toHaveFocus();
     });
@@ -308,7 +342,7 @@ describe("HomeMain の検索履歴", () => {
           "「A検索」を削除できませんでした。検索履歴を開いて再試行できます。"
         )
       );
-      expect(toggle).toHaveAccessibleName("検索履歴、直近1件、失敗1件");
+      expect(toggle).toHaveAccessibleName("検索履歴、全1件、失敗1件");
 
       // 開くと行内のエラーと再試行がある
       await user.click(toggle);
@@ -342,7 +376,7 @@ describe("HomeMain の検索履歴", () => {
           "「A検索」を元に戻せませんでした。検索履歴を開いて再試行できます。"
         )
       );
-      expect(toggle).toHaveAccessibleName("検索履歴、直近0件、元に戻せる1件、失敗1件");
+      expect(toggle).toHaveAccessibleName("検索履歴、全0件、元に戻せる1件、失敗1件");
     });
 
     it("開いている間の失敗は行内の alert だけで伝え、live region では重ねて通知しない", async () => {
