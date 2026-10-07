@@ -6,24 +6,25 @@ import { OpenAIApiKeyNotConfiguredError } from "../services/openai";
 export type UpstreamErrorCode = "rate_limit" | "quota" | "auth" | "invalid_output" | "upstream";
 
 /**
- * 上流のエラー本文が insufficient_quota（残高・クレジット不足）か判定する
+ * 上流のエラー本文が insufficient_quota（残高・クレジット不足。error.code または error.type）か判定する
  * AI SDK（@ai-sdk/openai）は本文を JSON として解析し APICallError.data（{ error: { code } }）へ入れる。
  * 解析できなかった場合に備え、responseBody（文字列）も解析して確認する
  */
 const isInsufficientQuota = (source: unknown): boolean => {
   if (!source || typeof source !== "object") return false;
   const { data, responseBody } = source as { data?: unknown; responseBody?: unknown };
-  const codeOf = (body: unknown): unknown => {
-    if (!body || typeof body !== "object" || !("error" in body)) return undefined;
+  // 互換プロバイダは code が null で type だけ insufficient_quota になる場合がある
+  const isQuotaBody = (body: unknown): boolean => {
+    if (!body || typeof body !== "object" || !("error" in body)) return false;
     const inner = (body as { error: unknown }).error;
-    return inner && typeof inner === "object" && "code" in inner
-      ? (inner as { code: unknown }).code
-      : undefined;
+    if (!inner || typeof inner !== "object") return false;
+    const { code, type } = inner as { code?: unknown; type?: unknown };
+    return code === "insufficient_quota" || type === "insufficient_quota";
   };
-  if (codeOf(data) === "insufficient_quota") return true;
+  if (isQuotaBody(data)) return true;
   if (typeof responseBody !== "string") return false;
   try {
-    return codeOf(JSON.parse(responseBody)) === "insufficient_quota";
+    return isQuotaBody(JSON.parse(responseBody));
   } catch {
     return false;
   }

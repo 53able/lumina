@@ -1,4 +1,5 @@
-import { APICallError, RetryError } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { APICallError, embed, RetryError } from "ai";
 import { describe, expect, it } from "vitest";
 import { toStageError } from "./upstreamError";
 
@@ -63,5 +64,34 @@ describe("toStageError", () => {
       code: "upstream",
       retryable: true,
     });
+  });
+
+  it("code が null で type が insufficient_quota の本文（互換プロバイダ）も quota に分類する", () => {
+    const body = { error: { message: "quota", type: "insufficient_quota", code: null } };
+    expect(toStageError(apiCallError(429, body))).toEqual({ code: "quota", retryable: false });
+  });
+
+  it("type が別の値で code もない 429 は rate_limit のまま", () => {
+    const body = { error: { message: "slow down", type: "requests", code: null } };
+    expect(toStageError(apiCallError(429, body))).toEqual({ code: "rate_limit", retryable: true });
+  });
+
+  // SDK 更新で APICallError の data / responseBody の形が変わった場合に検出する
+  it("実際の SDK（createOpenAI + embed）が投げる 429 + insufficient_quota を quota に分類する", async () => {
+    const fetch = async () =>
+      new Response(JSON.stringify(quotaBody), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    const provider = createOpenAI({ apiKey: "test", fetch: fetch as typeof globalThis.fetch });
+
+    const error = await embed({
+      model: provider.embedding("text-embedding-3-small"),
+      value: "text",
+      maxRetries: 0,
+    }).catch((e: unknown) => e);
+
+    expect(APICallError.isInstance(error)).toBe(true);
+    expect(toStageError(error)).toEqual({ code: "quota", retryable: false });
   });
 });

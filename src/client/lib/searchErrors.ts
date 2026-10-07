@@ -18,7 +18,7 @@ export class SearchComputeError extends Error {
  * - paper_load: 保存済み論文の読み込みに失敗（読み込み直してから手動で再試行する）
  * - compute: 索引での計算に失敗（手動で再試行する。続くなら画面を再読み込みする）
  * - rate_limit: 利用上限（時間をおいて手動で再試行する）
- * - quota: OpenAI の残高・クレジット不足（402。残高・請求設定を確認する。待っても解決しない）
+ * - quota: OpenAI の残高・クレジット不足（402 かつ code: "quota"。残高・請求設定を確認する。待っても解決しない）
  * - server: サーバーエラー（5xx。サーバーは上流の認証失敗を 401、上限を 429 で返すため、それ以外の失敗として再試行を案内する）
  * - other: 通信失敗など（手動で再試行する）
  */
@@ -43,7 +43,7 @@ export const SEARCH_FAILURE_MESSAGES: Record<Exclude<SearchFailureKind, "api_dis
     "検索結果の計算に失敗しました。再試行してください。続く場合は画面を再読み込みしてください。",
   rate_limit: "検索の利用上限に達しました。時間をおいて再試行してください。",
   quota:
-    "OpenAIの利用残高または請求設定を確認してください。残高が不足している間は、再試行しても解決しません。",
+    "OpenAIのBilling（請求）ページで利用残高を確認してください。残高が不足している間は、再試行しても解決しません。",
   server: "検索に失敗しました。時間をおいて再試行してください。",
   other: "検索に失敗しました。通信状況を確認して再試行してください。",
 };
@@ -115,7 +115,7 @@ export const describeSearchFailure = (error: Error): SearchFailure => {
     if (error.status === 401 || error.status === 403) {
       return failure("auth", { canRetry: false, suggestSettings: true });
     }
-    if (error.status === 402) {
+    if (error.status === 402 && error.code === "quota") {
       // 上流の残高不足。待っても直らないため再試行は案内せず、設定を開けるようにする
       return failure("quota", { canRetry: false, suggestSettings: true });
     }

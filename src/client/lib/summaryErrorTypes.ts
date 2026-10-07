@@ -34,7 +34,7 @@ const STAGE_ERROR_CODES: readonly SummaryStageErrorCode[] = [
 const STAGE_ERROR_GUIDANCE: Record<SummaryStageErrorCode, string> = {
   rate_limit: "AIの利用上限に達しました。時間をおいて再試行してください。",
   quota:
-    "OpenAIの利用残高または請求設定を確認してください。残高が不足している間は、再試行しても解決しません。",
+    "OpenAIのBilling（請求）ページで利用残高を確認してください。残高が不足している間は、再試行しても解決しません。",
   auth: "APIキーの設定を確認してください。",
   invalid_output: "AIの出力を読み取れませんでした。再試行してください。",
   upstream: "AIサービスでエラーが発生しました。再試行してください。",

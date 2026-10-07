@@ -88,12 +88,12 @@ export const classifyEmbeddingBackfillError = (error: unknown): EmbeddingBackfil
     };
   }
 
-  if (status === 402) {
+  if (status === 402 && error instanceof EmbeddingApiError && error.code === "quota") {
     return {
       kind: "quota",
       reason: "OpenAIの利用残高が不足しているため取得を中断しました",
       guidance:
-        "OpenAIの利用残高・請求設定を確認してください。残高が不足している間は再試行しても解決しません。",
+        "OpenAIのBilling（請求）ページで利用残高を確認してください。残高が不足している間は再試行しても解決しません。",
     };
   }
 

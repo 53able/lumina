@@ -72,7 +72,7 @@ describe("showSummaryErrorToast", () => {
     showSummaryErrorToast(new SummaryApiError("quota", false), "論文", undefined, onOpenSettings);
 
     expect(toastError).toHaveBeenCalledWith("要約生成エラー", {
-      description: expect.stringContaining("利用残高"),
+      description: expect.stringContaining("Billing"),
       action: { label: "設定を開く", onClick: onOpenSettings },
     });
   });
