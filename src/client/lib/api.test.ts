@@ -67,6 +67,18 @@ describe("embeddingApi", () => {
     await expectReject;
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    ["サーバーの分類あり", JSON.stringify({ code: "quota" }), "quota"],
+    ["ゲートウェイのプレーンテキスト", "DEPLOYMENT_DISABLED", undefined],
+  ])("402 は本文の code を読む（%s）", async (_label, text, code) => {
+    mockFetch.mockResolvedValueOnce(new Response(text, { status: 402 }));
+
+    const p = embeddingApi({ text: "test" }, { apiKey: "key" });
+    const expectReject = expect(p).rejects.toMatchObject({ status: 402, code });
+    await vi.runAllTimersAsync();
+    await expectReject;
+  });
 });
 
 describe("embeddingBatchApi", () => {
@@ -319,6 +331,16 @@ describe("API利用OFF時の実行境界", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["サーバーの分類あり", JSON.stringify({ code: "quota" }), "quota"],
+    ["ゲートウェイのプレーンテキスト", "DEPLOYMENT_DISABLED", undefined],
+  ])("検索の 402 は本文の code を読む（%s）", async (_label, text, code) => {
+    mockApiEnabled(true);
+    mockFetch.mockImplementation(async () => new Response(text, { status: 402 }));
+
+    await expect(searchApi({ query: "q", limit: 10 })).rejects.toMatchObject({ status: 402, code });
+  });
+
   it("Embedding の送信間隔の待機中に OFF にされたら送信しない", async () => {
     vi.useFakeTimers();
     mockApiEnabled(true);
@@ -485,6 +507,12 @@ describe("summaryApi のエラー応答", () => {
   it.each([
     [401, "auth", false, "APIキーの設定を確認してください。"],
     [429, "rate_limit", true, "AIの利用上限に達しました。時間をおいて再試行してください。"],
+    [
+      402,
+      "quota",
+      false,
+      "OpenAIのBilling（請求）ページで利用残高を確認してください。残高が不足している間は、再試行しても解決しません。",
+    ],
     [500, "upstream", true, "AIサービスでエラーが発生しました。再試行してください。"],
     [
       400,
@@ -515,6 +543,7 @@ describe("summaryApi のエラー応答", () => {
 
   it.each([
     [429, "rate_limit", true],
+    [402, "upstream", true],
     [401, "auth", false],
     [403, "auth", false],
     [400, "invalid_input", false],
