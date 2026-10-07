@@ -317,6 +317,21 @@ describe("SearchHistory", () => {
       }
     };
 
+    /** 「検索1」〜「検索N」（先頭ほど新しい）を1回の書き込みで保存してからストアへ読み込む（1件ずつ addHistory するより軽い） */
+    const seedNumbered = async (count: number) => {
+      dbCounter += 1;
+      db = createLuminaDb(`SearchHistory-component-test-${dbCounter}`);
+      await db.searchHistories.bulkAdd(
+        Array.from({ length: count }, (_, i) =>
+          createSampleHistory({
+            originalQuery: `検索${i + 1}`,
+            createdAt: new Date(Date.UTC(2026, 0, 20 - i)),
+          })
+        )
+      );
+      await initializeSearchHistoryStore(db);
+    };
+
     afterEach(async () => {
       vi.restoreAllMocks();
       await db?.delete();
@@ -527,7 +542,7 @@ describe("SearchHistory", () => {
 
     it("11件目以降は「さらに表示」で表示し、削除と元に戻すができる（#112）", async () => {
       const user = userEvent.setup();
-      await seed(Array.from({ length: 12 }, (_, i) => `検索${i + 1}`));
+      await seedNumbered(12);
       render(<ConnectedHistory />);
       await user.click(screen.getByRole("button", { name: "さらに表示（残り2件）" }));
 
@@ -544,6 +559,28 @@ describe("SearchHistory", () => {
       );
       expect(screen.getByRole("button", { name: /^検索11/ })).toHaveFocus();
       expect(await db.searchHistories.count()).toBe(12);
+    });
+
+    it("10件目を削除すると11件目が繰り上がってフォーカスを受け、「さらに表示」が消える。元に戻すと「さらに表示」が戻る（#112）", async () => {
+      const user = userEvent.setup();
+      await seedNumbered(11);
+      render(<ConnectedHistory />);
+      expect(screen.getByRole("button", { name: "さらに表示（残り1件）" })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "「検索10」を削除" }));
+
+      const undo = await screen.findByRole("button", { name: "「検索10」を元に戻す" });
+      await waitFor(() => expect(screen.getByRole("button", { name: /^検索11/ })).toHaveFocus());
+      expect(screen.queryByRole("button", { name: /^さらに表示/ })).not.toBeInTheDocument();
+
+      await user.click(undo);
+
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「検索10」を元に戻しました。")
+      );
+      expect(screen.getByRole("button", { name: /^検索10/ })).toHaveFocus();
+      expect(screen.getByRole("button", { name: "さらに表示（残り1件）" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^検索11/ })).not.toBeInTheDocument();
     });
 
     it("連続で削除しても、それぞれの削除を通知する", async () => {

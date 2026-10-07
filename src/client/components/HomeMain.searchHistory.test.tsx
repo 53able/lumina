@@ -244,38 +244,60 @@ describe("HomeMain の検索履歴", () => {
       );
     });
 
+    /** 11件の履歴を1回の書き込みで保存してからストアへ読み込む（1件ずつ addHistory するより軽い） */
+    const seedEleven = async () => {
+      dbCounter += 1;
+      db = createLuminaDb(`HomeMain-search-history-test-${dbCounter}`);
+      await db.searchHistories.bulkAdd(
+        Array.from({ length: 11 }, (_, i) =>
+          createSampleHistory({
+            originalQuery: `検索${i + 1}`,
+            createdAt: new Date(Date.UTC(2026, 0, 20 - i)),
+          })
+        )
+      );
+      await initializeSearchHistoryStore(db);
+    };
+
+    /** 開閉ボタンを押してパネルを開き、パネルを返す（パネル内に絞って探す） */
+    const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
+      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      await user.click(toggle);
+      const panel = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+      return { toggle, panel: within(panel as HTMLElement) };
+    };
+
     it("11件以上あれば開閉ボタンに全件数を出し、パネルの「さらに表示」で11件目以降から再検索できる（#112）", async () => {
       const user = userEvent.setup();
-      await seed(Array.from({ length: 11 }, (_, i) => `検索${i + 1}`));
+      await seedEleven();
       const onReSearch = vi.fn();
       render(<ConnectedHomeMain onReSearch={onReSearch} />);
-      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
+      const { toggle, panel } = await openPanel(user);
       expect(toggle).toHaveAccessibleName("検索履歴、全11件");
-      await user.click(toggle);
 
-      expect(screen.queryByRole("button", { name: /^検索11/ })).not.toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "さらに表示（残り1件）" }));
-      expect(screen.getByRole("button", { name: /^検索11/ })).toHaveFocus();
+      expect(panel.queryByRole("button", { name: /^検索11/ })).not.toBeInTheDocument();
+      await user.click(panel.getByRole("button", { name: "さらに表示（残り1件）" }));
+      const row = panel.getByRole("button", { name: /^検索11/ });
+      expect(row).toHaveFocus();
 
-      await user.click(screen.getByRole("button", { name: /^検索11/ }));
+      await user.click(row);
       expect(onReSearch).toHaveBeenCalledWith(expect.objectContaining({ originalQuery: "検索11" }));
     });
 
     it("「さらに表示」で出した11件目を削除・元に戻すと、開閉ボタンの件数も追従する（#112）", async () => {
       const user = userEvent.setup();
-      await seed(Array.from({ length: 11 }, (_, i) => `検索${i + 1}`));
+      await seedEleven();
       render(<ConnectedHomeMain onReSearch={vi.fn()} />);
-      const toggle = screen.getByRole("button", { name: /^検索履歴/ });
-      await user.click(toggle);
-      await user.click(screen.getByRole("button", { name: "さらに表示（残り1件）" }));
+      const { toggle, panel } = await openPanel(user);
+      await user.click(panel.getByRole("button", { name: "さらに表示（残り1件）" }));
 
-      await user.click(screen.getByRole("button", { name: "「検索11」を削除" }));
-      const undo = await screen.findByRole("button", { name: "「検索11」を元に戻す" });
+      await user.click(panel.getByRole("button", { name: "「検索11」を削除" }));
+      const undo = await panel.findByRole("button", { name: "「検索11」を元に戻す" });
       expect(toggle).toHaveAccessibleName("検索履歴、全10件、元に戻せる1件");
       await user.click(undo);
 
-      expect(await screen.findByRole("button", { name: /^検索11/ })).toBeVisible();
-      expect(toggle).toHaveAccessibleName("検索履歴、全11件");
+      await waitFor(() => expect(toggle).toHaveAccessibleName("検索履歴、全11件"));
+      expect(panel.getByRole("button", { name: /^検索11/ })).toBeVisible();
     });
 
     it("通知の live region はパネルの外にあり、折りたたみ中も読み上げ対象になる", async () => {

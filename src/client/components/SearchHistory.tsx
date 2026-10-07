@@ -14,7 +14,10 @@ import { Button } from "./ui/button";
 interface SearchHistoryProps {
   /** 検索履歴の配列（新しい順。すべての履歴を渡し、表示件数はこのコンポーネントで絞る） */
   histories: SearchHistoryType[];
-  /** 最初に表示する件数と、「さらに表示」で増やす件数 */
+  /**
+   * 最初に表示する件数と、「さらに表示」で増やす件数。
+   * 最初に表示する件数はマウント時の値だけを使う（表示中に変えても、表示済みの件数は変わらない）
+   */
   pageSize?: number;
   /** 再検索時のコールバック */
   onReSearch?: (history: SearchHistoryType) => void;
@@ -317,121 +320,118 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
           </div>
         </div>
       ) : (
-        <>
-          <ul className={compact ? "space-y-1" : "space-y-2"}>
-            {histories.map((history, index) => {
-              const isPending = pendingHistoryIds.includes(history.id);
-              const error = historyErrors[history.id];
-              return (
-                <li
-                  key={history.id}
-                  className={`group rounded-lg hover:bg-muted/50 transition-colors ${
-                    compact ? "p-2" : "p-3 border border-border/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    {/* 左側: クエリ情報（クリック可能） */}
-                    <button
-                      ref={(el) => {
-                        if (el) rowButtonRefs.current.set(history.id, el);
-                        else rowButtonRefs.current.delete(history.id);
-                      }}
-                      type="button"
-                      className={`flex items-center flex-1 min-w-0 text-left bg-transparent border-none cursor-pointer ${
-                        compact ? "gap-2" : "gap-3"
-                      }`}
-                      onClick={() => handleItemClick(history)}
-                    >
-                      <Search
-                        className={`text-muted-foreground flex-shrink-0 ${compact ? "h-3 w-3" : "h-4 w-4"}`}
-                      />
-                      <div className="min-w-0">
-                        <p className={`truncate ${compact ? "text-sm" : ""}`}>
-                          {history.originalQuery}
-                        </p>
-                        <p
-                          className={`text-muted-foreground ${compact ? "text-[10px]" : "text-xs"}`}
-                        >
-                          {isPending ? (
-                            "削除しています…"
-                          ) : (
-                            <>
-                              {/* 件数は検索した時点の値（その後の変更は反映しない）。補足を title に出す */}
-                              <span title={describeHistoryResultCount(history.createdAt)}>
-                                {formatHistoryResultCount(history.resultCount, history.createdAt)}
-                              </span>
-                              {` ・ ${formatDistanceToNow(history.createdAt, {
-                                addSuffix: true,
-                                locale: ja,
-                              })}`}
-                            </>
-                          )}
-                        </p>
-                      </div>
-                    </button>
+        <ul className={compact ? "space-y-1" : "space-y-2"}>
+          {histories.map((history, index) => {
+            const isPending = pendingHistoryIds.includes(history.id);
+            const error = historyErrors[history.id];
+            return (
+              <li
+                key={history.id}
+                className={`group rounded-lg hover:bg-muted/50 transition-colors ${
+                  compact ? "p-2" : "p-3 border border-border/50"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  {/* 左側: クエリ情報（クリック可能） */}
+                  <button
+                    ref={(el) => {
+                      if (el) rowButtonRefs.current.set(history.id, el);
+                      else rowButtonRefs.current.delete(history.id);
+                    }}
+                    type="button"
+                    className={`flex items-center flex-1 min-w-0 text-left bg-transparent border-none cursor-pointer ${
+                      compact ? "gap-2" : "gap-3"
+                    }`}
+                    onClick={() => handleItemClick(history)}
+                  >
+                    <Search
+                      className={`text-muted-foreground flex-shrink-0 ${compact ? "h-3 w-3" : "h-4 w-4"}`}
+                    />
+                    <div className="min-w-0">
+                      <p className={`truncate ${compact ? "text-sm" : ""}`}>
+                        {history.originalQuery}
+                      </p>
+                      <p className={`text-muted-foreground ${compact ? "text-[10px]" : "text-xs"}`}>
+                        {isPending ? (
+                          "削除しています…"
+                        ) : (
+                          <>
+                            {/* 件数は検索した時点の値（その後の変更は反映しない）。補足を title に出す */}
+                            <span title={describeHistoryResultCount(history.createdAt)}>
+                              {formatHistoryResultCount(history.resultCount, history.createdAt)}
+                            </span>
+                            {` ・ ${formatDistanceToNow(history.createdAt, {
+                              addSuffix: true,
+                              locale: ja,
+                            })}`}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </button>
 
-                    {/* 右側: 削除ボタン（コンパクト時はホバーかキーボードフォーカスで表示。タッチ端末と失敗中は常に表示） */}
-                    {undo && (
+                  {/* 右側: 削除ボタン（コンパクト時はホバーかキーボードフォーカスで表示。タッチ端末と失敗中は常に表示） */}
+                  {undo && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`flex-shrink-0 ${
+                        compact
+                          ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"}`
+                          : "h-8 w-8"
+                      }`}
+                      aria-disabled={isPending}
+                      onClick={(e) => {
+                        e.stopPropagation(); // 親のクリックイベントを止める
+                        handleDelete(history, index);
+                      }}
+                      aria-label={`「${history.originalQuery}」を削除`}
+                    >
+                      <X className={compact ? "h-3 w-3" : "h-4 w-4"} />
+                    </Button>
+                  )}
+                </div>
+
+                {error?.kind === "delete" && (
+                  <div role="alert" className={`mt-1 space-y-1 text-destructive ${textSize}`}>
+                    <p className="break-words">削除できませんでした: {error.message}</p>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        aria-label={`「${history.originalQuery}」の削除を再試行`}
+                        onClick={() => handleDelete(history, index)}
+                      >
+                        再試行
+                      </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className={`flex-shrink-0 ${
-                          compact
-                            ? `h-6 w-6 transition-opacity ${error ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"}`
-                            : "h-8 w-8"
-                        }`}
-                        aria-disabled={isPending}
-                        onClick={(e) => {
-                          e.stopPropagation(); // 親のクリックイベントを止める
-                          handleDelete(history, index);
-                        }}
-                        aria-label={`「${history.originalQuery}」を削除`}
+                        size="sm"
+                        className="h-7"
+                        aria-label={`「${history.originalQuery}」の削除エラーを閉じる`}
+                        onClick={() => undo?.dismissHistoryError(history.id)}
                       >
-                        <X className={compact ? "h-3 w-3" : "h-4 w-4"} />
+                        閉じる
                       </Button>
-                    )}
-                  </div>
-
-                  {error?.kind === "delete" && (
-                    <div role="alert" className={`mt-1 space-y-1 text-destructive ${textSize}`}>
-                      <p className="break-words">削除できませんでした: {error.message}</p>
-                      <div className="flex flex-wrap gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7"
-                          aria-label={`「${history.originalQuery}」の削除を再試行`}
-                          onClick={() => handleDelete(history, index)}
-                        >
-                          再試行
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7"
-                          aria-label={`「${history.originalQuery}」の削除エラーを閉じる`}
-                          onClick={() => undo?.dismissHistoryError(history.id)}
-                        >
-                          閉じる
-                        </Button>
-                      </div>
                     </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          {hiddenCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`w-full ${compact ? "h-7 text-xs" : "h-8"}`}
-              onClick={handleShowMore}
-            >
-              さらに表示（残り{hiddenCount}件）
-            </Button>
-          )}
-        </>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {histories.length > 0 && hiddenCount > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className={`w-full ${compact ? "h-7 text-xs" : "h-8"}`}
+          onClick={handleShowMore}
+        >
+          さらに表示（残り{hiddenCount}件）
+        </Button>
       )}
     </div>
   );
