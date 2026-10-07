@@ -7,6 +7,7 @@
 /**
  * 要約APIが工程別の失敗として返す分類（上流のエラー文は返さない）
  * - rate_limit: 429（待って再試行）
+ * - quota: 上流の残高・クレジット不足（OpenAI の利用残高・請求設定を確認する。待っても解決しない）
  * - auth: キー未設定・401/403（設定を直す）
  * - invalid_output: AIの出力を解釈できない（再試行）
  * - upstream: その他の上流エラー（再試行）
@@ -14,6 +15,7 @@
  */
 export type SummaryStageErrorCode =
   | "rate_limit"
+  | "quota"
   | "auth"
   | "invalid_output"
   | "upstream"
@@ -21,6 +23,7 @@ export type SummaryStageErrorCode =
 
 const STAGE_ERROR_CODES: readonly SummaryStageErrorCode[] = [
   "rate_limit",
+  "quota",
   "auth",
   "invalid_output",
   "upstream",
@@ -30,6 +33,8 @@ const STAGE_ERROR_CODES: readonly SummaryStageErrorCode[] = [
 /** 分類ごとの案内（利用者向けの文言はクライアントで決める） */
 const STAGE_ERROR_GUIDANCE: Record<SummaryStageErrorCode, string> = {
   rate_limit: "AIの利用上限に達しました。時間をおいて再試行してください。",
+  quota:
+    "OpenAIの利用残高または請求設定を確認してください。残高が不足している間は、再試行しても解決しません。",
   auth: "APIキーの設定を確認してください。",
   invalid_output: "AIの出力を読み取れませんでした。再試行してください。",
   upstream: "AIサービスでエラーが発生しました。再試行してください。",

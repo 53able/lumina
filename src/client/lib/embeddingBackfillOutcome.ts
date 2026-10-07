@@ -10,6 +10,7 @@ import { ApiDisabledError, EmbeddingApiError, EmbeddingRateLimitError } from "./
 export type EmbeddingBackfillFailureKind =
   | "api_disabled"
   | "rate_limit"
+  | "quota"
   | "auth"
   | "network"
   | "server"
@@ -56,6 +57,7 @@ const getStatus = (error: unknown): number | undefined => {
  *
  * - API利用OFF: 設定で利用可能をONにして再試行
  * - 429: 待機して再試行
+ * - 402（上流の残高不足）: OpenAI の利用残高・請求設定を確認
  * - 401/403・キー未設定・キー復号失敗: 設定を修正
  * - fetch 失敗（TypeError）: 接続を確認して再試行
  * - 5xx: 時間をおいて再試行
@@ -83,6 +85,15 @@ export const classifyEmbeddingBackfillError = (error: unknown): EmbeddingBackfil
       kind: "rate_limit",
       reason: "レート制限（429）のため取得を中断しました",
       guidance: "しばらく待ってから、未処理分を再試行してください。",
+    };
+  }
+
+  if (status === 402) {
+    return {
+      kind: "quota",
+      reason: "OpenAIの利用残高が不足しているため取得を中断しました",
+      guidance:
+        "OpenAIの利用残高・請求設定を確認してください。残高が不足している間は再試行しても解決しません。",
     };
   }
 

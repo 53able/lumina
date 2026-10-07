@@ -485,6 +485,12 @@ describe("summaryApi のエラー応答", () => {
   it.each([
     [401, "auth", false, "APIキーの設定を確認してください。"],
     [429, "rate_limit", true, "AIの利用上限に達しました。時間をおいて再試行してください。"],
+    [
+      402,
+      "quota",
+      false,
+      "OpenAIの利用残高または請求設定を確認してください。残高が不足している間は、再試行しても解決しません。",
+    ],
     [500, "upstream", true, "AIサービスでエラーが発生しました。再試行してください。"],
     [
       400,
@@ -515,6 +521,7 @@ describe("summaryApi のエラー応答", () => {
 
   it.each([
     [429, "rate_limit", true],
+    [402, "quota", false],
     [401, "auth", false],
     [403, "auth", false],
     [400, "invalid_input", false],
