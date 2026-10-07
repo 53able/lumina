@@ -188,8 +188,11 @@ describe("HomeMain の検索履歴", () => {
 
       await user.click(undo);
 
+      // フォーカス移動は完了検知の effect 内で即時、通知はその後の再描画で出るため、どちらも待つ
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent("「B検索」を元に戻しました")
+      );
       await waitFor(() => expect(screen.getByRole("button", { name: /^B検索/ })).toHaveFocus());
-      expect(screen.getByRole("status")).toHaveTextContent("「B検索」を元に戻しました");
       expect(countLiveRegions()).toBe(1);
     });
 
