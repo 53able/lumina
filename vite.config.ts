@@ -37,7 +37,13 @@ export default defineConfig({
     environment: "node",
     // パッケージ名のままだと vitest は root（末尾の / なし）の親ディレクトリを起点に解決するため、
     // リポジトリ配下の git worktree では親リポジトリの node_modules を指して読み込めない。絶対パスで渡す
-    setupFiles: [fileURLToPath(import.meta.resolve("fake-indexeddb/auto")), "./src/test/setup.ts"],
+    // （vite build では test 設定を使わないため、テスト実行時だけ解決する）
+    setupFiles: [
+      process.env.VITEST
+        ? fileURLToPath(import.meta.resolve("fake-indexeddb/auto"))
+        : "fake-indexeddb/auto",
+      "./src/test/setup.ts",
+    ],
     exclude: ["**/node_modules/**", "**/dist/**"],
   },
 });

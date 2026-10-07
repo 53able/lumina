@@ -51,7 +51,9 @@ describe("splitAbstractSentences", () => {
       // 略語が続いて文が終わらない入力（文の先頭から走査し直すと二乗時間になる）
       (size) => "e.g. X ".repeat(Math.ceil(size / 7)),
     ];
-    // 経過時間は他のプロセスに CPU を奪われた時間を含んで大きく揺れるため、このプロセスの CPU 時間（ms）で測る
+    // 経過時間は他のプロセスに CPU を奪われた時間を含んで大きく揺れるため、このプロセスの CPU 時間（ms）で測る。
+    // process.cpuUsage() はプロセス全体の値なので、テストファイルごとに別プロセスで動く pool（forks、vitest 4 の既定）を前提にする。
+    // pool を threads に変えると他のテストファイルの CPU 時間も含まれるため、この測り方を見直すこと
     const measure = (input: string) => {
       const startedAt = process.cpuUsage();
       splitAbstractSentences(input);
@@ -63,8 +65,10 @@ describe("splitAbstractSentences", () => {
       const small = pattern(smallSize);
       const large = pattern(smallSize * scale);
       // JIT の最適化前の時間を含めないよう、計測前に両方を一度実行する
+      // 大きい入力が1回で 500ms を超えるなら、その時点で二乗時間とみなして失敗させる
+      // （線形なら数十ms。5回の計測を続けてテストのタイムアウトで落ちるのを避ける）
       measure(small);
-      measure(large);
+      expect(measure(large)).toBeLessThan(500);
       // 他の処理による一時的な遅れを除くため、交互に5回ずつ測ってそれぞれ最短の時間を使う
       let smallElapsed = Number.POSITIVE_INFINITY;
       let largeElapsed = Number.POSITIVE_INFINITY;
