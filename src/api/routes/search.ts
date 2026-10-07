@@ -2,8 +2,17 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { type ExpandedQuery, SearchRequestSchema } from "../../shared/schemas/index";
 import { measureTime, timestamp } from "../../shared/utils/dateTime";
-import { createEmbedding, expandQuery, getOpenAIConfig } from "../services/openai";
+import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError";
+import {
+  createEmbedding,
+  expandQuery,
+  getOpenAIConfig,
+  OpenAIApiKeyNotConfiguredError,
+} from "../services/openai";
 import type { Env } from "../types/env";
+
+/** 失敗時に error として返す固定文言（上流のエラー文の代わり） */
+const SEARCH_FAILED_MESSAGE = "検索に失敗しました";
 
 /**
  * スタブ用のクエリ拡張を生成（APIキーがない場合のフォールバック）
@@ -66,11 +75,7 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
     } catch (error) {
       // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）。
       // 検索文を指定した再検索はスタブにせずエラーを返す（実際に Embedding できなかったことを隠さない）
-      if (
-        body.embeddingText === undefined &&
-        error instanceof Error &&
-        error.message.includes("API key")
-      ) {
+      if (body.embeddingText === undefined && error instanceof OpenAIApiKeyNotConfiguredError) {
         const expandedQuery = generateStubExpandedQuery(body.query);
         return c.json(
           {
@@ -83,8 +88,12 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
         );
       }
 
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return c.json({ error: message }, 500);
+      // 上流のエラー文（キーの一部を含みうる）は返さず、分類とステータスで返す
+      const stageError = toStageError(error);
+      return c.json(
+        { error: SEARCH_FAILED_MESSAGE, ...stageError },
+        UPSTREAM_ERROR_STATUS[stageError.code]
+      );
     }
   }
 );

@@ -343,10 +343,10 @@ describe("App: 検索中・失敗時に入力と前回の結果を保持する�
     {
       label: "500（上流のエラー）",
       inject: () => jsonResponse({ error: "upstream secret detail" }, 500),
-      // サーバーは上流の認証・上限の失敗も 500 で返すため、設定の確認も案内する
-      reason: "時間をおいて再試行するか、設定でAPIキーを確認してください",
+      // 上流の認証失敗は 401、上限は 429 で届くため、500 は再試行だけを案内する
+      reason: "時間をおいて再試行してください",
       canRetry: true,
-      suggestSettings: true,
+      suggestSettings: false,
     },
     {
       label: "タイムアウト・通信失敗",

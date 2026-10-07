@@ -517,3 +517,54 @@ describe("summaryApi のエラー応答", () => {
     expect(error.retryable).toBe(true);
   });
 });
+
+describe("searchApi・embeddingApi のエラー応答（上流のエラー文を使わない）", () => {
+  const mockFetch = vi.fn();
+  const upstreamMessage = "Incorrect API key provided: sk-proj-abcd...wxyz";
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("searchApi: 応答の error に上流のエラー文があってもメッセージに含めず、status を保つ", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: upstreamMessage }), {
+        status: 401,
+        headers: new Headers(),
+      })
+    );
+
+    const error = await searchApi({ query: "q" } as never).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { status: number }).status).toBe(401);
+    expect((error as Error).message).not.toContain("sk-");
+    expect((error as Error).message).not.toContain("Incorrect API key");
+  });
+
+  it("embeddingApi: 応答の error に上流のエラー文があってもメッセージに含めず、status を保つ", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: upstreamMessage }), {
+        status: 500,
+        headers: new Headers(),
+      })
+    );
+
+    // 前のテストが進めた偽の時計の送信時刻が残るため、送信間隔の待機を十分に進める
+    vi.useFakeTimers();
+    const pending = embeddingApi({ text: "t" }).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(1_000_000);
+    const error = await pending;
+    vi.useRealTimers();
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { status: number }).status).toBe(500);
+    expect((error as Error).message).not.toContain("sk-");
+    expect((error as Error).message).not.toContain("Incorrect API key");
+  });
+});
