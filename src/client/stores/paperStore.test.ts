@@ -2,6 +2,7 @@ import { parseISO } from "date-fns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../shared/schemas/index";
 import { createLuminaDb, type LuminaDB } from "../db/db";
+import { DB_CHANGE_CHANNEL_NAME, type DbChangeMessage } from "../lib/dbChangeChannel";
 import type { PaperIndexClient, PaperIndexLoadHandlers } from "../lib/paperIndex/client";
 import type { PaperListItem } from "../lib/paperIndex/core";
 
@@ -513,6 +514,100 @@ describe("paperStore", () => {
       await done;
       await searching;
       expect(fake.searchCalls).toBe(1);
+    });
+  });
+});
+
+/**
+ * 別タブの変更の反映（Issue #109）
+ * 別タブは同じ IndexedDB に直接書き込み、別の BroadcastChannel から変更を通知するものとして模す
+ */
+describe("paperStore: 別タブの変更", () => {
+  let testDbCounter = 0;
+  let otherTab: BroadcastChannel;
+
+  beforeEach(() => {
+    testDbCounter += 1;
+    mockDb = createLuminaDb(`paperStore-crossTab-test-${testDbCounter}`);
+    otherTab = new BroadcastChannel(DB_CHANGE_CHANNEL_NAME);
+  });
+
+  afterEach(async () => {
+    otherTab.close();
+    vi.restoreAllMocks();
+    await mockDb.delete();
+  });
+
+  const notifyFromOtherTab = (paperIds: string[]) => {
+    otherTab.postMessage({
+      dbName: mockDb.name,
+      table: "papers",
+      paperIds,
+    } satisfies DbChangeMessage);
+  };
+
+  it("別タブで保存した論文だけを読み直し、索引と一覧へ反映する", async () => {
+    const upserted: string[] = [];
+    const fake = createFakeIndexClient({
+      onUpsert: (papers) => upserted.push(...papers.map((p) => p.id)),
+    });
+    const { usePaperStore, initializePaperStore } = await import("./paperStore");
+    const done = initializePaperStore(mockDb, { createIndexClient: () => fake.client });
+    fake.handlers().onBatch([listItem("2401.00001", "2024-01-01")], 1);
+    fake.handlers().onLoaded(1);
+    await done;
+
+    await mockDb.papers.add(
+      createSamplePaper({ id: "2401.00002", publishedAt: parseISO("2024-01-05") })
+    );
+    notifyFromOtherTab(["2401.00002"]);
+
+    await vi.waitFor(() => {
+      expect(usePaperStore.getState().papers.map((p) => p.id)).toEqual([
+        "2401.00002",
+        "2401.00001",
+      ]);
+    });
+    expect(upserted).toEqual(["2401.00002"]);
+  });
+
+  it("全件の準備中に届いた通知は、準備完了後に反映する", async () => {
+    const fake = createFakeIndexClient();
+    const { usePaperStore, initializePaperStore } = await import("./paperStore");
+    const done = initializePaperStore(mockDb, { createIndexClient: () => fake.client });
+
+    await mockDb.papers.add(createSamplePaper({ id: "2401.00002" }));
+    notifyFromOtherTab(["2401.00002"]);
+    // 通知が届く時間を置いても、準備完了前は一覧に足さない
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(usePaperStore.getState().papers).toEqual([]);
+
+    fake.handlers().onLoaded(0);
+    await done;
+    await vi.waitFor(() => {
+      expect(usePaperStore.getState().papers.map((p) => p.id)).toEqual(["2401.00002"]);
+    });
+  });
+
+  it("このタブで論文を保存すると、別タブへ論文IDつきで通知する", async () => {
+    const fake = createFakeIndexClient();
+    const { usePaperStore, initializePaperStore } = await import("./paperStore");
+    const done = initializePaperStore(mockDb, { createIndexClient: () => fake.client });
+    fake.handlers().onLoaded(0);
+    await done;
+    const received: DbChangeMessage[] = [];
+    otherTab.addEventListener("message", (event: MessageEvent<DbChangeMessage>) => {
+      received.push(event.data);
+    });
+
+    await usePaperStore.getState().addPaper(createSamplePaper());
+
+    await vi.waitFor(() => {
+      expect(received).toContainEqual({
+        dbName: mockDb.name,
+        table: "papers",
+        paperIds: ["2401.00001"],
+      });
     });
   });
 });
