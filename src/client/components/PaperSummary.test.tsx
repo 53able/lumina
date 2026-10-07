@@ -641,11 +641,12 @@ describe("PaperSummary", () => {
         <PaperSummary paperId="2401.00001" error={new ApiDisabledError(getApiResumeHint(false))} />
       );
 
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "要約を生成できませんでした。設定の「利用可能」をONにすると再開できます。"
-      );
+      // 停止中は再開方法を停止理由の段落で1回だけ示す（失敗の文には重ねない）
+      expect(screen.getByRole("alert")).toHaveTextContent("要約を生成できませんでした。");
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再開できます");
+      expect(screen.getByText("生成できませんでした。")).toBeInTheDocument();
       expect(
-        screen.getByText("生成できませんでした。設定の「利用可能」をONにすると再開できます。")
+        screen.getByText(`API利用OFFのため生成を停止中。${getApiResumeHint(true)}`)
       ).toBeInTheDocument();
 
       // 表示中にキーを削除すると、再描画でキーの保存からの案内に切り替わる
@@ -654,10 +655,85 @@ describe("PaperSummary", () => {
       });
 
       expect(
-        screen.getByText(
-          "生成できませんでした。設定でAPIキーを保存し、「利用可能」をONにすると再開できます。"
-        )
+        screen.getByText(`API利用OFFのため生成を停止中。${getApiResumeHint(false)}`)
       ).toBeInTheDocument();
+    });
+
+    it("異常系: API利用OFF中の失敗は再試行の案内を出さず、再開方法は1回だけ示す", () => {
+      useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
+      const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
+
+      // API利用OFF以外の失敗でも、OFF中は再試行できない
+      rerender(<PaperSummary paperId="2401.00001" error={new Error("timeout")} />);
+
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
+      expect(screen.queryByText(/再試行できます/)).not.toBeInTheDocument();
+      expect(screen.getAllByText(/再開できます/)).toHaveLength(1);
+    });
+
+    it("異常系: API利用OFF中の説明文の生成の失敗も、再試行の案内を出さず再開方法は1回だけ示す", () => {
+      useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
+      const summary = createSampleSummary();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" summary={summary} isLoading />
+      );
+
+      rerender(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={summary}
+          error={new ApiDisabledError()}
+          failedTarget="explanation"
+        />
+      );
+
+      expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
+      expect(screen.queryByText(/再試行できます/)).not.toBeInTheDocument();
+      expect(screen.getAllByText(/再開できます/)).toHaveLength(1);
+    });
+
+    it("正常系: API利用ONに戻すと生成ボタンがすぐ押せ、停止理由の関連付けも外れる", () => {
+      useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
+      render(<PaperSummary paperId="2401.00001" />);
+
+      const button = screen.getByRole("button", { name: /要約 \+ 説明文/ });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("aria-describedby");
+
+      act(() => {
+        useSettingsStore.setState({ apiEnabled: true });
+      });
+
+      expect(button).toBeEnabled();
+      expect(button).not.toHaveAttribute("aria-describedby");
+      expect(screen.queryByText(/API利用OFFのため生成を停止中/)).not.toBeInTheDocument();
+    });
+
+    it("正常系: 生成中にAPI利用OFFへ切り替えても、フォーカス中のボタンはフォーカスを保ち、押しても生成しない", async () => {
+      const user = userEvent.setup();
+      const mockOnGenerate = vi.fn();
+      const { rerender } = render(
+        <PaperSummary paperId="2401.00001" onGenerate={mockOnGenerate} />
+      );
+
+      const button = screen.getByRole("button", { name: /要約 \+ 説明文/ });
+      button.focus();
+      rerender(<PaperSummary paperId="2401.00001" isLoading onGenerate={mockOnGenerate} />);
+
+      act(() => {
+        useSettingsStore.setState({ apiEnabled: false });
+      });
+
+      expect(button).toHaveFocus();
+      expect(button).not.toBeDisabled();
+      expect(button).toHaveAttribute("aria-disabled", "true");
+
+      await user.keyboard("{Enter}");
+      expect(mockOnGenerate).not.toHaveBeenCalled();
+
+      // 生成が終わると、無効化に切り替わる（フォーカスは、その後の再描画で外れうるが、ここでは確認対象外）
+      rerender(<PaperSummary paperId="2401.00001" onGenerate={mockOnGenerate} />);
+      expect(button).toBeDisabled();
     });
 
     it("異常系: 要約がある状態で説明文の生成がAPI利用OFFで失敗した場合は、要約を残して再開方法を案内する", () => {
@@ -678,13 +754,14 @@ describe("PaperSummary", () => {
 
       expect(screen.getByText(summary.summary)).toBeInTheDocument();
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "要約は保存済みです。説明文を生成できませんでした。設定の「利用可能」をONにすると再開できます。"
+        "要約は保存済みです。説明文を生成できませんでした。"
       );
       expect(screen.getByRole("alert")).not.toHaveTextContent("再試行");
       expect(
-        screen.getByText(
-          "要約は保存済みです。説明文は生成できませんでした。設定の「利用可能」をONにすると再開できます。"
-        )
+        screen.getByText("要約は保存済みです。説明文は生成できませんでした。")
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(`API利用OFFのため生成を停止中。${getApiResumeHint(true)}`)
       ).toBeInTheDocument();
     });
 
