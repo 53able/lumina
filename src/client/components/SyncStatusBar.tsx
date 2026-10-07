@@ -361,14 +361,15 @@ export const SyncStatusBar: FC<SyncStatusBarProps> = ({
                   setIsStopping(true);
                   onStopSync();
                 }}
-                disabled={isStopping}
+                // disabled にするとフォーカスが外れるため、aria-disabled で無効を伝える（二重実行はハンドラで止める）
+                aria-disabled={isStopping || undefined}
                 // 名前は表示文（「停止中…」「停止」）を含める（WCAG 2.5.3）
                 aria-label={isStopping ? "同期を停止中…" : "同期を停止"}
                 aria-busy={isStopping}
                 className={
                   compact
-                    ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs"
-                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2"
+                    ? "min-h-[44px] min-w-[44px] h-auto whitespace-normal px-2 py-1.5 text-xs aria-disabled:opacity-50 aria-disabled:pointer-events-none"
+                    : "min-h-[48px] min-w-[48px] h-auto px-3 py-2 aria-disabled:opacity-50 aria-disabled:pointer-events-none"
                 }
               >
                 <StopCircle
