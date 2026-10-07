@@ -75,41 +75,96 @@ describe("PaperSummary", () => {
       expect(mockOnGenerate).toHaveBeenCalledWith("2401.00001", "ja", "both");
     });
 
-    it("正常系: 別のタブが生成中で終了を待っている間は「別のタブで生成中」と表示する（Issue #128）", async () => {
-      const { locks, restore } = installFakeLockManager();
-      try {
+    // 別のタブに任せた結果はモジュールの状態に残るため、他のテストと別の論文ID（2401.09128）を使う
+    describe("別のタブの生成を待つ（Issue #128）", () => {
+      /**
+       * 別のタブが生成中の状態で、このタブの生成を始める
+       * @param versionsAfterWait - 待ち終えた後に IndexedDB から読む版（空なら別のタブは要約を残さなかった）
+       */
+      const startWaitingForOtherTab = (versionsAfterWait: unknown[]) => {
+        const { locks, restore } = installFakeLockManager();
         let finishOtherTab: () => void = () => undefined;
         void locks.request(
-          getSummaryLockName("2401.00001", "ja"),
+          getSummaryLockName("2401.09128", "ja"),
           () =>
             new Promise<void>((resolve) => {
               finishOtherTab = resolve;
             })
         );
         const generate = vi.fn();
+        const readVersions = vi.fn().mockResolvedValueOnce([]).mockResolvedValue(versionsAfterWait);
         let waiting: Promise<unknown> = Promise.resolve();
         act(() => {
-          waiting = runSummaryGenerationExclusively("2401.00001", "ja", generate);
+          waiting = runSummaryGenerationExclusively("2401.09128", "ja", {
+            generate,
+            readVersions,
+            reload: () => Promise.resolve(),
+            onlyIfMissing: true,
+          });
         });
+        const finish = async () => {
+          await act(async () => {
+            finishOtherTab();
+            await waiting;
+          });
+        };
+        return { generate, finish, restore };
+      };
 
-        const { rerender } = render(<PaperSummary paperId="2401.00001" isLoading />);
-        expect(await screen.findByText("別のタブで生成中...")).toBeInTheDocument();
-        expect(screen.getByText("別のタブで要約を生成しています")).toBeInTheDocument();
-        // 別の言語の生成中は、このタブでの生成として表示する
-        rerender(<PaperSummary paperId="2401.00001" selectedLanguage="en" isLoading />);
-        expect(screen.getByText("生成中...")).toBeInTheDocument();
+      /** 生成状態の live region（開始・完了の通知） */
+      const getStatus = () => screen.getByRole("status");
 
-        rerender(<PaperSummary paperId="2401.00001" isLoading />);
-        await act(async () => {
-          finishOtherTab();
-          await waiting;
-        });
-        // 待ち終えたら（次の生成を始めても）このタブでの生成として表示する
-        expect(screen.getByText("生成中...")).toBeInTheDocument();
-        expect(generate).not.toHaveBeenCalled();
-      } finally {
-        restore();
-      }
+      it("正常系: 待っている間は「別のタブで生成中」と表示する", async () => {
+        const { generate, finish, restore } = startWaitingForOtherTab([]);
+        try {
+          const { rerender } = render(<PaperSummary paperId="2401.09128" isLoading />);
+          expect(await screen.findByText("別のタブで生成中...")).toBeInTheDocument();
+          expect(getStatus()).toHaveTextContent("別のタブで要約を生成しています");
+          // 別の言語の生成中は、このタブでの生成として表示する
+          rerender(<PaperSummary paperId="2401.09128" selectedLanguage="en" isLoading />);
+          expect(screen.getByText("生成中...")).toBeInTheDocument();
+
+          rerender(<PaperSummary paperId="2401.09128" isLoading />);
+          await finish();
+          // 待ち終えたら（次の生成を始めても）このタブでの生成として表示する
+          expect(screen.getByText("生成中...")).toBeInTheDocument();
+          expect(generate).not.toHaveBeenCalled();
+        } finally {
+          restore();
+        }
+      });
+
+      it("正常系: 別のタブが要約を保存したら、自タブの生成の完了と区別して通知する", async () => {
+        const { finish, restore } = startWaitingForOtherTab([{ id: 1 }]);
+        try {
+          const { rerender } = render(<PaperSummary paperId="2401.09128" isLoading />);
+          await finish();
+          rerender(<PaperSummary paperId="2401.09128" summary={createSampleSummary()} />);
+
+          expect(getStatus()).toHaveTextContent("別のタブで生成された要約を表示しています");
+          expect(screen.queryByText("要約の生成が完了しました")).not.toBeInTheDocument();
+        } finally {
+          restore();
+        }
+      });
+
+      it("異常系: 別のタブの生成が要約を残さずに終わったら、完了を通知せず、もう一度生成できると伝える", async () => {
+        const { finish, restore } = startWaitingForOtherTab([]);
+        try {
+          const { rerender } = render(<PaperSummary paperId="2401.09128" isLoading />);
+          await finish();
+          rerender(<PaperSummary paperId="2401.09128" />);
+
+          const message = "別のタブの生成は完了しませんでした。もう一度生成できます。";
+          expect(getStatus()).toHaveTextContent(message);
+          expect(screen.queryByText("要約の生成が完了しました")).not.toBeInTheDocument();
+          // 画面にも表示する（live region とは別の要素）
+          expect(screen.getAllByText(message)).toHaveLength(2);
+          expect(screen.getByRole("button", { name: /要約 \+ 説明文/ })).toBeInTheDocument();
+        } finally {
+          restore();
+        }
+      });
     });
   });
 

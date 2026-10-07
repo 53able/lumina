@@ -7,9 +7,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installFakeLockManager } from "../../test/fakeLockManager";
+import { installFakeLockManager, removeLockManager } from "../../test/fakeLockManager";
 import { PartialSummaryError } from "../lib/summaryErrorTypes";
-import { getSummaryLockName } from "../lib/summaryGenerationLock";
+import {
+  getSummaryLockName,
+  OTHER_TAB_WAIT_TIMEOUT_MS,
+  OtherTabGenerationTimeoutError,
+  useIsSummaryGeneratingInOtherTab,
+} from "../lib/summaryGenerationLock";
 import { usePaperSummary } from "./usePaperSummary";
 
 const mockSummaryApi = vi.fn();
@@ -26,11 +31,13 @@ const mockGetSummaryByPaperIdAndLanguage = vi.fn();
 const mockAddSummary = vi.fn();
 const mockUpdateSummary = vi.fn();
 const mockReloadSummaries = vi.fn();
+const mockReadVersions = vi.fn();
 /** 別のタブが保存した要約の読み直し先（中身は使わない） */
 const mockDb = { name: "usePaperSummary-test" };
 vi.mock("../stores/summaryStore", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../stores/summaryStore")>()),
   reloadSummaries: (...args: unknown[]) => mockReloadSummaries(...args),
+  readVersions: (...args: unknown[]) => mockReadVersions(...args),
   useSummaryStore: () => ({
     _db: mockDb,
     summaries: [],
@@ -494,28 +501,45 @@ describe("usePaperSummary", () => {
   describe("別のタブとの排他（Issue #128）", () => {
     let restoreLocks: (() => void) | undefined;
     afterEach(() => {
+      vi.restoreAllMocks();
       restoreLocks?.();
       restoreLocks = undefined;
     });
 
-    /** 別のタブが同じ論文・言語の要約を生成中の状態を作る（finish は生成の終了・タブを閉じたことを表す） */
-    const holdLockInOtherTab = (paperId: string, language: "ja" | "en" = "ja") => {
+    /** 保存済みの版（IndexedDB から読んだもの） */
+    const savedVersion = { id: 1, paperId: "2401.00001", language: "ja", summary: "別タブの要約" };
+
+    /** navigator.locks をテスト用にする（別のタブはロックを持たない） */
+    const useFakeLocks = () => {
       const { locks, restore } = installFakeLockManager();
       restoreLocks = restore;
+      return locks;
+    };
+
+    /** 別のタブが同じ論文・言語の要約を生成中の状態を作る（finish は生成の終了・タブを閉じたことを表す） */
+    const holdLockInOtherTab = (paperId: string, language: "ja" | "en" = "ja") => {
+      const locks = useFakeLocks();
       const otherTab = createDeferred<void>();
       void locks.request(getSummaryLockName(paperId, language), () => otherTab.promise);
       return { locks, finish: () => otherTab.resolve() };
     };
 
-    it("正常系: 別のタブが生成中ならAPIを呼ばず、終了を待って保存された要約を読み直す", async () => {
-      const { finish } = holdLockInOtherTab("2401.00001");
-      mockReloadSummaries.mockResolvedValue(undefined);
-      const { result } = renderUsePaperSummary("2401.00001");
-
+    /** 生成を始め、別のタブの終了を待っている状態にする */
+    const startWaiting = async (result: { current: ReturnType<typeof usePaperSummary> }) => {
       act(() => {
         void result.current.generateSummary();
       });
       await waitFor(() => expect(result.current.isLoading).toBe(true));
+      await waitFor(() => expect(mockReadVersions).toHaveBeenCalled());
+    };
+
+    it("正常系: 別のタブが生成中ならAPIを呼ばず、終了を待って保存された要約を読み直す", async () => {
+      const { finish } = holdLockInOtherTab("2401.00001");
+      mockReadVersions.mockResolvedValueOnce([]).mockResolvedValue([savedVersion]);
+      mockReloadSummaries.mockResolvedValue(undefined);
+      const { result } = renderUsePaperSummary("2401.00001");
+
+      await startWaiting(result);
       expect(mockSummaryApi).not.toHaveBeenCalled();
 
       await act(async () => {
@@ -528,19 +552,19 @@ describe("usePaperSummary", () => {
       expect(result.current.error).toBeNull();
     });
 
-    it("正常系: 別のタブの生成が終わる（タブを閉じる）と、このタブで生成できる", async () => {
+    it("正常系: 別のタブの生成が要約を残さずに終わる（失敗・タブを閉じる）と、このタブで生成できる", async () => {
       const { locks, finish } = holdLockInOtherTab("2401.00001");
-      mockReloadSummaries.mockResolvedValue(undefined);
+      mockReadVersions.mockResolvedValue([]);
       const { result } = renderUsePaperSummary("2401.00001");
 
-      act(() => {
-        void result.current.generateSummary();
-      });
-      await waitFor(() => expect(result.current.isLoading).toBe(true));
+      await startWaiting(result);
       await act(async () => {
         finish();
       });
       await waitFor(() => expect(result.current.isLoading).toBe(false));
+      // 保存された要約が無いため読み直さず、失敗としても扱わない
+      expect(mockReloadSummaries).not.toHaveBeenCalled();
+      expect(result.current.error).toBeNull();
 
       const generation = createDeferred<unknown>();
       mockSummaryApi.mockReturnValueOnce(generation.promise);
@@ -559,8 +583,106 @@ describe("usePaperSummary", () => {
       expect(locks.isHeld(getSummaryLockName("2401.00001", "ja"))).toBe(false);
     });
 
+    it("正常系: 待っている間にアンマウントしても、待ち終えたら読み直して待機中の状態を解く", async () => {
+      const { finish } = holdLockInOtherTab("2401.00001");
+      mockReadVersions.mockResolvedValueOnce([]).mockResolvedValue([savedVersion]);
+      mockReloadSummaries.mockResolvedValue(undefined);
+      const waiting = renderHook(() => useIsSummaryGeneratingInOtherTab("2401.00001", "ja"));
+      const { result, unmount } = renderUsePaperSummary("2401.00001");
+
+      await startWaiting(result);
+      expect(waiting.result.current).toBe(true);
+      unmount();
+
+      await act(async () => {
+        finish();
+      });
+      await waitFor(() => expect(waiting.result.current).toBe(false));
+      expect(mockReloadSummaries).toHaveBeenCalledWith(mockDb, ["2401.00001"]);
+      expect(mockSummaryApi).not.toHaveBeenCalled();
+    });
+
+    it("異常系: 待ち終えた後の読み直しが失敗しても、生成の失敗にはしない", async () => {
+      const { finish } = holdLockInOtherTab("2401.00001");
+      mockReadVersions.mockResolvedValueOnce([]).mockResolvedValue([savedVersion]);
+      mockReloadSummaries.mockRejectedValue(new Error("IndexedDB unavailable"));
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const onError = vi.fn();
+      const { result } = renderUsePaperSummary("2401.00001", onError);
+
+      await startWaiting(result);
+      await act(async () => {
+        finish();
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.error).toBeNull();
+      expect(onError).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalled();
+      expect(mockSummaryApi).not.toHaveBeenCalled();
+    });
+
+    it("異常系: 別のタブの生成が終わらないまま待つ上限を過ぎたら、失敗として伝える", async () => {
+      holdLockInOtherTab("2401.00001");
+      mockReadVersions.mockResolvedValue([]);
+      const timeout = new AbortController();
+      const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeout.signal);
+      const onError = vi.fn();
+      const { result } = renderUsePaperSummary("2401.00001", onError);
+
+      await startWaiting(result);
+      expect(timeoutSpy).toHaveBeenCalledWith(OTHER_TAB_WAIT_TIMEOUT_MS);
+      await act(async () => {
+        timeout.abort(new DOMException("timed out", "TimeoutError"));
+      });
+
+      await waitFor(() =>
+        expect(result.current.error).toBeInstanceOf(OtherTabGenerationTimeoutError)
+      );
+      expect(result.current.isLoading).toBe(false);
+      expect(onError).toHaveBeenCalledWith(
+        expect.any(OtherTabGenerationTimeoutError),
+        "2401.00001",
+        "both"
+      );
+      expect(mockSummaryApi).not.toHaveBeenCalled();
+    });
+
+    it("正常系: ロックを取れた時点で別のタブが保存済みなら、要約が無いとみた生成はAPIを呼ばずに読み直す", async () => {
+      // 別のタブがロックを解放した直後で、変更通知がまだ届いていない（このタブの Store には要約が無い）
+      useFakeLocks();
+      mockReadVersions.mockResolvedValue([savedVersion]);
+      mockReloadSummaries.mockResolvedValue(undefined);
+      const { result } = renderUsePaperSummary("2401.00001");
+
+      await act(async () => {
+        await result.current.generateSummary();
+      });
+
+      expect(mockSummaryApi).not.toHaveBeenCalled();
+      expect(mockReloadSummaries).toHaveBeenCalledWith(mockDb, ["2401.00001"]);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBeNull();
+    });
+
+    it("正常系: 要約がある状態からの再生成は、保存済みの版があっても新しい版を生成する", async () => {
+      useFakeLocks();
+      mockGetSummaryByPaperIdAndLanguage.mockReturnValue(savedVersion);
+      mockReadVersions.mockResolvedValue([savedVersion]);
+      mockSummaryApi.mockResolvedValue(createSummaryResponse("2401.00001"));
+      const { result } = renderUsePaperSummary("2401.00001");
+
+      await act(async () => {
+        await result.current.generateSummary(undefined, "both");
+      });
+
+      expect(mockSummaryApi).toHaveBeenCalledTimes(1);
+      expect(mockAddSummary).toHaveBeenCalledTimes(1);
+    });
+
     it("正常系: 別のタブが別の言語を生成中でも、この言語の生成は止めない", async () => {
       holdLockInOtherTab("2401.00001", "en");
+      mockReadVersions.mockResolvedValue([]);
       mockSummaryApi.mockResolvedValue(createSummaryResponse("2401.00001"));
       const { result } = renderUsePaperSummary("2401.00001");
 
@@ -573,8 +695,8 @@ describe("usePaperSummary", () => {
     });
 
     it("正常系: 生成に失敗してもロックを解放する", async () => {
-      const { locks, restore } = installFakeLockManager();
-      restoreLocks = restore;
+      const locks = useFakeLocks();
+      mockReadVersions.mockResolvedValue([]);
       mockSummaryApi.mockRejectedValueOnce(new Error("timeout"));
       const { result } = renderUsePaperSummary("2401.00001");
 
@@ -587,7 +709,7 @@ describe("usePaperSummary", () => {
     });
 
     it("正常系: Web Locks の無い環境では排他せずに生成する", async () => {
-      expect("locks" in navigator).toBe(false);
+      restoreLocks = removeLockManager();
       mockSummaryApi.mockResolvedValue(createSummaryResponse("2401.00001"));
       const { result } = renderUsePaperSummary("2401.00001");
 
@@ -597,6 +719,7 @@ describe("usePaperSummary", () => {
 
       expect(mockSummaryApi).toHaveBeenCalledTimes(1);
       expect(mockAddSummary).toHaveBeenCalledTimes(1);
+      expect(mockReadVersions).not.toHaveBeenCalled();
     });
   });
 });

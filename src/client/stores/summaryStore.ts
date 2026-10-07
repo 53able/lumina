@@ -104,7 +104,7 @@ const findAdopted = (
  * IndexedDB から論文・言語の版を主キーつきで読む（保存順）
  * 呼び出し側のトランザクション内で使い、Store の控えではなく DB の最新状態を基準にする
  */
-const readVersions = async (
+export const readVersions = async (
   db: LuminaDB,
   paperId: string,
   language: "ja" | "en"

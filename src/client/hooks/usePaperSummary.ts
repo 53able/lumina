@@ -8,9 +8,13 @@ import { useCallback, useMemo, useState } from "react";
 import { type PaperSummary, PaperSummarySchema } from "../../shared/schemas/index";
 import { type GenerateTarget, getDecryptedApiKey, summaryApi } from "../lib/api";
 import { PartialSummaryError, toSummaryStageErrorCode } from "../lib/summaryErrorTypes";
-import { runSummaryGenerationExclusively } from "../lib/summaryGenerationLock";
+import {
+  type ExclusiveGenerationResult,
+  runSummaryGenerationExclusively,
+} from "../lib/summaryGenerationLock";
 import {
   getSummaryVersions,
+  readVersions,
   reloadSummaries,
   type SummaryVersion,
   useSummaryStore,
@@ -41,8 +45,11 @@ interface GenerateVariables {
 /** 要約生成の mutation を論文・言語をまたいで追跡するためのキー */
 const SUMMARY_MUTATION_KEY = ["paperSummary", "generate"];
 
-/** 要約生成の mutation の状態（別のタブが生成した場合の結果は null） */
-type GenerationState = MutationState<PaperSummary | null, Error, GenerateVariables>;
+/** 要約生成の結果（別のタブに任せた場合は、要約が保存されたか） */
+type GenerationResult = ExclusiveGenerationResult<PaperSummary>;
+
+/** 要約生成の mutation の状態 */
+type GenerationState = MutationState<GenerationResult, Error, GenerateVariables>;
 
 /** 指定した論文・言語の要約生成の状態か（mutation cache の状態は型を持たないため、ここで絞り込む） */
 const isGenerationFor = (
@@ -186,12 +193,17 @@ export const usePaperSummary = ({
   // React QueryのuseMutationでサマリー生成を管理（自動デデュープ・キャッシュ）
   const mutation = useMutation({
     mutationKey: SUMMARY_MUTATION_KEY,
-    // 別のタブが同じ論文・言語を生成中なら、APIを呼ばずにその生成の終了を待つ（Issue #128）。結果は null
-    mutationFn: ({ paperId, language, target }: GenerateVariables): Promise<PaperSummary | null> =>
-      runSummaryGenerationExclusively(
-        paperId,
-        language,
-        async () => {
+    // 別のタブが同じ論文・言語を生成中なら、APIを呼ばずにその生成の終了を待つ（Issue #128）
+    mutationFn: ({ paperId, language, target }: GenerateVariables): Promise<GenerationResult> =>
+      runSummaryGenerationExclusively(paperId, language, {
+        // 要約が無いとみて始めた生成（自動生成と、要約が無いときの「要約 + 説明文」）は、
+        // 既に別のタブが保存していれば生成しない。再生成・説明文のみの生成は新しい結果を求める操作のため確認しない
+        onlyIfMissing: target === "both" && !getSummaryByPaperIdAndLanguage(paperId, language),
+        readVersions: async () => (db ? readVersions(db, paperId, language) : []),
+        reload: async () => {
+          if (db) await reloadSummaries(db, [paperId]);
+        },
+        generate: async () => {
           // API key を復号化して取得（早期開始パターン）
           const apiKeyPromise = getDecryptedApiKey();
           const apiKey = await apiKeyPromise;
@@ -230,10 +242,7 @@ export const usePaperSummary = ({
           }
           return normalizedData;
         },
-        async () => {
-          if (db) await reloadSummaries(db, [paperId]);
-        }
-      ),
+      }),
     onError: (error, variables) => {
       const err = error instanceof Error ? error : new Error("要約の生成に失敗しました");
       onError?.(err, variables.paperId, variables.target);
