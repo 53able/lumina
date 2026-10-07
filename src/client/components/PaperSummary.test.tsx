@@ -74,6 +74,53 @@ describe("PaperSummary", () => {
     });
   });
 
+  describe("API利用OFF中の生成", () => {
+    it("異常系: 要約がない場合は「要約 + 説明文」を無効にし、停止理由と再開方法を関連付ける", async () => {
+      const user = userEvent.setup();
+      const mockOnGenerate = vi.fn();
+      useSettingsStore.setState({ apiEnabled: false, apiKey: "encrypted-key" });
+
+      render(<PaperSummary paperId="2401.00001" onGenerate={mockOnGenerate} />);
+
+      const button = screen.getByRole("button", { name: /要約 \+ 説明文/ });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(/API利用OFFのため生成を停止中/);
+      expect(button).toHaveAccessibleDescription(new RegExp(getApiResumeHint(true)));
+
+      await user.click(button);
+      expect(mockOnGenerate).not.toHaveBeenCalled();
+    });
+
+    it("異常系: 説明文がない場合は「なぜ読むべきかを生成」も再生成と同じ理由で無効にする", async () => {
+      const user = userEvent.setup();
+      const mockOnGenerate = vi.fn();
+      useSettingsStore.setState({ apiEnabled: false, apiKey: "" });
+
+      render(
+        <PaperSummary
+          paperId="2401.00001"
+          summary={createSampleSummary()}
+          onGenerate={mockOnGenerate}
+        />
+      );
+
+      const button = screen.getByRole("button", { name: "なぜ読むべきかを生成" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(/API利用OFFのため生成を停止中/);
+      expect(button).toHaveAccessibleDescription(new RegExp(getApiResumeHint(false)));
+
+      await user.click(button);
+      expect(mockOnGenerate).not.toHaveBeenCalled();
+    });
+
+    it("正常系: API利用ONでは停止理由を出さず、生成できる", () => {
+      render(<PaperSummary paperId="2401.00001" />);
+
+      expect(screen.getByRole("button", { name: /要約 \+ 説明文/ })).toBeEnabled();
+      expect(screen.queryByText(/API利用OFFのため生成を停止中/)).not.toBeInTheDocument();
+    });
+  });
+
   describe("要約ありの状態", () => {
     it("正常系: 要約テキストが表示される", () => {
       const summary = createSampleSummary();
@@ -964,7 +1011,7 @@ describe("PaperSummary", () => {
 
       const button = screen.getByRole("button", { name: "再生成" });
       expect(button).toBeDisabled();
-      expect(button).toHaveAccessibleDescription(/API利用OFFのため再生成を停止中/);
+      expect(button).toHaveAccessibleDescription(/API利用OFFのため生成を停止中/);
     });
 
     it("正常系: 版が1つだけなら比較ボタンと採用版バッジを出さない", async () => {

@@ -217,7 +217,14 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
   const [focusVersionId, setFocusVersionId] = useState<number | null>(null);
   const versionListId = `summary-versions-${paperId}-${selectedLanguage}`;
   const versionHeadingId = (id: number) => `${versionListId}-${id}`;
-  const regenerateDisabledReasonId = `summary-regenerate-api-disabled-${paperId}-${selectedLanguage}`;
+  /** API利用OFFで生成を止めている理由の要素ID（生成系ボタンの aria-describedby の参照先。要約の有無で表示場所は排他） */
+  const apiDisabledReasonId = `summary-api-disabled-${paperId}-${selectedLanguage}`;
+  const apiDisabledReason = `API利用OFFのため生成を停止中。${getApiResumeHint(hasApiKey)}`;
+  /** 生成系ボタンに付ける、API利用OFF時の無効化と理由の関連付け */
+  const apiDisabledProps = {
+    disabled: !apiEnabled,
+    "aria-describedby": apiEnabled ? undefined : apiDisabledReasonId,
+  };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 採用した版が決まったときだけ移す
   useEffect(() => {
@@ -604,6 +611,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
         >
           <Button
             onClick={() => handleGenerate("both")}
+            {...apiDisabledProps}
             {...generateButtonDisabledProps}
             className={cn("gap-2", busyButtonClassName)}
           >
@@ -615,6 +623,11 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
             要約 + 説明文
           </Button>
           {isLoading && loadingText}
+          {!apiEnabled && (
+            <p id={apiDisabledReasonId} className="text-xs text-muted-foreground text-center">
+              {apiDisabledReason}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground text-center">
             要約: Abstractの記述を簡潔にまとめます
             <br />
@@ -711,6 +724,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 <div className="flex items-center gap-2 pt-2 border-t">
                   <Button
                     onClick={() => handleGenerate("explanation")}
+                    {...apiDisabledProps}
                     {...generateButtonDisabledProps}
                     variant="ghost"
                     size="sm"
@@ -869,8 +883,7 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
               )}
               <Button
                 onClick={() => handleGenerate("both")}
-                disabled={!apiEnabled}
-                aria-describedby={apiEnabled ? undefined : regenerateDisabledReasonId}
+                {...apiDisabledProps}
                 {...generateButtonDisabledProps}
                 variant="outline"
                 size="sm"
@@ -923,10 +936,10 @@ export const PaperSummary: FC<PaperSummaryProps> = ({
                 </Button>
               )}
             </div>
-            {/* aria-describedby の参照先。再生成ボタンと同じ条件で出す */}
+            {/* aria-describedby の参照先。再生成・説明文の生成ボタンと同じ条件で出す */}
             {!apiEnabled && (
-              <p id={regenerateDisabledReasonId} className="text-xs text-muted-foreground">
-                API利用OFFのため再生成を停止中。{getApiResumeHint(hasApiKey)}
+              <p id={apiDisabledReasonId} className="text-xs text-muted-foreground">
+                {apiDisabledReason}
               </p>
             )}
           </div>
