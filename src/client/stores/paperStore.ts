@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { Paper } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
-import { notifyDbChange, subscribeDbChanges } from "../lib/dbChangeChannel";
+import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
 import {
   createDefaultPaperIndexClient,
   type PaperIndexClient,
@@ -357,11 +357,15 @@ export const initializePaperStore = (
 /** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
 let unsubscribeRemoteChanges: (() => void) | null = null;
 
+// 開発時の HMR でモジュールが置き換わるとき、古いストアへの購読を解除する
+import.meta.hot?.dispose(() => unsubscribeRemoteChanges?.());
+
 /**
  * 別タブで保存された論文を IndexedDB から読み直し、索引・一覧へ反映する（全件は読み直さない）
  *
  * 全件の準備完了を待ってから反映する（読み込み中の索引・一覧と二重にしない）。
  * 読み込みに失敗している間は反映しない（再試行の読み込みで DB から読み直される）。
+ * 読み直しの間に自タブの保存が一覧を更新した場合は読み直す（古い内容で上書きしない）。
  */
 const reloadPapers = async (db: LuminaDB, paperIds: string[]): Promise<void> => {
   try {
@@ -369,13 +373,17 @@ const reloadPapers = async (db: LuminaDB, paperIds: string[]): Promise<void> => 
   } catch {
     return;
   }
-  const stored = (await db.papers.bulkGet(paperIds)).filter(
-    (paper): paper is Paper => paper !== undefined
+  await reloadUnlessChanged(
+    () => usePaperStore.getState().papers,
+    async () =>
+      (await db.papers.bulkGet(paperIds)).filter((paper): paper is Paper => paper !== undefined),
+    (stored) => {
+      if (stored.length === 0) return;
+      // savePapers と同じく、索引への反映は一覧の更新より前に行う
+      usePaperStore.getState()._index?.upsert(stored);
+      usePaperStore.setState((state) => ({
+        papers: mergePapersDesc(state.papers, stored.map(toPaperListItem)),
+      }));
+    }
   );
-  if (stored.length === 0) return;
-  // savePapers と同じく、索引への反映は一覧の更新より前に行う
-  usePaperStore.getState()._index?.upsert(stored);
-  usePaperStore.setState((state) => ({
-    papers: mergePapersDesc(state.papers, stored.map(toPaperListItem)),
-  }));
 };

@@ -172,16 +172,19 @@ export const initializeInteractionStore = async (db: LuminaDB): Promise<void> =>
   });
 
   // IndexedDBから全インタラクションをロード
-  const interactions = await db.userInteractions.toArray();
-
-  useInteractionStore.setState({
-    interactions,
-    isLoading: false,
-  });
+  // 読み込み中に別タブの変更を反映した場合は読み直す（読み込み開始時点の古い全件で反映を消さない）
+  await reloadUnlessChanged(
+    () => useInteractionStore.getState().interactions,
+    () => db.userInteractions.toArray(),
+    (interactions) => useInteractionStore.setState({ interactions, isLoading: false })
+  );
 };
 
 /** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
 let unsubscribeRemoteChanges: (() => void) | null = null;
+
+// 開発時の HMR でモジュールが置き換わるとき、古いストアへの購読を解除する
+import.meta.hot?.dispose(() => unsubscribeRemoteChanges?.());
 
 /**
  * 別タブで変更された論文のいいね・ブックマークを IndexedDB から読み直し、Store のその論文の分を置き換える

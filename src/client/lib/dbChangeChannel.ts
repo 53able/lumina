@@ -48,6 +48,37 @@ export const notifyDbChange = (db: LuminaDB, change: DbChange): void => {
   }
 };
 
+// 開発時の HMR でモジュールが置き換わるとき、古いチャネルを閉じる（閉じたチャネルの購読は届かなくなる）
+import.meta.hot?.dispose(() => {
+  channel?.close();
+  channel = undefined;
+});
+
+/** 論文IDの配列か */
+const isPaperIds = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((id) => typeof id === "string");
+
+/**
+ * 受け取ったメッセージの形を確かめる
+ * 別の版のアプリのタブなど、想定外の形のメッセージで読み直しを誤らないため
+ */
+export const isDbChangeMessage = (value: unknown): value is DbChangeMessage => {
+  if (typeof value !== "object" || value === null) return false;
+  const message = value as Record<string, unknown>;
+  if (typeof message.dbName !== "string") return false;
+  switch (message.table) {
+    case "papers":
+      return isPaperIds(message.paperIds);
+    case "paperSummaries":
+    case "userInteractions":
+      return message.paperIds === null || isPaperIds(message.paperIds);
+    case "searchHistories":
+      return true;
+    default:
+      return false;
+  }
+};
+
 /**
  * 別タブからの指定テーブルの変更を購読する
  * @returns 購読の解除関数
@@ -59,9 +90,11 @@ export const subscribeDbChanges = <T extends DbChange["table"]>(
 ): (() => void) => {
   const ch = getChannel();
   if (!ch) return () => {};
-  const handleMessage = (event: MessageEvent<DbChangeMessage>) => {
+  const handleMessage = (event: MessageEvent<unknown>) => {
     const message = event.data;
-    if (message?.dbName !== db.name || message.table !== table) return;
+    if (!isDbChangeMessage(message) || message.dbName !== db.name || message.table !== table) {
+      return;
+    }
     // table が T と一致することは上で確かめている（型引数では絞り込めないため変換する）
     listener(message as unknown as Extract<DbChange, { table: T }>);
   };
@@ -70,24 +103,33 @@ export const subscribeDbChanges = <T extends DbChange["table"]>(
 };
 
 /**
- * 別タブの変更を IndexedDB から読み直してストアへ反映する
+ * IndexedDB から読み直してストアへ反映する（別タブの変更の反映と、初期ロードで使う）
  *
- * 読み直しの間に自タブの操作がストアを更新した場合、読んだ内容はその操作の書き込みより古いことがある。
+ * 読み直しの間に自タブの操作や別の読み直しがストアを更新した場合、読んだ内容はその更新より古いことがある。
  * ストアの対象部分が読み直しの前後で変わっていたら（参照が異なれば）読み直しをやり直し、
- * 自タブの操作の結果を古い内容で上書きしない。
+ * 新しい内容を古い内容で上書きしない。
+ * maxAttempts 回続けて変わった場合は retryDelayMs 待ってから同じ手順をやり直す（反映を諦めない）。
+ *
+ * @returns 反映したときに resolve する
  */
 export const reloadUnlessChanged = async <S, R>(
   getSnapshot: () => S,
   read: () => Promise<R>,
   apply: (result: R) => void,
-  maxAttempts = 5
+  { maxAttempts = 5, retryDelayMs = 100 }: { maxAttempts?: number; retryDelayMs?: number } = {}
 ): Promise<void> => {
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const before = getSnapshot();
-    const result = await read();
-    if (getSnapshot() === before) {
-      apply(result);
-      return;
+  for (;;) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const before = getSnapshot();
+      const result = await read();
+      if (getSnapshot() === before) {
+        apply(result);
+        return;
+      }
     }
+    console.warn(
+      `Local data kept changing while reloading it (${maxAttempts} attempts); retrying in ${retryDelayMs}ms`
+    );
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
   }
 };

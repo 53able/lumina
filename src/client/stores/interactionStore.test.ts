@@ -306,6 +306,7 @@ describe("interactionStore: 別タブの変更", () => {
 
   afterEach(async () => {
     otherTab.close();
+    vi.restoreAllMocks();
     await mockDb.delete();
   });
 
@@ -350,5 +351,71 @@ describe("interactionStore: 別タブの変更", () => {
         paperIds: ["2401.00001"],
       });
     });
+  });
+
+  it("別タブの変更の読み直しが先に反映されても、このタブで追加したいいねは重複しない", async () => {
+    const { useInteractionStore, initializeInteractionStore } = await import("./interactionStore");
+    await initializeInteractionStore(mockDb);
+
+    // 追加の書き込み直後、Store の更新前に、別タブの通知による読み直しを割り込ませる
+    const add = mockDb.userInteractions.add.bind(mockDb.userInteractions);
+    vi.spyOn(mockDb.userInteractions, "add").mockImplementationOnce((async (
+      interaction: UserInteraction
+    ) => {
+      const key = await add(interaction);
+      otherTab.postMessage({
+        dbName: mockDb.name,
+        table: "userInteractions",
+        paperIds: ["2401.00001"],
+      } satisfies DbChangeMessage);
+      await vi.waitFor(() => {
+        expect(useInteractionStore.getState().interactions).toHaveLength(1);
+      });
+      return key;
+    }) as never);
+
+    await useInteractionStore.getState().toggleLike("2401.00001");
+
+    expect(useInteractionStore.getState().interactions).toHaveLength(1);
+    expect(await mockDb.userInteractions.count()).toBe(1);
+  });
+
+  it("初期ロード中に届いた別タブの変更は、初期ロードの完了後も残る", async () => {
+    const { useInteractionStore, initializeInteractionStore } = await import("./interactionStore");
+    useInteractionStore.setState({ interactions: [] });
+
+    // 初期ロードの全件読み取りは、読み込み開始時点（空）の内容を読んだあと、反映を止めておく
+    let readStarted = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const toArray = mockDb.userInteractions.toArray.bind(mockDb.userInteractions);
+    vi.spyOn(mockDb.userInteractions, "toArray").mockImplementationOnce((async () => {
+      const rows = await toArray();
+      readStarted = true;
+      await gate;
+      return rows;
+    }) as never);
+
+    const initializing = initializeInteractionStore(mockDb);
+    await vi.waitFor(() => {
+      expect(readStarted).toBe(true);
+    });
+    await mockDb.userInteractions.add(createSampleInteraction({ paperId: "2401.00001" }));
+    otherTab.postMessage({
+      dbName: mockDb.name,
+      table: "userInteractions",
+      paperIds: ["2401.00001"],
+    } satisfies DbChangeMessage);
+    await vi.waitFor(() => {
+      expect(useInteractionStore.getState().getLikedPaperIds().has("2401.00001")).toBe(true);
+    });
+
+    release();
+    await initializing;
+
+    expect(useInteractionStore.getState().getLikedPaperIds().has("2401.00001")).toBe(true);
+    expect(useInteractionStore.getState().isLoading).toBe(false);
   });
 });

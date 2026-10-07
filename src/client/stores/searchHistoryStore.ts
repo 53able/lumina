@@ -291,16 +291,19 @@ export const initializeSearchHistoryStore = async (db: LuminaDB): Promise<void> 
   });
 
   // IndexedDBから全検索履歴をロード（新しい順）
-  const histories = await readHistories(db);
-
-  useSearchHistoryStore.setState({
-    histories,
-    isLoading: false,
-  });
+  // 読み込み中に別タブの変更を反映した場合は読み直す（読み込み開始時点の古い全件で反映を消さない）
+  await reloadUnlessChanged(
+    () => useSearchHistoryStore.getState().histories,
+    () => readHistories(db),
+    (histories) => useSearchHistoryStore.setState({ histories, isLoading: false })
+  );
 };
 
 /** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
 let unsubscribeRemoteChanges: (() => void) | null = null;
+
+// 開発時の HMR でモジュールが置き換わるとき、古いストアへの購読を解除する
+import.meta.hot?.dispose(() => unsubscribeRemoteChanges?.());
 
 /** IndexedDB から全検索履歴を新しい順に読む */
 const readHistories = (db: LuminaDB): Promise<SearchHistory[]> =>

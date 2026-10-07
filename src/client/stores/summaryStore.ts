@@ -371,14 +371,19 @@ export const initializeSummaryStore = async (db: LuminaDB): Promise<void> => {
     });
   });
 
-  useSummaryStore.setState({
-    summaries: await readSummaries(db, null),
-    isLoading: false,
-  });
+  // 読み込み中に別タブの変更を反映した場合は読み直す（読み込み開始時点の古い全件で反映を消さない）
+  await reloadUnlessChanged(
+    () => useSummaryStore.getState().summaries,
+    () => readSummaries(db, null),
+    (summaries) => useSummaryStore.setState({ summaries, isLoading: false })
+  );
 };
 
 /** 別タブの変更の購読の解除関数（再初期化で二重に購読しないため） */
 let unsubscribeRemoteChanges: (() => void) | null = null;
+
+// 開発時の HMR でモジュールが置き換わるとき、古いストアへの購読を解除する
+import.meta.hot?.dispose(() => unsubscribeRemoteChanges?.());
 
 /**
  * IndexedDB から要約を主キーつきで読む（paperIds が null なら全件）

@@ -534,6 +534,7 @@ describe("paperStore: 別タブの変更", () => {
 
   afterEach(async () => {
     otherTab.close();
+    vi.restoreAllMocks();
     await mockDb.delete();
   });
 
