@@ -324,10 +324,23 @@ export const createPaperEmbeddingIndex = (): PaperEmbeddingIndex => {
       }
       // 共有する計算を1チャンクずつ進める（他の検索が先に完了させていれば、その結果を使う）
       while (current.sorted === null) {
-        const step = current.task.next();
+        let step: IteratorResult<void, PaperSearchMatch[]>;
+        try {
+          step = current.task.next();
+        } catch (error) {
+          // 例外で終了した計算は共有しない（次の検索で最初から計算し直す）
+          if (scoring === current) scoring = null;
+          throw error;
+        }
         if (!step.done) {
           yield;
           continue;
+        }
+        // 共有していた計算が他の検索で例外により終了していたら、結果がないためこの検索も失敗にする
+        // （共有を解除するので、次の検索は最初から計算し直す）
+        if (!Array.isArray(step.value)) {
+          if (scoring === current) scoring = null;
+          throw new Error("類似度の計算が中断されました。もう一度検索してください");
         }
         current.sorted = step.value;
         if (scoring === current) scoring = null;

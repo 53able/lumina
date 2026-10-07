@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Paper } from "../../../shared/schemas/index";
 import {
   createPaperEmbeddingIndex,
@@ -275,6 +275,32 @@ describe("createPaperEmbeddingIndex の searchInChunks（#111）", () => {
     expect(finished?.result).toEqual(plain.search(query, finished?.threshold ?? 0, 10));
     // 完了後の再検索は直前のスコアを使い、yield しない
     expect(runToEnd(index.searchInChunks(query, 0, 5, 10)).yields).toBe(0);
+  });
+
+  it("計算が例外で終わっても共有を解除し、同じクエリの再検索は最初から計算し直す", () => {
+    const index = createPaperEmbeddingIndex();
+    index.upsert(papers);
+    const plain = createPaperEmbeddingIndex();
+    plain.upsert(papers);
+
+    // 同じ計算を共有している2つの検索のうち、一方で並べ替えが例外を投げる
+    const waiting = index.searchInChunks(query, -1, 10, 10);
+    waiting.next();
+    const sort = vi.spyOn(Array.prototype, "sort").mockImplementationOnce(() => {
+      throw new Error("sort failed");
+    });
+    try {
+      expect(() => runToEnd(index.searchInChunks(query, -1, 10, 10))).toThrow("sort failed");
+    } finally {
+      sort.mockRestore();
+    }
+
+    // 共有していたもう一方の検索は結果がないため失敗し、undefined を結果にしない
+    expect(() => runToEnd(waiting)).toThrow("類似度の計算が中断されました");
+    // 同じクエリの再検索は最初から計算し直して、正しい結果を返す
+    const { result, yields } = runToEnd(index.searchInChunks(query, -1, 10, 10));
+    expect(yields).toBe(3);
+    expect(result).toEqual(plain.search(query, -1, 10));
   });
 
   it("索引が更新されたら、打ち切られた計算を共有せず最初から計算する", () => {

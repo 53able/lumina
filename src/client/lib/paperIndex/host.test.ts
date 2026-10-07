@@ -186,6 +186,11 @@ describe("createPaperIndexHost の検索の中止（#111）", () => {
     await vi.waitFor(() =>
       expect(searchResults(responses).some((r) => r.requestId === lastId)).toBe(true)
     );
+    await settle();
+    // 計算の途中で中止された検索（1〜3）には結果を返さない
+    for (const requestId of [1, 2, 3]) {
+      expect(responses.some((r) => "requestId" in r && r.requestId === requestId)).toBe(false);
+    }
 
     const reference = createPaperEmbeddingIndex();
     reference.upsert(papers);
