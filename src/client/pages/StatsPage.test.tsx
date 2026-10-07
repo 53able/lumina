@@ -217,6 +217,21 @@ describe("StatsPage", () => {
     expect(toast.info).toHaveBeenCalledWith("取得を停止しています");
   });
 
+  it("停止処理中の停止ボタンの名前は表示文「停止中…」を含む", async () => {
+    const user = userEvent.setup();
+    mockIsSyncingFromDate = true;
+
+    renderWithRouter(<StatsPage />);
+
+    const stop = screen.getByRole("button", { name: "取得を停止" });
+    expect(stop).toHaveTextContent(/^停止$/);
+    await user.click(stop);
+
+    const stopping = screen.getByRole("button", { name: "取得を停止中…" });
+    expect(stopping).toHaveTextContent("停止中…");
+    expect(stopping).toBeDisabled();
+  });
+
   it("同期中は共有された syncFromDateTarget を取得中表示に反映する", () => {
     mockIsSyncingFromDate = true;
     mockSyncFromDateTarget = "2026-01-10";
