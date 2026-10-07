@@ -2,7 +2,12 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import { type PaperSummary, SUMMARY_CORRECTION_MAX_LENGTH } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
-import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
+import {
+  isSameRecords,
+  notifyDbChange,
+  reloadUnlessChanged,
+  subscribeDbChanges,
+} from "../lib/dbChangeChannel";
 
 /**
  * 保存済みの要約の版（IndexedDB の主キーを id として持つ）
@@ -104,7 +109,7 @@ const findAdopted = (
  * IndexedDB から論文・言語の版を主キーつきで読む（保存順）
  * 呼び出し側のトランザクション内で使い、Store の控えではなく DB の最新状態を基準にする
  */
-const readVersions = async (
+export const readVersions = async (
   db: LuminaDB,
   paperId: string,
   language: "ja" | "en"
@@ -366,7 +371,7 @@ export const initializeSummaryStore = async (db: LuminaDB): Promise<void> => {
   useSummaryStore.setState({ isLoading: true, _db: db });
   unsubscribeRemoteChanges?.();
   unsubscribeRemoteChanges = subscribeDbChanges(db, "paperSummaries", ({ paperIds }) => {
-    reloadSummaries(db, paperIds).catch((error: unknown) => {
+    return reloadSummaries(db, paperIds).catch((error: unknown) => {
       console.warn("Failed to reload summaries changed in another tab", error);
     });
   });
@@ -408,12 +413,13 @@ const readSummaries = async (
  * 別タブで変更された論文の要約を IndexedDB から読み直し、Store のその論文の版を置き換える
  * （別タブで生成した要約を未生成と誤認して重複生成しないため。Issue #109）
  */
-const reloadSummaries = (db: LuminaDB, paperIds: string[] | null): Promise<void> =>
+export const reloadSummaries = (db: LuminaDB, paperIds: string[] | null): Promise<void> =>
   reloadUnlessChanged(
     () => useSummaryStore.getState().summaries,
     () => readSummaries(db, paperIds),
     (fresh) => {
       if (paperIds === null) {
+        if (isSameRecords(useSummaryStore.getState().summaries, fresh)) return;
         useSummaryStore.setState({ summaries: fresh });
         return;
       }

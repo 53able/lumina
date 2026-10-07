@@ -2,7 +2,12 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { SearchHistory } from "../../shared/schemas/index";
 import type { LuminaDB } from "../db/db";
-import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
+import {
+  isSameRecords,
+  notifyDbChange,
+  reloadUnlessChanged,
+  subscribeDbChanges,
+} from "../lib/dbChangeChannel";
 
 /**
  * 検索履歴の個別操作（削除・復元）の失敗
@@ -43,8 +48,6 @@ interface SearchHistoryActions {
   addHistory: (history: SearchHistory) => Promise<void>;
   /** IDで検索履歴を取得する */
   getHistoryById: (id: string) => SearchHistory | undefined;
-  /** 最新N件の検索履歴を取得する */
-  getRecentHistories: (limit: number) => SearchHistory[];
   /**
    * 検索履歴を削除する
    * DB削除の成功後に一覧から外し、元のレコードを deletedHistories に退避する。
@@ -134,10 +137,6 @@ export const useSearchHistoryStore = create<SearchHistoryStore>()(
 
       getHistoryById: (id) => {
         return get().histories.find((h) => h.id === id);
-      },
-
-      getRecentHistories: (limit) => {
-        return get().histories.slice(0, limit);
       },
 
       deleteHistory: async (id) => {
@@ -285,7 +284,7 @@ export const initializeSearchHistoryStore = async (db: LuminaDB): Promise<void> 
   });
   unsubscribeRemoteChanges?.();
   unsubscribeRemoteChanges = subscribeDbChanges(db, "searchHistories", () => {
-    reloadHistories(db).catch((error: unknown) => {
+    return reloadHistories(db).catch((error: unknown) => {
       console.warn("Failed to reload search histories changed in another tab", error);
     });
   });
@@ -319,6 +318,8 @@ const reloadHistories = (db: LuminaDB): Promise<void> =>
     () => useSearchHistoryStore.getState().histories,
     () => readHistories(db),
     (histories) => {
+      // 内容が同じなら反映しない（復帰のたびに参照を差し替えて再描画させない）
+      if (isSameRecords(useSearchHistoryStore.getState().histories, histories)) return;
       const ids = new Set(histories.map((h) => h.id));
       useSearchHistoryStore.setState((state) => ({
         histories,

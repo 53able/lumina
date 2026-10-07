@@ -199,7 +199,9 @@ const HomePage: FC = () => {
     onError: (err, paperId, target) => {
       console.error("Summary generation error:", err);
       // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
-      showSummaryErrorToast(err, papers.find((p) => p.id === paperId)?.title, target);
+      showSummaryErrorToast(err, papers.find((p) => p.id === paperId)?.title, target, () =>
+        setIsSettingsOpen(true)
+      );
     },
   });
 

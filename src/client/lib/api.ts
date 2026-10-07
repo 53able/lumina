@@ -184,13 +184,22 @@ export const getDecryptedApiKey = async (): Promise<string | undefined> => {
  */
 export class SearchApiError extends Error {
   readonly status: number;
+  /** サーバーが返した失敗の分類（本文が JSON でない応答では undefined） */
+  readonly code: string | undefined;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "SearchApiError";
     this.status = status;
+    this.code = code;
   }
 }
+
+/** 失敗応答の本文から分類（code）を読む。JSON でない・code がない場合は undefined */
+const readErrorCode = async (res: Response): Promise<string | undefined> => {
+  const body: { code?: unknown } | null = await res.json().catch(() => null);
+  return typeof body?.code === "string" ? body.code : undefined;
+};
 
 /**
  * 検索API
@@ -215,7 +224,9 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
     // 本文ではなく status で失敗を分類する
     // RPC の型はサーバーが返すステータスだけに絞られるため、ミドルウェア・ゲートウェイの値も扱えるよう number で受ける
     const status: number = res.status;
-    throw new SearchApiError("検索に失敗しました", status);
+    // 402 はゲートウェイ（Vercel の DEPLOYMENT_DISABLED など）も返すため、サーバーの分類（code: "quota"）がある場合だけ残高不足として扱う
+    const code = status === 402 ? await readErrorCode(res) : undefined;
+    throw new SearchApiError("検索に失敗しました", status, code);
   }
 
   // Hono RPC: res.ok === true の場合、成功レスポンスの型が推論される
@@ -323,11 +334,14 @@ export class EmbeddingRateLimitError extends Error {
  */
 export class EmbeddingApiError extends Error {
   readonly status: number;
+  /** サーバーが返した失敗の分類（本文が JSON でない応答では undefined） */
+  readonly code: string | undefined;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "EmbeddingApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -369,7 +383,8 @@ const handleEmbeddingResponse = async <T>(res: Response): Promise<T> => {
 
   if (!res.ok) {
     // 応答の error（旧形式では上流のエラー文）は使わず、status で分類する
-    throw new EmbeddingApiError("Embeddingの取得に失敗しました", res.status);
+    const code = res.status === 402 ? await readErrorCode(res) : undefined;
+    throw new EmbeddingApiError("Embeddingの取得に失敗しました", res.status, code);
   }
 
   lastEmbeddingSentAtMs = Date.now();
@@ -623,11 +638,11 @@ export const summaryApi = async (
             : status === 400
               ? "invalid_input"
               : "upstream";
-    // retryable がない場合の既定は、サーバー（summary.ts）と同じく auth と invalid_input（400）だけ再試行不可とする
+    // retryable がない場合の既定は、サーバー（summary.ts）と同じく auth・quota・invalid_input（400）だけ再試行不可とする
     const retryable =
       typeof body?.retryable === "boolean"
         ? body.retryable
-        : code !== "auth" && code !== "invalid_input";
+        : code !== "auth" && code !== "quota" && code !== "invalid_input";
     throw new SummaryApiError(code, retryable);
   }
 

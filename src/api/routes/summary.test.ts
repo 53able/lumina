@@ -1,4 +1,4 @@
-import { RetryError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 
@@ -13,6 +13,25 @@ vi.mock("../services/openai", async (importOriginal) => {
 });
 
 import { generateExplanation, generateSummary } from "../services/openai";
+
+/** OpenAI が残高不足で返す 429（本文の code が insufficient_quota） */
+const quotaError = () => {
+  const data = {
+    error: {
+      message: "You exceeded your current quota",
+      type: "insufficient_quota",
+      code: "insufficient_quota",
+    },
+  };
+  return new APICallError({
+    message: data.error.message,
+    url: "https://api.openai.com/v1/chat/completions",
+    requestBodyValues: {},
+    statusCode: 429,
+    responseBody: JSON.stringify(data),
+    data,
+  });
+};
 
 describe("要約API", () => {
   const app = createApp();
@@ -384,6 +403,31 @@ describe("要約API", () => {
           code: "rate_limit",
           retryable: true,
         });
+      });
+
+      it("異常系: 429 + insufficient_quota は quota として402で返し、上流の文言を返さない", async () => {
+        vi.mocked(generateSummary).mockRejectedValueOnce(quotaError());
+
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(402);
+        const body = await response.json();
+        expect(body).toEqual({
+          error: "要約の生成に失敗しました",
+          code: "quota",
+          retryable: false,
+        });
+        expect(JSON.stringify(body)).not.toContain("exceeded your current quota");
+      });
+
+      it("正常系: 説明文だけが insufficient_quota で失敗した場合は quota の分類を返す", async () => {
+        vi.mocked(generateExplanation).mockRejectedValueOnce(quotaError());
+
+        const response = await postSummary("both");
+
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.explanationError).toEqual({ code: "quota", retryable: false });
       });
 
       it("異常系: 説明文のみの生成が上流の認証エラーで失敗しても上流の文言を返さない", async () => {

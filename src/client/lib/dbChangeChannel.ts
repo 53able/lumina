@@ -80,16 +80,118 @@ export const isDbChangeMessage = (value: unknown): value is DbChangeMessage => {
 };
 
 /**
+ * タブの復帰時に読み直す変更（Issue #127）
+ *
+ * bfcache に入っている間や凍結されている間のタブには、別タブの通知が届かないことがある。
+ * 復帰したら、取りこぼした変更を反映するため全件を読み直す。
+ * 論文は数万件ありうるため全件は読み直さず、復帰時の対象にしない（null）。
+ */
+const resumeReloadChange = (table: DbChange["table"]): DbChange | null => {
+  switch (table) {
+    case "papers":
+      return null;
+    case "paperSummaries":
+    case "userInteractions":
+      return { table, paperIds: null };
+    case "searchHistories":
+      return { table };
+  }
+};
+
+/** 背面にいた時間がこれ以上のときだけ、前面への復帰で読み直す（短い切り替えのたびに読み直さない） */
+export const RESUME_HIDDEN_THRESHOLD_MS = 30_000;
+
+/** 直近の復帰からこの時間内の復帰は無視する（bfcache 復帰で pageshow と visibilitychange が続けて来ても1回にする） */
+export const RESUME_DEDUPE_MS = 1_000;
+
+/**
+ * タブの復帰を購読する（Issue #127）
+ * - bfcache からの復帰（pageshow の persisted）: 常に復帰とみなす
+ * - 前面への復帰（visibilitychange で visible）: 背面にいた時間が RESUME_HIDDEN_THRESHOLD_MS 以上のときだけ
+ * 直近の復帰から RESUME_DEDUPE_MS 内の復帰は無視する。
+ * @returns 購読の解除関数
+ */
+export const subscribeResume = (listener: () => void): (() => void) => {
+  if (typeof window === "undefined" || typeof document === "undefined") return () => {};
+  // 購読を始めた時点で背面なら、その時点から背面にいたものとする
+  let hiddenAt: number | null = document.visibilityState === "hidden" ? Date.now() : null;
+  let lastResumedAt = Number.NEGATIVE_INFINITY;
+  const resume = () => {
+    const at = Date.now();
+    if (at - lastResumedAt < RESUME_DEDUPE_MS) return;
+    lastResumedAt = at;
+    listener();
+  };
+  const handlePageShow = (event: PageTransitionEvent) => {
+    // persisted でない pageshow は通常の読み込み（初期ロードで読んでいる）
+    if (event.persisted) resume();
+  };
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      hiddenAt = Date.now();
+      return;
+    }
+    if (document.visibilityState !== "visible") return;
+    const since = hiddenAt;
+    hiddenAt = null;
+    if (since !== null && Date.now() - since >= RESUME_HIDDEN_THRESHOLD_MS) resume();
+  };
+  window.addEventListener("pageshow", handlePageShow);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  return () => {
+    window.removeEventListener("pageshow", handlePageShow);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+};
+
+/** 値が同じ内容か（IndexedDB から読んだレコード用。Date は時刻で比べる） */
+const isSameValue = (a: unknown, b: unknown): boolean => {
+  if (Object.is(a, b)) return true;
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+  }
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every(
+    (key) =>
+      Object.hasOwn(b, key) &&
+      isSameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])
+  );
+};
+
+/**
+ * 全件を読み直した結果が、ストアにある内容と同じか（並び順は問わない）
+ * 同じなら反映しない（参照を差し替えて再描画させないため。Issue #127）
+ */
+export const isSameRecords = <T extends { id: string | number }>(
+  current: readonly T[],
+  fresh: readonly T[]
+): boolean => {
+  if (current.length !== fresh.length) return false;
+  const byId = new Map<string | number, T>(current.map((record) => [record.id, record]));
+  return fresh.every((record) => isSameValue(byId.get(record.id), record));
+};
+
+/**
  * 別タブからの指定テーブルの変更を購読する
+ *
+ * 論文以外のテーブルは、タブの復帰時にも全件の変更として listener を呼ぶ（届かなかった通知を補う）。
+ * 復帰が続いても読み直しを積み上げないよう、listener が返した Promise の完了までの復帰は1回にまとめ、
+ * 完了後に1回だけ読み直す。
+ *
  * @returns 購読の解除関数
  */
 export const subscribeDbChanges = <T extends DbChange["table"]>(
   db: LuminaDB,
   table: T,
-  listener: (change: Extract<DbChange, { table: T }>) => void
+  listener: (change: Extract<DbChange, { table: T }>) => unknown
 ): (() => void) => {
+  const unsubscribeResume = subscribeResumeReload(table, listener);
   const ch = getChannel();
-  if (!ch) return () => {};
+  if (!ch) return unsubscribeResume;
   const handleMessage = (event: MessageEvent<unknown>) => {
     const message = event.data;
     if (!isDbChangeMessage(message) || message.dbName !== db.name || message.table !== table) {
@@ -99,7 +201,45 @@ export const subscribeDbChanges = <T extends DbChange["table"]>(
     listener(message as unknown as Extract<DbChange, { table: T }>);
   };
   ch.addEventListener("message", handleMessage);
-  return () => ch.removeEventListener("message", handleMessage);
+  return () => {
+    ch.removeEventListener("message", handleMessage);
+    unsubscribeResume();
+  };
+};
+
+/** タブの復帰時に全件の変更として listener を呼ぶ（読み直し中の復帰は完了後の1回にまとめる） */
+const subscribeResumeReload = <T extends DbChange["table"]>(
+  table: T,
+  listener: (change: Extract<DbChange, { table: T }>) => unknown
+): (() => void) => {
+  const change = resumeReloadChange(table) as Extract<DbChange, { table: T }> | null;
+  if (change === null) return () => {};
+  let running = false;
+  let pending = false;
+  let stopped = false;
+  const run = async () => {
+    if (running) {
+      pending = true;
+      return;
+    }
+    running = true;
+    do {
+      pending = false;
+      try {
+        await listener(change);
+      } catch (error) {
+        console.warn("Failed to reload local data after the tab resumed", error);
+      }
+    } while (pending && !stopped);
+    running = false;
+  };
+  const unsubscribe = subscribeResume(() => {
+    void run();
+  });
+  return () => {
+    stopped = true;
+    unsubscribe();
+  };
 };
 
 /**

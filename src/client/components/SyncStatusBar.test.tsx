@@ -380,7 +380,27 @@ describe("SyncStatusBar", () => {
 
       const stopping = screen.getByRole("button", { name: "同期を停止中…" });
       expect(stopping).toHaveTextContent("停止中…");
-      expect(stopping).toBeDisabled();
+      expect(stopping).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("キーボードで停止を押した後もフォーカスが停止ボタンに残り、再度押しても onStopSync は1回だけ", async () => {
+      const { SyncStatusBar } = await import("./SyncStatusBar");
+      const user = userEvent.setup();
+      const onStopSync = vi.fn();
+      mockSyncStoreState.isSyncingFromDate = true;
+
+      render(<SyncStatusBar onStopSync={onStopSync} />);
+
+      screen.getByRole("button", { name: "同期を停止" }).focus();
+      await user.keyboard("{Enter}");
+
+      const stopping = screen.getByRole("button", { name: "同期を停止中…" });
+      expect(stopping).toHaveFocus();
+      await user.keyboard("{Enter}");
+      await user.click(stopping);
+
+      expect(stopping).toHaveFocus();
+      expect(onStopSync).toHaveBeenCalledTimes(1);
     });
   });
 });
