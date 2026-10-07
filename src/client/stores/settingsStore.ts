@@ -147,6 +147,10 @@ let lastKnownSettings: SettingsState = DEFAULT_SETTINGS;
  * APIキーを削除したりした後に、古い状態を持つタブが同期日時などを更新すると、
  * 全項目が古い値で上書きされて OFF やキー削除が戻ってしまう（#104）。
  * そこで書き込み直前に最新の localStorage を読み直し、このタブで変更した項目だけを重ねる。
+ *
+ * 保存値が無い状態（初回・別タブでの localStorage.clear() 後）で書くと、変更した項目だけが保存される。
+ * 欠けた項目は読み込み時に既定値で補う（merge）。APIキーは空になるので canUseApi() は false（安全側）。
+ * 保存値が無いときに状態を丸ごと書くと、別タブで削除・クリアしたキーを古いタブの値で復活させてしまうため行わない。
  */
 const createCrossTabSafeStorage = (): PersistStorage<SettingsState> | undefined => {
   let storage: Storage;
@@ -336,6 +340,12 @@ export const useSettingsStore = create<SettingsStore>()(
         name: SETTINGS_STORAGE_KEY,
         storage: createCrossTabSafeStorage(),
         partialize: (state: SettingsStore) => pickPersistedSettings(state),
+        // 保存値に無い項目は既定値で補う。保存値が無い・一部しか無い場合に、メモリに残る古い値（旧キーなど）を使わない
+        merge: (persistedState, currentState) => ({
+          ...currentState,
+          ...DEFAULT_SETTINGS,
+          ...(persistedState as Partial<SettingsState> | undefined),
+        }),
         // 読み込んだ値（既定値で補った後の状態）を、このタブの既知の値として記録する
         onRehydrateStorage: () => (state) => {
           if (state) lastKnownSettings = pickPersistedSettings(state);
@@ -346,11 +356,27 @@ export const useSettingsStore = create<SettingsStore>()(
   )
 );
 
-// 別タブでの設定変更を取り込み、表示と動作に反映する（storage イベントは変更したタブ以外で発火する）
+/**
+ * 別タブでの設定変更を取り込み、表示と動作に反映する（storage イベントは変更したタブ以外で発火する）。
+ * event.key が null のときは別タブでの localStorage.clear() なので、これも取り込む。
+ *
+ * @remarks
+ * rehydrate のたびに persist.onFinishHydration の購読者が再び呼ばれる。
+ * App.tsx はここで runSyncPeriodResetMigration() を呼ぶが、実施済みフラグ（syncPeriodResetMigrationDone）を
+ * 見て何もしない。ただし別タブで localStorage.clear() された後はフラグも既定値（false）に戻るため、
+ * マイグレーションが再実行され同期期間が3日になり、通知が出る。
+ */
+const handleStorageEvent = (event: StorageEvent) => {
+  if (event.storageArea !== localStorage) return;
+  if (event.key === SETTINGS_STORAGE_KEY || event.key === null) {
+    void useSettingsStore.persist.rehydrate();
+  }
+};
+
 if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    if (event.key === SETTINGS_STORAGE_KEY) {
-      void useSettingsStore.persist.rehydrate();
-    }
+  window.addEventListener("storage", handleStorageEvent);
+  // HMR でモジュールが差し替わるときに古いリスナーを外す
+  import.meta.hot?.dispose(() => {
+    window.removeEventListener("storage", handleStorageEvent);
   });
 }

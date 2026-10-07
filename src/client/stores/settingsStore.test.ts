@@ -382,7 +382,9 @@ describe("settingsStore", () => {
       tabB.getState().setApiEnabled(false);
       tabB.getState().setAutoGenerateSummary(false);
       tabB.getState().clearApiKey();
-      window.dispatchEvent(new StorageEvent("storage", { key: "lumina-settings" }));
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: localStorage })
+      );
 
       const state = tabA.getState();
       expect(state.apiEnabled).toBe(false);
@@ -396,7 +398,9 @@ describe("settingsStore", () => {
 
       tabB.getState().setApiEnabled(false);
       tabB.getState().clearApiKey();
-      window.dispatchEvent(new StorageEvent("storage", { key: "lumina-settings" }));
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: localStorage })
+      );
 
       tabA.getState().setLastSyncedAt(new Date("2026-10-05T00:00:00.000Z"));
 
@@ -424,13 +428,65 @@ describe("settingsStore", () => {
       expect(readStored().apiEnabled).toBe(false);
     });
 
-    it("別のキーの storage イベントでは再読み込みしない", async () => {
+    it("別のキーの storage イベントでは再読み込みせず、lumina-settings のイベントで反映される", async () => {
       const { tabA, tabB } = await openTwoTabs();
 
       tabB.getState().setApiEnabled(false);
-      window.dispatchEvent(new StorageEvent("storage", { key: "other-key" }));
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "other-key", storageArea: localStorage })
+      );
 
       expect(tabA.getState().apiEnabled).toBe(true);
+
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: localStorage })
+      );
+
+      expect(tabA.getState().apiEnabled).toBe(false);
+    });
+
+    it("sessionStorage の storage イベントでは再読み込みしない", async () => {
+      const { tabA, tabB } = await openTwoTabs();
+
+      tabB.getState().setApiEnabled(false);
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "lumina-settings", storageArea: sessionStorage })
+      );
+
+      expect(tabA.getState().apiEnabled).toBe(true);
+    });
+
+    it("別タブで localStorage.clear() されると（key が null）、既定値を取り込みキーが空になる", async () => {
+      const { tabA } = await openTwoTabs();
+      expect(tabA.getState().canUseApi()).toBe(true);
+
+      localStorage.clear();
+      window.dispatchEvent(new StorageEvent("storage", { key: null, storageArea: localStorage }));
+
+      const state = tabA.getState();
+      expect(state.apiKey).toBe("");
+      expect(state.autoGenerateSummary).toBe(false);
+      expect(state.canUseApi()).toBe(false);
+    });
+
+    it("保存値が無い状態で書くと変えた項目だけが保存され、次に開いたタブでは既定値で補われキーは空になる", async () => {
+      const { tabA } = await openTwoTabs();
+
+      // 別タブで localStorage.clear() された後、storage イベントが届く前にタブAが同期日時を書く
+      localStorage.clear();
+      tabA.getState().setLastSyncedAt(new Date("2026-10-06T00:00:00.000Z"));
+
+      expect(readStored()).toEqual({ lastSyncedAt: "2026-10-06T00:00:00.000Z" });
+
+      vi.resetModules();
+      const nextTab = (await import("./settingsStore")).useSettingsStore;
+      const state = nextTab.getState();
+      expect(state.apiKey).toBe("");
+      expect(state.apiEnabled).toBe(true);
+      expect(state.autoGenerateSummary).toBe(false);
+      expect(state.selectedCategories).toEqual(["cs.AI", "cs.LG", "cs.CL", "stat.ML"]);
+      expect(state.lastSyncedAt).toBe("2026-10-06T00:00:00.000Z");
+      expect(state.canUseApi()).toBe(false);
     });
   });
 });
