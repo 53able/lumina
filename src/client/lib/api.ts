@@ -604,7 +604,8 @@ export const summaryApi = async (
   assertApiEnabled();
   const res = await client.api.v1.summary[":id"].$post(
     {
-      param: { id: paperId },
+      // RPC クライアントはパスパラメータをエンコードしないため、旧形式の ID のスラッシュを %2F にする（Issue #108）
+      param: { id: encodeURIComponent(paperId) },
       json: {
         language: request.language,
         abstract: request.abstract,
