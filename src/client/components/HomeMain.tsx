@@ -102,8 +102,8 @@ interface HomeMainProps {
   onDiscardSummaryVersion?: (id: number) => Promise<void>;
   /** 要約の版に利用者の訂正文を保存する（空なら訂正を削除する） */
   onSaveSummaryCorrection?: (id: number, text: string) => Promise<void>;
-  /** 検索履歴 */
-  recentHistories: SearchHistoryType[];
+  /** 検索履歴（すべて。新しい順。表示件数は SearchHistory で絞る） */
+  searchHistories: SearchHistoryType[];
   /** 再検索ハンドラー */
   onReSearch: (history: SearchHistoryType) => void;
   /** 履歴の削除と取り消し（操作と結果） */
@@ -177,7 +177,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
   onAdoptSummaryVersion,
   onDiscardSummaryVersion,
   onSaveSummaryCorrection,
-  recentHistories,
+  searchHistories,
   onReSearch,
   historyUndo,
   hasMore,
@@ -255,7 +255,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
                 fallback={<div className="p-4 text-sm text-muted-foreground">読み込み中...</div>}
               >
                 <SearchHistory
-                  histories={recentHistories}
+                  histories={searchHistories}
                   onReSearch={onReSearch}
                   undo={historyUndo}
                   compact
@@ -276,7 +276,7 @@ const HomeMainInner: FC<HomeMainProps> = ({
             {/* モバイル: 検索履歴は検索欄の手前の折りたたみ（一覧を覆わない） */}
             {!isDesktop && (
               <MobileSearchHistory
-                histories={recentHistories}
+                histories={searchHistories}
                 onReSearch={onReSearch}
                 undo={historyUndo}
               />

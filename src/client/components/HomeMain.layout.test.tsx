@@ -63,7 +63,7 @@ const renderHomeMain = (isDesktop: boolean) =>
       summaryLanguage="ja"
       onSummaryLanguageChange={noop}
       autoGenerateSummary={false}
-      recentHistories={[]}
+      searchHistories={[]}
       onReSearch={noop}
       onRunEmbeddingBackfill={noop}
       hasMore

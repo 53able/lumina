@@ -115,11 +115,10 @@ const HomePage: FC = () => {
   } = useSettingsStore();
   // API利用OFF中は自動要約を発火させない（設定値は保持し、ONに戻すと再開する）
   const autoGenerateSummary = autoGenerateSummarySetting && apiEnabled;
-  // 検索履歴（searchHistoryStore経由で永続化）
-  const { histories, addHistory, getRecentHistories } = useSearchHistoryStore();
+  // 検索履歴（searchHistoryStore経由で永続化）。すべて渡し、表示件数は SearchHistory の「さらに表示」で増やす（自動削除はしない）
+  const { histories, addHistory } = useSearchHistoryStore();
   // 個別削除と取り消し（削除の実行と結果の表示を同じ出どころから渡す）
   const historyUndo = useSearchHistoryUndo();
-  const recentHistories = getRecentHistories(10);
   const findSavedHistory = useCallback(
     (query: string) => histories.find((h) => h.originalQuery === query),
     [histories]
@@ -471,7 +470,7 @@ const HomePage: FC = () => {
         onAdoptSummaryVersion={adoptSummaryVersion}
         onDiscardSummaryVersion={discardSummaryVersion}
         onSaveSummaryCorrection={saveSummaryCorrection}
-        recentHistories={recentHistories}
+        searchHistories={histories}
         onReSearch={handleReSearch}
         historyUndo={historyUndo}
         hasMore={hasMorePapers}

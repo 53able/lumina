@@ -12,8 +12,13 @@ import { Button } from "./ui/button";
  * SearchHistory コンポーネントのProps
  */
 interface SearchHistoryProps {
-  /** 検索履歴の配列 */
+  /** 検索履歴の配列（新しい順。すべての履歴を渡し、表示件数はこのコンポーネントで絞る） */
   histories: SearchHistoryType[];
+  /**
+   * 最初に表示する件数と、「さらに表示」で増やす件数。
+   * 最初に表示する件数はマウント時の値だけを使う（表示中に変えても、表示済みの件数は変わらない）
+   */
+  pageSize?: number;
   /** 再検索時のコールバック */
   onReSearch?: (history: SearchHistoryType) => void;
   /** 削除と取り消しの操作・結果（未指定なら削除ボタンと取り消し欄を出さない） */
@@ -44,6 +49,9 @@ interface StartedOperation {
 /** live region に残す通知の件数 */
 const MAX_ANNOUNCEMENTS = 3;
 
+/** 最初に表示する履歴の件数（「さらに表示」で同じ件数ずつ増やす） */
+const DEFAULT_PAGE_SIZE = 10;
+
 const EMPTY_HISTORIES: SearchHistoryType[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_ERRORS: SearchHistoryUndo["historyErrors"] = {};
@@ -55,11 +63,13 @@ const EMPTY_ERRORS: SearchHistoryUndo["historyErrors"] = {};
  * - 検索履歴一覧を表示
  * - ワンタップで再検索
  * - 履歴の削除（削除後もこのセッション中は元に戻せる。失敗は行のそばに残し再試行できる）
+ * - 直近の pageSize 件を表示し、「さらに表示」で古い履歴も表示する（履歴は自動で削除しない）
  */
 export const SearchHistory: FC<SearchHistoryProps> = ({
-  histories,
+  histories: allHistories,
   onReSearch,
   undo,
+  pageSize = DEFAULT_PAGE_SIZE,
   compact = false,
   liveRegionContainer,
   announceFailures = false,
@@ -68,6 +78,13 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
   const historyErrors = undo?.historyErrors ?? EMPTY_ERRORS;
   const pendingHistoryIds = undo?.pendingHistoryIds ?? EMPTY_IDS;
   const restoreConflictIds = undo?.restoreConflictIds ?? EMPTY_IDS;
+
+  /** 表示する件数（「さらに表示」で pageSize ずつ増やす） */
+  const [visibleCount, setVisibleCount] = useState(pageSize);
+  const histories = allHistories.slice(0, visibleCount);
+  const hiddenCount = allHistories.length - histories.length;
+  /** 「さらに表示」で新しく表示した先頭の行（フォーカスを移す） */
+  const focusAfterShowMoreRef = useRef<string | null>(null);
 
   /**
    * スクリーンリーダー向けの結果通知（直近の数件）
@@ -142,9 +159,9 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
         messages.push(`「${operation.query}」を元に戻しました。`);
         moveFocus(operation, rowButtonRefs.current.get(id));
       } else {
-        // 表示件数より古い履歴は一覧に出ないため、一覧の先頭へ移す
+        // 表示件数より古い位置に戻った履歴は「さらに表示」まで出ないため、一覧の先頭へ移す
         messages.push(
-          `「${operation.query}」を元に戻しました。古い履歴のため、この一覧には表示されません。`
+          `「${operation.query}」を元に戻しました。古い履歴のため、「さらに表示」で表示できます。`
         );
         const first = histories[0];
         moveFocus(operation, first ? rowButtonRefs.current.get(first.id) : undefined);
@@ -159,6 +176,19 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
       setAnnouncements((prev) => [...prev, ...added].slice(-MAX_ANNOUNCEMENTS));
     }
   });
+
+  // 「さらに表示」で押したボタンが消えてもフォーカスを見失わないよう、新しく表示した先頭の行へ移す
+  useEffect(() => {
+    const id = focusAfterShowMoreRef.current;
+    if (id === null) return;
+    focusAfterShowMoreRef.current = null;
+    rowButtonRefs.current.get(id)?.focus();
+  });
+
+  const handleShowMore = () => {
+    focusAfterShowMoreRef.current = allHistories[visibleCount]?.id ?? null;
+    setVisibleCount((count) => count + pageSize);
+  };
 
   const isFocusInside = (): boolean => rootRef.current?.contains(document.activeElement) ?? false;
 
@@ -391,6 +421,17 @@ export const SearchHistory: FC<SearchHistoryProps> = ({
             );
           })}
         </ul>
+      )}
+
+      {histories.length > 0 && hiddenCount > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className={`w-full ${compact ? "h-7 text-xs" : "h-8"}`}
+          onClick={handleShowMore}
+        >
+          さらに表示（残り{hiddenCount}件）
+        </Button>
       )}
     </div>
   );

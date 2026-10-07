@@ -10,7 +10,7 @@ import { Button } from "./ui/button";
  * MobileSearchHistory のProps（デスクトップのサイドバーと同じ値を受け取る）
  */
 interface MobileSearchHistoryProps {
-  /** 検索履歴 */
+  /** 検索履歴（すべて。新しい順） */
   histories: SearchHistoryType[];
   /** 再検索ハンドラー */
   onReSearch: (history: SearchHistoryType) => void;
@@ -66,10 +66,10 @@ export const MobileSearchHistory: FC<MobileSearchHistoryProps> = ({
       >
         <History className="h-4 w-4" aria-hidden />
         検索履歴
-        {/* 件数は表示中の履歴（直近の上限まで）の数。各行の件数（検索結果の数）とは別。
+        {/* 件数は保存しているすべての履歴の数（パネルでは直近から順に表示し「さらに表示」で残りを出す）。各行の件数（検索結果の数）とは別。
             読み上げ名は表示テキストから作り、区切りだけ sr-only で補う */}
         <span className="sr-only">、</span>
-        <span className="text-xs text-muted-foreground">直近{histories.length}件</span>
+        <span className="text-xs text-muted-foreground">全{histories.length}件</span>
         {undoableCount > 0 ? (
           <>
             <span className="sr-only">、</span>
