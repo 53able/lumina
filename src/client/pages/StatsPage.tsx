@@ -196,11 +196,12 @@ export const StatsPage: FC = () => {
                     variant="outline"
                     size="sm"
                     onClick={handleStopSyncFromDate}
-                    disabled={isStoppingSyncFromDate}
+                    // disabled にするとフォーカスが外れるため、aria-disabled で無効を伝える（二重実行はハンドラで止める）
+                    aria-disabled={isStoppingSyncFromDate || undefined}
                     // 名前は表示文（「停止中…」「停止」）を含める（WCAG 2.5.3）
                     aria-label={isStoppingSyncFromDate ? "取得を停止中…" : "取得を停止"}
                     aria-busy={isStoppingSyncFromDate}
-                    className="h-auto px-2 py-1 text-xs"
+                    className="h-auto px-2 py-1 text-xs aria-disabled:opacity-50 aria-disabled:pointer-events-none"
                   >
                     <StopCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
                     {isStoppingSyncFromDate ? "停止中…" : "停止"}

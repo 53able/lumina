@@ -229,7 +229,26 @@ describe("StatsPage", () => {
 
     const stopping = screen.getByRole("button", { name: "取得を停止中…" });
     expect(stopping).toHaveTextContent("停止中…");
-    expect(stopping).toBeDisabled();
+    expect(stopping).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("キーボードで停止を押した後もフォーカスが停止ボタンに残り、再度押しても stopSync は1回だけ", async () => {
+    const user = userEvent.setup();
+    mockIsSyncingFromDate = true;
+
+    renderWithRouter(<StatsPage />);
+
+    const stop = screen.getByRole("button", { name: "取得を停止" });
+    stop.focus();
+    await user.keyboard("{Enter}");
+
+    const stopping = screen.getByRole("button", { name: "取得を停止中…" });
+    expect(stopping).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await user.click(stopping);
+
+    expect(stopping).toHaveFocus();
+    expect(mockStopSync).toHaveBeenCalledTimes(1);
   });
 
   it("同期中は共有された syncFromDateTarget を取得中表示に反映する", () => {
