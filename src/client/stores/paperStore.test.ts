@@ -419,6 +419,204 @@ describe("paperStore", () => {
     });
   });
 
+  describe("所属とEmbeddingの保存競合", () => {
+    it("ネットワークは同一著者の所属とEmbeddingを保持し、明示空と著者順変更を反映する", async () => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      await mockDb.papers.add(createSamplePaper({ authorAffiliations: [["OpenAI"], ["Google"]] }));
+      await initializePaperStore(mockDb);
+      await usePaperStore.getState().addPaper(createSamplePaper({ embedding: undefined }));
+      expect((await mockDb.papers.get("2401.00001"))?.authorAffiliations).toEqual([
+        ["OpenAI"],
+        ["Google"],
+      ]);
+      await usePaperStore
+        .getState()
+        .addPaper(createSamplePaper({ authorAffiliations: [[], []], embedding: undefined }));
+      expect((await mockDb.papers.get("2401.00001"))?.authorAffiliations).toEqual([[], []]);
+      await usePaperStore
+        .getState()
+        .addPaper(createSamplePaper({ authors: ["Author B", "Author A"], embedding: undefined }));
+      expect((await mockDb.papers.get("2401.00001"))?.authorAffiliations).toBeUndefined();
+      expect((await mockDb.papers.get("2401.00001"))?.embedding).toHaveLength(1536);
+    });
+
+    it.each(
+      [undefined, [[], []], [["Old"], []]].flatMap((incoming) =>
+        [
+          [[], []],
+          [["Google"], []],
+        ].flatMap((saved) =>
+          [
+            ["Author A", "Author B"],
+            ["B", "A"],
+          ].map((authors) => ({ incoming, saved, authors }))
+        )
+      )
+    )("キャッシュ $incoming は現在の著者と取得済み所属 $saved を巻き戻さない", async ({
+      incoming,
+      saved,
+      authors,
+    }) => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const current = createSamplePaper({ title: "Latest", authors, authorAffiliations: saved });
+      await mockDb.papers.add(current);
+      await initializePaperStore(mockDb);
+      await usePaperStore
+        .getState()
+        .addPapers([createSamplePaper({ authorAffiliations: incoming })], { source: "cache" });
+      expect(await mockDb.papers.get(current.id)).toEqual(current);
+    });
+
+    it("キャッシュは同じ著者列の未取得所属だけ補完し、再読込でも残る", async () => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const current = createSamplePaper({ title: "Latest" });
+      await mockDb.papers.add(current);
+      await initializePaperStore(mockDb);
+      await usePaperStore
+        .getState()
+        .addPapers([createSamplePaper({ authorAffiliations: [["Google"], []] })], {
+          source: "cache",
+        });
+      expect(await mockDb.papers.get(current.id)).toEqual({
+        ...current,
+        authorAffiliations: [["Google"], []],
+      });
+      await initializePaperStore(mockDb);
+      expect(usePaperStore.getState().papers[0]?.authorAffiliations).toEqual([["Google"], []]);
+      await usePaperStore
+        .getState()
+        .addPapers(
+          [createSamplePaper({ authors: ["B", "A"], authorAffiliations: [["Wrong"], []] })],
+          { source: "cache" }
+        );
+      expect(usePaperStore.getState().papers[0]?.authors).toEqual(current.authors);
+    });
+
+    it.each([
+      { authorAffiliations: [[], []] },
+      { authorAffiliations: [["Old"], []] },
+    ])("遅延した単件・バッチEmbeddingは古い所属 $authorAffiliations や著者順を戻さない", async ({
+      authorAffiliations,
+    }) => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const { runBackfillEmbeddings } = await import("../lib/backfillEmbeddings");
+      const old = createSamplePaper({ authorAffiliations, embedding: undefined });
+      await mockDb.papers.add(old);
+      await initializePaperStore(mockDb);
+      for (const batch of [false, true]) {
+        let resolve!: (embedding: number[]) => void;
+        const deferred = new Promise<number[]>((done) => {
+          resolve = done;
+        });
+        const save = (paper: Paper) =>
+          usePaperStore.getState().savePaperEmbeddings([
+            {
+              id: paper.id,
+              title: paper.title,
+              abstract: paper.abstract,
+              embedding: paper.embedding ?? [],
+            },
+          ]);
+        const running = runBackfillEmbeddings([old], {
+          fetchEmbedding: () => deferred,
+          ...(batch ? { fetchEmbeddingBatch: async () => [await deferred] } : {}),
+          addPaper: save,
+          addPapers: (papers) =>
+            usePaperStore.getState().savePaperEmbeddings(
+              papers.map((paper) => ({
+                id: paper.id,
+                title: paper.title,
+                abstract: paper.abstract,
+                embedding: paper.embedding ?? [],
+              }))
+            ),
+        });
+        await usePaperStore.getState().addPaper(
+          createSamplePaper({
+            authors: ["B", "A"],
+            authorAffiliations: [["Google"], ["OpenAI"]],
+            embedding: undefined,
+          })
+        );
+        resolve([0.9]);
+        await running;
+        expect(await mockDb.papers.get(old.id)).toMatchObject({
+          authors: ["B", "A"],
+          authorAffiliations: [["Google"], ["OpenAI"]],
+          embedding: [0.9],
+        });
+      }
+    });
+
+    it.each([
+      { invalid: [["Wrong"]] },
+      { invalid: [["Wrong"], "not a row"] },
+      { invalid: [[3], []] },
+    ])("不正な所属配列 $invalid は保存せず、ネットワーク取得で修復できる", async ({ invalid }) => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      await initializePaperStore(mockDb);
+      await usePaperStore
+        .getState()
+        .addPaper(createSamplePaper({ authorAffiliations: invalid as string[][] }));
+      expect((await mockDb.papers.get("2401.00001"))?.authorAffiliations).toBeUndefined();
+      await usePaperStore
+        .getState()
+        .addPaper(createSamplePaper({ authorAffiliations: [["Google"], []] }));
+      expect((await mockDb.papers.get("2401.00001"))?.authorAffiliations).toEqual([["Google"], []]);
+    });
+
+    it.each([
+      "title",
+      "abstract",
+      "deleted",
+    ])("Embedding生成元 %s の変更はバッチ全体を保存前に拒否し公開しない", async (change) => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const papers = [
+        createSamplePaper({ embedding: undefined }),
+        createSamplePaper({ id: "second", embedding: undefined }),
+      ];
+      await mockDb.papers.bulkPut(papers);
+      const upsert = vi.fn();
+      const fake = createFakeIndexClient({ onUpsert: upsert });
+      const ready = initializePaperStore(mockDb, { createIndexClient: () => fake.client });
+      fake.handlers().onLoaded(2);
+      await ready;
+      const { runBackfillEmbeddings } = await import("../lib/backfillEmbeddings");
+      let resolve!: (vectors: number[][]) => void;
+      const pending = new Promise<number[][]>((done) => {
+        resolve = done;
+      });
+      const progress = vi.fn();
+      const running = runBackfillEmbeddings(papers, {
+        fetchEmbedding: async () => [1],
+        fetchEmbeddingBatch: () => pending,
+        addPaper: async () => {
+          throw new Error("Batch callback expected");
+        },
+        addPapers: (completed) =>
+          usePaperStore.getState().savePaperEmbeddings(
+            completed.map((paper) => ({
+              id: paper.id,
+              title: paper.title,
+              abstract: paper.abstract,
+              embedding: paper.embedding ?? [],
+            }))
+          ),
+        onProgress: progress,
+      });
+      if (change === "deleted") await mockDb.papers.delete("second");
+      else await mockDb.papers.update("second", { [change]: "Changed" });
+      const beforeList = usePaperStore.getState().papers;
+      resolve([[1], [2]]);
+      await expect(running).rejects.toThrow("Embedding source changed or paper deleted");
+      expect(progress).not.toHaveBeenCalled();
+      expect((await mockDb.papers.get("2401.00001"))?.embedding).toBeUndefined();
+      expect(upsert).not.toHaveBeenCalled();
+      expect(usePaperStore.getState().papers).toBe(beforeList);
+      if (change === "deleted") expect(await mockDb.papers.get("second")).toBeUndefined();
+    });
+  });
+
   describe("保存と索引（#65）", () => {
     it("一覧用のフィールド hasEmbedding は DB に保存しない", async () => {
       const { usePaperStore, initializePaperStore } = await import("./paperStore");
