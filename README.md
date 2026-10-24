@@ -148,6 +148,8 @@ Lumina は OpenAI API を使用するため、API の利用料金が発生しま
 
 ## セットアップ（3ステップ）
 
+Node.js 24 LTS と pnpm 9.1.1 を使用します。nvm を利用する場合は、リポジトリ直下で `nvm install` と `nvm use` を実行すると `.nvmrc` の指定が適用されます。CI も同じ Node.js 系列を使用します。
+
 ### Step 1: 環境変数を設定
 
 `.env.example` をコピーして `.env` を作成し、OpenAI API Key を設定します。
@@ -178,7 +180,7 @@ pnpm dev
 **ターミナル2: バックエンド（Hono サーバー）**
 
 ```bash
-pnpm api
+pnpm dev:api
 ```
 
 ブラウザで `http://localhost:5173` を開く → 完成！
@@ -273,7 +275,7 @@ pnpm install
 
 # 開発
 pnpm dev          # フロントエンド（Vite HMR）
-pnpm api          # バックエンド（Hono サーバー）
+pnpm dev:api          # バックエンド（Hono サーバー）
 
 # 品質チェック
 pnpm typecheck    # 型チェック
@@ -289,6 +291,8 @@ pnpm build        # 本番ビルド
 ## デプロイ（Vercel）
 
 このプロジェクトは Vercel にネイティブ対応しています。
+
+Vercel の Project Settings > Build and Deployment > Node.js Version は 24.x に設定してください。
 
 ```bash
 # Vercel CLI をインストール

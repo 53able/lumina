@@ -38,3 +38,6 @@ unsaved/
 
 # oh-my-claudecode のローカル状態
 .omc/
+
+# oh-my-codex のローカル状態
+.omx/
