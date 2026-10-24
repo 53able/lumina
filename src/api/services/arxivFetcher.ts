@@ -1,5 +1,5 @@
 import { parseISO, subDays } from "date-fns";
-import type { Paper, SyncPeriod } from "../../shared/schemas/index";
+import type { Paper, SyncPeriod } from "../../shared/schemas/index.js";
 
 /**
  * arXiv API クエリオプション
@@ -45,7 +45,7 @@ export class ArxivRateLimitError extends Error {
 }
 
 /**
- * arXiv API が 503 (Service Unavailable) を返したときに投げるエラー。
+ * arXiv API が 502/503/504 を返したとき、またはタイムアウト・ネットワーク失敗のときに投げるエラー。
  * sync ルートで 503 として返し、クライアントがリトライできるようにする。
  */
 export class ArxivServiceUnavailableError extends Error {
@@ -58,7 +58,103 @@ export class ArxivServiceUnavailableError extends Error {
 /**
  * arXiv APIのベースURL
  */
-const ARXIV_API_URL = "http://export.arxiv.org/api/query";
+const ARXIV_API_URL = "https://export.arxiv.org/api/query";
+
+/**
+ * arXiv への送信間隔の最小値（利用規約: 3 秒に 1 リクエスト）
+ */
+const ARXIV_MIN_INTERVAL_MS = 3000;
+
+/**
+ * 待ち行列で待てる時間の上限（見積もり）。これを超える場合は並ばずに ArxivRateLimitError を投げる
+ */
+const ARXIV_MAX_WAIT_MS = 15_000;
+
+/**
+ * arXiv への fetch のタイムアウト（関数の maxDuration 60 秒に収まる値）
+ */
+const ARXIV_FETCH_TIMEOUT_MS = 25_000;
+
+/**
+ * arXiv 待ち行列の末尾。前のリクエストの完了（成功・失敗とも）で解決する。インスタンス内で共有する
+ */
+let arxivQueueTail: Promise<void> = Promise.resolve();
+
+/**
+ * 待ち行列にいる件数（実行中を含む）
+ */
+let arxivQueueLength = 0;
+
+/**
+ * 直近に arXiv へ送信を開始した時刻（epoch ms）
+ */
+let lastArxivSendAt = Number.NEGATIVE_INFINITY;
+
+/**
+ * テスト用: arXiv の待ち行列を初期状態に戻す
+ */
+export const resetArxivGateForTest = (): void => {
+  arxivQueueTail = Promise.resolve();
+  arxivQueueLength = 0;
+  lastArxivSendAt = Number.NEGATIVE_INFINITY;
+};
+
+/**
+ * arXiv へのリクエストを 1 本ずつ実行する。
+ * 送信は「前回の送信開始 + 3 秒」と「前回の完了」の遅い方から始める。
+ * 前にいる件数（実行中を含む）× 3 秒 + 現在の間隔の残り が上限を超える場合は、並ばずに ArxivRateLimitError を投げる。
+ */
+const runInArxivQueue = async <T>(task: () => Promise<T>): Promise<T> => {
+  const intervalRemainingMs = Math.max(0, lastArxivSendAt + ARXIV_MIN_INTERVAL_MS - Date.now());
+  const estimatedWaitMs = arxivQueueLength * ARXIV_MIN_INTERVAL_MS + intervalRemainingMs;
+  if (estimatedWaitMs > ARXIV_MAX_WAIT_MS) {
+    throw new ArxivRateLimitError(
+      `arXiv request queue is full (estimated wait ${estimatedWaitMs}ms)`,
+      // 受け付けられるまでのおおよその秒数（超過分 + 1 枠分）
+      Math.ceil((estimatedWaitMs - ARXIV_MAX_WAIT_MS) / 1000) + ARXIV_MIN_INTERVAL_MS / 1000
+    );
+  }
+
+  arxivQueueLength += 1;
+  const previous = arxivQueueTail;
+  let release = (): void => {};
+  arxivQueueTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // 見積もりは 1 件 3 秒で数えるが、実際の占有は fetch の完了まで（最大 25 秒）。並んだ後も上限を超えたら待たずに抜ける
+  const deadline = Date.now() + ARXIV_MAX_WAIT_MS;
+  const queueTimeoutError = () =>
+    new ArxivRateLimitError("arXiv request queue wait timed out", ARXIV_MIN_INTERVAL_MS / 1000);
+  try {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const isReady = await Promise.race([
+      previous.then(() => true),
+      new Promise<false>((resolve) => {
+        timeoutId = setTimeout(() => resolve(false), ARXIV_MAX_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timeoutId);
+    if (!isReady) throw queueTimeoutError();
+    const waitMs = lastArxivSendAt + ARXIV_MIN_INTERVAL_MS - Date.now();
+    if (Date.now() + Math.max(0, waitMs) > deadline) throw queueTimeoutError();
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    lastArxivSendAt = Date.now();
+    return await task();
+  } finally {
+    arxivQueueLength -= 1;
+    // 途中で抜けた場合も直列を崩さないよう、自分の枠は前のリクエストの完了後に解放する
+    void previous.then(release);
+  }
+};
+
+/**
+ * タイムアウト（TimeoutError / AbortError）またはネットワーク失敗（fetch の TypeError）か
+ */
+const isNetworkFailure = (error: unknown): error is Error =>
+  error instanceof TypeError ||
+  (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"));
 
 /**
  * XMLからテキストを抽出するヘルパー
@@ -258,10 +354,25 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
   const searchQuery = buildSearchQuery(categories, period, fromDate, toDate);
   const encodedQuery = encodeArxivQuery(searchQuery);
   const url = `${ARXIV_API_URL}?search_query=${encodedQuery}&start=${start}&max_results=${maxResults}&sortBy=submittedDate&sortOrder=descending`;
-  const response = await fetch(url);
+
+  let response: Response;
+  let xml: string;
+  try {
+    // 本文の読み込みまでを 1 本の接続として扱い、完了してから次のリクエストを送る
+    ({ response, xml } = await runInArxivQueue(async () => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(ARXIV_FETCH_TIMEOUT_MS) });
+      const text = res.ok ? await res.text() : await res.text().catch(() => "");
+      return { response: res, xml: text };
+    }));
+  } catch (error) {
+    if (isNetworkFailure(error)) {
+      throw new ArxivServiceUnavailableError(`arXiv API request failed: ${error.message}`);
+    }
+    throw error;
+  }
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
+    const errorText = xml;
     const errorMatch = errorText.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i);
     const errorMessage = errorMatch?.[1]?.trim() || errorText.substring(0, 1000);
     const message = `arXiv API error: ${response.status} ${response.statusText} - ${errorMessage}`;
@@ -273,13 +384,11 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
         retryAfterSec != null && Number.isFinite(retryAfterSec) ? retryAfterSec : undefined
       );
     }
-    if (response.status === 503) {
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
       throw new ArxivServiceUnavailableError(message);
     }
     throw new Error(message);
   }
-
-  const xml = await response.text();
 
   // totalResultsを抽出
   const totalMatch = xml.match(/<opensearch:totalResults[^>]*>(\d+)<\/opensearch:totalResults>/i);

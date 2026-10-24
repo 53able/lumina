@@ -1,6 +1,6 @@
 import { RetryError } from "ai";
 import { z } from "zod";
-import { OpenAIApiKeyNotConfiguredError } from "../services/openai";
+import { OpenAIApiKeyNotConfiguredError } from "../services/openai.js";
 
 /** 失敗の分類（上流のエラー文を含まない） */
 export type UpstreamErrorCode = "rate_limit" | "quota" | "auth" | "invalid_output" | "upstream";

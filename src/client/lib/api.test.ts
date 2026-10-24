@@ -1,5 +1,6 @@
 /**
- * クライアント API（embeddingApi / embeddingBatchApi の 429 リトライ・getRecommendedConcurrency・getDecryptedApiKey）のユニットテスト
+ * クライアント API（embeddingApi / embeddingBatchApi の 429 リトライ・getRecommendedConcurrency・getDecryptedApiKey・
+ * syncApi の送信間隔とリトライ）のユニットテスト
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSettingsStore } from "@/client/stores/settingsStore";
@@ -11,6 +12,8 @@ import {
   embeddingBatchApi,
   getDecryptedApiKey,
   getRecommendedConcurrency,
+  resetSyncIntervalForTest,
+  SyncRateLimitError,
   searchApi,
   summaryApi,
   syncApi,
@@ -23,6 +26,48 @@ vi.mock("@/client/stores/settingsStore", () => ({
     getState: vi.fn(() => ({ apiEnabled: true, apiKey: "" })),
   },
 }));
+
+// sync の送信間隔（モジュール共有の最終送信時刻）を前のテストから引きずらない
+beforeEach(() => {
+  resetSyncIntervalForTest();
+});
+
+const okEmbeddingResponse = () =>
+  new Response(
+    JSON.stringify({
+      embedding: Array(EMBEDDING_DIMENSION).fill(0.1),
+      model: "text-embedding-3-small",
+      took: 1,
+    }),
+    { status: 200, headers: new Headers() }
+  );
+
+const okSyncResponse = () =>
+  new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
+    status: 200,
+    headers: new Headers(),
+  });
+
+const errorResponse = (status: number, retryAfter?: string) =>
+  new Response(JSON.stringify({ error: "error", code: "rate_limit", retryable: true }), {
+    status,
+    headers: new Headers(retryAfter !== undefined ? { "Retry-After": retryAfter } : {}),
+  });
+
+/** fetch が呼ばれた時刻（fake timers の Date.now）を記録しつつ、順に応答を返す */
+const respondInOrder = (
+  mockFetch: ReturnType<typeof vi.fn>,
+  responses: Array<() => Response | Promise<Response>>
+): number[] => {
+  const calledAt: number[] = [];
+  mockFetch.mockImplementation(async () => {
+    calledAt.push(Date.now());
+    const next = responses[calledAt.length - 1];
+    if (!next) throw new Error("unexpected fetch");
+    return next();
+  });
+  return calledAt;
+};
 
 describe("embeddingApi", () => {
   const mockFetch = vi.fn();
@@ -53,19 +98,56 @@ describe("embeddingApi", () => {
     await p;
   });
 
-  it("429 のときはリトライせず EmbeddingRateLimitError を投げる", async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: "Too Many Requests" }), {
-        status: 429,
-        headers: new Headers({ "Retry-After": "1" }),
-      })
-    );
+  it.each([
+    ["Retry-After なし", undefined],
+    ["Retry-After が 30 秒超", "31"],
+  ])("429 で %s のときは再送せず EmbeddingRateLimitError を投げる", async (_label, retryAfter) => {
+    respondInOrder(mockFetch, [() => errorResponse(429, retryAfter)]);
 
     const p = embeddingApi({ text: "test" }, { apiKey: "key" });
     const expectReject = expect(p).rejects.toThrow(EmbeddingRateLimitError);
     await vi.runAllTimersAsync();
     await expectReject;
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("429（Retry-After: 5）のときは 5 秒待って 1 回だけ再送し、成功を返す", async () => {
+    const calledAt = respondInOrder(mockFetch, [
+      () => errorResponse(429, "5"),
+      () => okEmbeddingResponse(),
+    ]);
+
+    const p = embeddingApi({ text: "test" }, { apiKey: "key" });
+    await vi.runAllTimersAsync();
+    await expect(p).resolves.toHaveProperty("embedding");
+    expect(calledAt).toHaveLength(2);
+    expect(calledAt[1] - calledAt[0]).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("429 の再送待ちの間に abort されたら再送せず AbortError を投げる", async () => {
+    respondInOrder(mockFetch, [() => errorResponse(429, "5"), () => okEmbeddingResponse()]);
+
+    const ac = new AbortController();
+    const p = embeddingApi({ text: "test" }, { apiKey: "key", signal: ac.signal });
+    const expectReject = expect(p).rejects.toMatchObject({ name: "AbortError" });
+    // 前のテストから引き継いだ送信間隔の待ちを進め、1 回目の送信（429）を受け取らせる
+    while (mockFetch.mock.calls.length === 0) {
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    await vi.advanceTimersByTimeAsync(1_000);
+    ac.abort();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("再送も 429 なら EmbeddingRateLimitError を投げる（再送は 1 回だけ）", async () => {
+    respondInOrder(mockFetch, [() => errorResponse(429, "5"), () => errorResponse(429, "5")]);
+
+    const p = embeddingApi({ text: "test" }, { apiKey: "key" });
+    const expectReject = expect(p).rejects.toThrow(EmbeddingRateLimitError);
+    await vi.runAllTimersAsync();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -137,6 +219,23 @@ describe("embeddingBatchApi", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     await p2;
   });
+
+  it("429（Retry-After: 5）のときは 5 秒待って 1 回だけ再送する", async () => {
+    const embeddings = [Array(EMBEDDING_DIMENSION).fill(0.1)];
+    const calledAt = respondInOrder(mockFetch, [
+      () => errorResponse(429, "5"),
+      () =>
+        new Response(JSON.stringify({ embeddings, model: "m", took: 1 }), {
+          status: 200,
+          headers: new Headers(),
+        }),
+    ]);
+
+    const p = embeddingBatchApi({ texts: ["a"] }, { apiKey: "key" });
+    await vi.runAllTimersAsync();
+    await expect(p).resolves.toEqual({ embeddings, model: "m", took: 1 });
+    expect(calledAt[1] - calledAt[0]).toBeGreaterThanOrEqual(5_000);
+  });
 });
 
 describe("getDecryptedApiKey", () => {
@@ -174,7 +273,7 @@ describe("getRecommendedConcurrency", () => {
     expect(getRecommendedConcurrency()).toBe(3);
   });
 
-  it("embeddingApi が RateLimit-Remaining: 50 で返したあとは 10 にクリップされる", async () => {
+  it("embeddingApi が RateLimit-Remaining: 50 で返したあとは 4 にクリップされる", async () => {
     const embedding = Array(EMBEDDING_DIMENSION).fill(0.1);
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ embedding, model: "text-embedding-3-small", took: 100 }), {
@@ -190,27 +289,45 @@ describe("getRecommendedConcurrency", () => {
     await vi.runAllTimersAsync();
     await p;
 
-    expect(getRecommendedConcurrency()).toBe(10);
+    expect(getRecommendedConcurrency()).toBe(4);
   });
 
-  it("embeddingApi が RateLimit-Remaining: 5 で返したあとは 5 を返す", async () => {
+  it("sync 応答の RateLimit-* は推奨並列数に影響しない（sync は別バケット）", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
+        status: 200,
+        headers: new Headers({
+          "RateLimit-Remaining": "1",
+          "RateLimit-Reset": "60",
+        }),
+      })
+    );
+    const before = getRecommendedConcurrency();
+
+    await syncApi({ categories: ["cs.AI"] });
+
+    expect(before).toBe(4);
+    expect(getRecommendedConcurrency()).toBe(before);
+  });
+
+  it("embeddingApi が RateLimit-Remaining: 2 で返したあとは 2 を返す", async () => {
     const embedding = Array(EMBEDDING_DIMENSION).fill(0.1);
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ embedding, model: "text-embedding-3-small", took: 100 }), {
         status: 200,
         headers: new Headers({
-          "RateLimit-Remaining": "5",
+          "RateLimit-Remaining": "2",
           "RateLimit-Reset": String(Math.floor(Date.now() / 1000) + 900),
         }),
       })
     );
 
     const p = embeddingApi({ text: "test" }, { apiKey: "key" });
-    // 前テストで remaining=50 のため intervalMs = windowLeft/50。並列10のため delayMs = intervalMs * 10。初回は待機スキップ済みなので 2 本目は待機する
+    // 前テストで remaining=50 のため intervalMs = windowLeft/50。並列4のため delayMs = intervalMs * 4。初回は待機スキップ済みなので 2 本目は待機する
     await vi.advanceTimersByTimeAsync(200_000);
     await p;
 
-    expect(getRecommendedConcurrency()).toBe(5);
+    expect(getRecommendedConcurrency()).toBe(2);
   }, 30_000);
 });
 
@@ -220,12 +337,15 @@ describe("syncApi", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", mockFetch);
+    // ジッターを 0 に固定する（個別のテストで上書きする）
+    vi.spyOn(Math, "random").mockReturnValue(0);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    mockFetch.mockReset();
   });
 
   it("existingPaperIds を渡したときリクエスト body に含まれる", async () => {
@@ -263,7 +383,7 @@ describe("syncApi", () => {
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: "Too Many Requests" }), {
         status: 429,
-        headers: new Headers({ "Retry-After": "120" }),
+        headers: new Headers({ "Retry-After": "30" }),
       })
     );
 
@@ -278,6 +398,211 @@ describe("syncApi", () => {
     });
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
+
+  it("連続して呼ぶと 2 回目の送信は 1 回目から 6 秒後になる（初回は即時）", async () => {
+    const calledAt = respondInOrder(mockFetch, [okSyncResponse, okSyncResponse]);
+    const startedAt = Date.now();
+
+    await syncApi({ categories: ["cs.AI"] });
+    expect(calledAt).toEqual([startedAt]);
+
+    const second = syncApi({ categories: ["cs.AI"] });
+    await vi.advanceTimersByTimeAsync(5_999);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await second;
+    expect(calledAt[1] - calledAt[0]).toBe(6_000);
+  });
+
+  it("送信間隔の待機中に abort されたら送信せず AbortError を投げる", async () => {
+    respondInOrder(mockFetch, [okSyncResponse, okSyncResponse]);
+    await syncApi({ categories: ["cs.AI"] });
+
+    const ac = new AbortController();
+    const second = syncApi({ categories: ["cs.AI"] }, { signal: ac.signal });
+    const expectReject = expect(second).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    ac.abort();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("送信間隔の待機中に abort されたら予約を取り消し、直後の再呼び出しは余計に待たない", async () => {
+    const calledAt = respondInOrder(mockFetch, [okSyncResponse, okSyncResponse]);
+    await syncApi({ categories: ["cs.AI"] });
+
+    const ac = new AbortController();
+    const aborted = syncApi({ categories: ["cs.AI"] }, { signal: ac.signal });
+    const expectReject = expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    ac.abort();
+    await expectReject;
+
+    const retried = syncApi({ categories: ["cs.AI"] });
+    await vi.runAllTimersAsync();
+    await retried;
+    // 取り消さなければ中断した予約（6 秒後）のさらに 6 秒後になる
+    expect(calledAt[1] - calledAt[0]).toBe(6_000);
+  });
+
+  it("並行呼び出しの後続の予約が入っていれば、先の中断で予約を戻さない", async () => {
+    const calledAt = respondInOrder(mockFetch, [okSyncResponse, okSyncResponse]);
+    await syncApi({ categories: ["cs.AI"] });
+
+    const ac = new AbortController();
+    const aborted = syncApi({ categories: ["cs.AI"] }, { signal: ac.signal });
+    const expectReject = expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+    const later = syncApi({ categories: ["cs.AI"] });
+    await vi.advanceTimersByTimeAsync(1_000);
+    ac.abort();
+    await expectReject;
+
+    await vi.runAllTimersAsync();
+    await later;
+    // 後続は中断された予約（6 秒後）のさらに 6 秒後のまま
+    expect(calledAt[1] - calledAt[0]).toBe(12_000);
+  });
+
+  it("503 が続くと指数バックオフ（3 秒・6 秒以上）で再送し、成功を返す。onRateLimited は 1 回だけ", async () => {
+    const calledAt = respondInOrder(mockFetch, [
+      () => errorResponse(503),
+      () => errorResponse(503),
+      okSyncResponse,
+    ]);
+    const onRateLimited = vi.fn();
+
+    const promise = syncApi({ categories: ["cs.AI"] }, { onRateLimited });
+    await vi.runAllTimersAsync();
+    await expect(promise).resolves.toMatchObject({ fetchedCount: 0 });
+
+    expect(calledAt).toHaveLength(3);
+    expect(calledAt[1] - calledAt[0]).toBeGreaterThanOrEqual(3_000);
+    expect(calledAt[2] - calledAt[1]).toBeGreaterThanOrEqual(6_000);
+    expect(onRateLimited).toHaveBeenCalledTimes(1);
+    expect(onRateLimited).toHaveBeenCalledWith("unavailable");
+  });
+
+  it("待ちにジッター（最大 20%）を加える", async () => {
+    vi.mocked(Math.random).mockReturnValue(0.5);
+    const calledAt = respondInOrder(mockFetch, [
+      () => errorResponse(502),
+      () => errorResponse(502),
+      okSyncResponse,
+    ]);
+
+    const promise = syncApi({ categories: ["cs.AI"] });
+    await vi.runAllTimersAsync();
+    await promise;
+
+    // 1 回目の待ち（3.3 秒）は送信間隔（6 秒）に隠れるため、2 回目（6 秒 × 1.1）で確かめる
+    expect(calledAt[2] - calledAt[1]).toBe(6_600);
+  });
+
+  it("Retry-After がバックオフより長ければ Retry-After を優先する", async () => {
+    const calledAt = respondInOrder(mockFetch, [() => errorResponse(429, "10"), okSyncResponse]);
+    const onRateLimited = vi.fn();
+
+    const promise = syncApi({ categories: ["cs.AI"] }, { onRateLimited });
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(calledAt[1] - calledAt[0]).toBe(10_000);
+    expect(onRateLimited).toHaveBeenCalledWith("rate_limit");
+  });
+
+  it("待ちは 60 秒で打ち切る（503 の長い Retry-After）", async () => {
+    vi.mocked(Math.random).mockReturnValue(0.99);
+    const calledAt = respondInOrder(mockFetch, [() => errorResponse(503, "120"), okSyncResponse]);
+
+    const promise = syncApi({ categories: ["cs.AI"] });
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(calledAt[1] - calledAt[0]).toBe(60_000);
+  });
+
+  it("Retry-After が 60 秒を超える 429 は待たずに SyncRateLimitError を投げる", async () => {
+    respondInOrder(mockFetch, [() => errorResponse(429, "61")]);
+    const onRateLimited = vi.fn();
+
+    const error = await syncApi({ categories: ["cs.AI"] }, { onRateLimited }).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(SyncRateLimitError);
+    expect((error as SyncRateLimitError).retryAfterSec).toBe(61);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(onRateLimited).not.toHaveBeenCalled();
+  });
+
+  it("リトライ上限（3 回）を超えて 429 が続くと SyncRateLimitError を投げる", async () => {
+    respondInOrder(
+      mockFetch,
+      Array(4).fill(() => errorResponse(429, "1"))
+    );
+
+    const promise = syncApi({ categories: ["cs.AI"] });
+    const expectReject = expect(promise).rejects.toThrow(SyncRateLimitError);
+    await vi.runAllTimersAsync();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("504（関数タイムアウト）は再送せず Error を投げる。onRateLimited は呼ばない", async () => {
+    respondInOrder(mockFetch, [() => errorResponse(504), okSyncResponse]);
+    const onRateLimited = vi.fn();
+
+    const promise = syncApi({ categories: ["cs.AI"] }, { onRateLimited });
+    const expectReject = expect(promise).rejects.toThrow("Sync failed: 504");
+    await vi.runAllTimersAsync();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(onRateLimited).not.toHaveBeenCalled();
+  });
+
+  it("fetch のネットワーク失敗（TypeError）は再送する", async () => {
+    const calledAt = respondInOrder(mockFetch, [
+      () => Promise.reject(new TypeError("Failed to fetch")),
+      okSyncResponse,
+    ]);
+    const onRateLimited = vi.fn();
+
+    const promise = syncApi({ categories: ["cs.AI"] }, { onRateLimited });
+    await vi.runAllTimersAsync();
+    await expect(promise).resolves.toMatchObject({ fetchedCount: 0 });
+    expect(calledAt[1] - calledAt[0]).toBeGreaterThanOrEqual(6_000);
+    expect(onRateLimited).toHaveBeenCalledWith("network");
+  });
+
+  it("最後の試行もネットワーク失敗なら、日本語の Error で包んで投げる（元の例外は cause）", async () => {
+    const networkError = new TypeError("Failed to fetch");
+    respondInOrder(
+      mockFetch,
+      Array(4).fill(() => Promise.reject(networkError))
+    );
+
+    const promise = syncApi({ categories: ["cs.AI"] });
+    const expectReject = expect(promise).rejects.toMatchObject({
+      message: "ネットワークに接続できませんでした。接続を確認してから再度お試しください。",
+      cause: networkError,
+    });
+    await vi.runAllTimersAsync();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("fetch の AbortError は再送せずそのまま投げる", async () => {
+    respondInOrder(mockFetch, [
+      () => Promise.reject(new DOMException("aborted", "AbortError")),
+      okSyncResponse,
+    ]);
+
+    const promise = syncApi({ categories: ["cs.AI"] });
+    const expectReject = expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    await vi.runAllTimersAsync();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("API利用OFF時の実行境界", () => {
@@ -289,12 +614,6 @@ describe("API利用OFF時の実行境界", () => {
       apiKey,
     } as ReturnType<typeof useSettingsStore.getState>);
   };
-
-  const okSyncResponse = () =>
-    new Response(JSON.stringify({ papers: [], fetchedCount: 0, totalResults: 0, took: 1 }), {
-      status: 200,
-      headers: new Headers(),
-    });
 
   /** fetch に渡されたリクエスト body を JSON で取り出す */
   const readRequestBody = async (call: unknown[]): Promise<Record<string, unknown>> => {
@@ -364,6 +683,25 @@ describe("API利用OFF時の実行境界", () => {
     await vi.runAllTimersAsync();
     await expectReject;
     expect(mockFetch).toHaveBeenCalledTimes(callsBefore);
+  });
+
+  it("Embedding の 429 再送の待機中に OFF にされたら再送しない", async () => {
+    vi.useFakeTimers();
+    mockApiEnabled(true);
+    // 429 を返すと同時に OFF にし、再送待ちの間は OFF のままにする
+    respondInOrder(mockFetch, [
+      () => {
+        mockApiEnabled(false);
+        return errorResponse(429, "5");
+      },
+      okEmbeddingResponse,
+    ]);
+
+    const pending = embeddingApi({ text: "t" });
+    const expectReject = expect(pending).rejects.toThrow(ApiDisabledError);
+    await vi.runAllTimersAsync();
+    await expectReject;
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("sync の 429 再送前に OFF にされたら、再送で skipEmbedding: true を送る", async () => {

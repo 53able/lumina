@@ -7,8 +7,8 @@ import {
   type EvidenceSentence,
   resolveKeyPointEvidence,
   splitAbstractSentences,
-} from "../../shared/utils/abstractSentences";
-import type { Env } from "../types/env";
+} from "../../shared/utils/abstractSentences.js";
+import type { Env } from "../types/env.js";
 
 /**
  * 生成タスクごとの使用モデル
@@ -226,11 +226,13 @@ export const createEmbedding = async (
  *
  * @param texts 対象テキスト配列（1件以上、推奨は 20 件以下）
  * @param config OpenAI 設定
+ * @param options 中断用の signal と再試行回数（未指定時は AI SDK の既定）
  * @returns 入力順の Embedding 配列と合計トークン数
  */
 export const createEmbeddingsBatch = async (
   texts: string[],
-  config: OpenAIConfig
+  config: OpenAIConfig,
+  options?: { abortSignal?: AbortSignal; maxRetries?: number }
 ): Promise<{ embeddings: number[][]; tokensUsed: number }> => {
   if (texts.length === 0) {
     return { embeddings: [], tokensUsed: 0 };
@@ -241,6 +243,7 @@ export const createEmbeddingsBatch = async (
   const { embeddings, usage } = await embedMany({
     model: provider.embedding(EMBEDDING_MODEL),
     values: texts,
+    ...options,
   });
 
   const vectors: number[][] = embeddings.map((e) =>

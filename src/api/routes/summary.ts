@@ -1,10 +1,10 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
-import { now } from "../../shared/utils/dateTime";
-import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError";
-import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai";
-import type { Env } from "../types/env";
+import { now } from "../../shared/utils/dateTime.js";
+import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError.js";
+import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai.js";
+import type { Env } from "../types/env.js";
 
 /**
  * 生成対象の種類

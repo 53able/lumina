@@ -1,14 +1,18 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
-import { createRateLimitMiddleware } from "./middleware/rateLimit";
-import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders";
-import { categoriesApp } from "./routes/categories";
-import { embeddingApp } from "./routes/embedding";
-import { healthApp } from "./routes/health";
-import { searchApp } from "./routes/search";
-import { summaryApp } from "./routes/summary";
-import { syncApp } from "./routes/sync";
-import type { Env } from "./types/env";
+import {
+  createApiRateLimitMiddleware,
+  createSyncRateLimitMiddleware,
+  SYNC_PATH,
+} from "./middleware/rateLimit.js";
+import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders.js";
+import { categoriesApp } from "./routes/categories.js";
+import { embeddingApp } from "./routes/embedding.js";
+import { healthApp } from "./routes/health.js";
+import { searchApp } from "./routes/search.js";
+import { summaryApp } from "./routes/summary.js";
+import { syncApp } from "./routes/sync.js";
+import type { Env } from "./types/env.js";
 
 /**
  * Hono アプリケーションの作成
@@ -18,13 +22,15 @@ import type { Env } from "./types/env";
  */
 export const createApp = () => {
   const securityHeadersMiddleware = createSecurityHeadersMiddleware();
-  const rateLimitMiddleware = createRateLimitMiddleware();
+  const syncRateLimitMiddleware = createSyncRateLimitMiddleware();
+  const apiRateLimitMiddleware = createApiRateLimitMiddleware();
 
   // チェーン形式で構築することで、すべてのルート情報が型に含まれる
   return new Hono<{ Bindings: Env }>()
     .use("*", logger())
     .use("*", securityHeadersMiddleware)
-    .use("/api/v1/*", rateLimitMiddleware)
+    .use(SYNC_PATH, syncRateLimitMiddleware)
+    .use("/api/v1/*", apiRateLimitMiddleware)
     .route("/", healthApp)
     .route("/api/v1", categoriesApp)
     .route("/api/v1", embeddingApp)
