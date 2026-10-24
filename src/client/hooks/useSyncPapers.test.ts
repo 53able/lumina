@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isValidAuthorAffiliations } from "../../shared/utils/authorAffiliations";
 import { EmbeddingApiError } from "../lib/api";
 import { useSyncStore } from "../stores/syncStore";
 import { useSyncPapers } from "./useSyncPapers";
@@ -37,6 +38,7 @@ vi.mock("../lib/backfillEmbeddings", () => ({
 
 const mockAddPapers = vi.fn();
 const mockAddPaper = vi.fn();
+const mockSavePaperEmbeddings = vi.fn();
 const mockSetLastSyncedAt = vi.fn();
 
 /** 保存済み論文の全件準備完了を待つ関数のモック（既定は準備済み） */
@@ -44,7 +46,14 @@ const mockWhenPapersReady = vi.fn((..._args: unknown[]) => Promise.resolve());
 
 /** runEmbeddingBackfill 用: getState().papers で返すストアの論文（addPapers で更新される） */
 const papersRef = {
-  current: [] as Array<{ id: string; title?: string; abstract?: string; embedding?: number[] }>,
+  current: [] as Array<{
+    id: string;
+    title?: string;
+    abstract?: string;
+    embedding?: number[];
+    authors?: string[];
+    authorAffiliations?: string[][];
+  }>,
 };
 
 vi.mock("../stores/paperStore", () => ({
@@ -56,6 +65,7 @@ vi.mock("../stores/paperStore", () => ({
         },
         addPapers: mockAddPapers,
         addPaper: mockAddPaper,
+        savePaperEmbeddings: mockSavePaperEmbeddings,
       };
       return selector ? selector(state) : state;
     },
@@ -66,6 +76,7 @@ vi.mock("../stores/paperStore", () => ({
         },
         addPapers: mockAddPapers,
         addPaper: mockAddPaper,
+        savePaperEmbeddings: mockSavePaperEmbeddings,
       }),
     }
   ),
@@ -144,9 +155,27 @@ describe("useSyncPapers", () => {
     vi.clearAllMocks();
     papersRef.current = [];
     useSyncStore.getState().reset();
-    mockAddPapers.mockImplementation((newPapers: Array<{ id: string; embedding?: number[] }>) => {
-      papersRef.current = [...papersRef.current, ...newPapers];
-    });
+    mockAddPapers.mockImplementation(
+      (incoming: typeof papersRef.current, options?: { source: "cache" }) => {
+        const merged = new Map(papersRef.current.map((paper) => [paper.id, paper]));
+        for (const paper of incoming) {
+          const current = merged.get(paper.id);
+          if (current && options?.source === "cache") {
+            const authors = current.authors ?? [];
+            const canFill =
+              current.authorAffiliations === undefined &&
+              authors.length === paper.authors?.length &&
+              authors.every((author, index) => author === paper.authors?.[index]) &&
+              isValidAuthorAffiliations(authors, paper.authorAffiliations);
+            merged.set(
+              paper.id,
+              canFill ? { ...current, authorAffiliations: paper.authorAffiliations } : current
+            );
+          } else merged.set(paper.id, paper);
+        }
+        papersRef.current = [...merged.values()];
+      }
+    );
     mockGetDecryptedApiKey.mockResolvedValue("test-api-key");
     mockRunBackfillEmbeddings.mockResolvedValue(undefined);
     vi.useFakeTimers();
@@ -154,6 +183,154 @@ describe("useSyncPapers", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe("所属の同期更新", () => {
+    it.each([
+      ...["network", "cache", "more", "from-date"].flatMap((entry) => [
+        { entry, count: 1 },
+        { entry, count: 2 },
+      ]),
+    ])("$entry は既存を含む$count 件を保存し新規数だけ通知する", async ({ entry, count }) => {
+      vi.useRealTimers();
+      const response = createMockResponse(0, count);
+      const first = response.papers[0];
+      if (!first) throw new Error("Missing fixture");
+      const updated = { ...first, authorAffiliations: [["Google"]] };
+      response.papers[0] = updated;
+      papersRef.current = [{ ...updated, title: "Old" }];
+      mockSyncApi.mockResolvedValue(response);
+      const client = createTestQueryClient();
+      if (entry === "cache") client.setQueryData(["sync", "cs.AI", "30"], response);
+      if (entry === "more") useSyncStore.getState().setTotalResults(100);
+      const onSuccess = vi.fn();
+      const onSyncFromDateSuccess = vi.fn();
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSuccess, onSyncFromDateSuccess }
+          ),
+        {
+          wrapper: ({ children }) => createElement(QueryClientProvider, { client }, children),
+        }
+      );
+      await act(async () => {
+        if (entry === "more") await result.current.syncMore();
+        else if (entry === "from-date") await result.current.syncFromDate("2026-01-10");
+        else result.current.sync();
+      });
+      await waitFor(() => expect(mockAddPapers).toHaveBeenCalledTimes(1));
+      expect(mockAddPapers.mock.calls[0]?.[0]).toHaveLength(count);
+      expect(papersRef.current).toHaveLength(count);
+      expect(papersRef.current[0]).toMatchObject({ authorAffiliations: [["Google"]] });
+      if (entry === "cache") expect(mockAddPapers.mock.calls[0]?.[1]).toEqual({ source: "cache" });
+      if (entry === "from-date")
+        expect(onSyncFromDateSuccess).toHaveBeenCalledWith(count - 1, count);
+      else
+        expect(onSuccess).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ addedCount: count - 1 })
+        );
+    });
+
+    it.each([
+      "network",
+      "cache",
+      "more",
+      "from-date",
+    ])("%s の既存のみ更新失敗は成功と時刻を確定しない", async (entry) => {
+      vi.useRealTimers();
+      const response = createMockResponse(0, 1);
+      papersRef.current = [...response.papers];
+      mockSyncApi.mockResolvedValue(response);
+      mockAddPapers.mockRejectedValueOnce(new Error("Save failed"));
+      const client = createTestQueryClient();
+      if (entry === "cache") client.setQueryData(["sync", "cs.AI", "30"], response);
+      if (entry === "more") useSyncStore.getState().setTotalResults(100);
+      const onSuccess = vi.fn();
+      const onSyncFromDateSuccess = vi.fn();
+      const { result } = renderHook(
+        () =>
+          useSyncPapers(
+            { categories: ["cs.AI"], period: "30" },
+            { onSuccess, onSyncFromDateSuccess }
+          ),
+        {
+          wrapper: ({ children }) => createElement(QueryClientProvider, { client }, children),
+        }
+      );
+      await act(async () => {
+        if (entry === "more")
+          await expect(result.current.syncMore()).rejects.toThrow("Save failed");
+        else if (entry === "from-date")
+          await expect(result.current.syncFromDate("2026-01-10")).rejects.toThrow("Save failed");
+        else result.current.sync();
+      });
+      await waitFor(() =>
+        expect(useSyncStore.getState().lastSyncError?.message).toBe("Save failed")
+      );
+      expect(onSuccess).not.toHaveBeenCalled();
+      expect(onSyncFromDateSuccess).not.toHaveBeenCalled();
+      expect(mockSetLastSyncedAt).not.toHaveBeenCalled();
+      expect(useSyncStore.getState().requestedRanges).toEqual([]);
+      expect(useSyncStore.getState().savingSyncedPapersCount).toBe(0);
+    });
+
+    it("日付同期の既存のみページは更新するが新規ページ通知しない", async () => {
+      vi.useRealTimers();
+      const response = createMockResponse(0, 1);
+      papersRef.current = [...response.papers];
+      mockSyncApi.mockResolvedValue(response);
+      const onSyncFromDatePageCached = vi.fn();
+      const { result } = renderHook(
+        () => useSyncPapers({ categories: ["cs.AI"], period: "30" }, { onSyncFromDatePageCached }),
+        { wrapper }
+      );
+      await act(async () => {
+        expect(await result.current.syncFromDate("2026-01-10")).toMatchObject({
+          addedCount: 0,
+          totalFetched: 1,
+        });
+      });
+      expect(mockAddPapers).toHaveBeenCalledTimes(1);
+      expect(onSyncFromDatePageCached).not.toHaveBeenCalled();
+    });
+
+    it("補完の単件とバッチcallbackはEmbedding限定入力へ変換し、保存拒否を失敗に残す", async () => {
+      vi.useRealTimers();
+      const first = createMockResponse(0, 1).papers[0];
+      if (!first) throw new Error("Missing fixture");
+      const paper = {
+        ...first,
+        authorAffiliations: [["Old"]],
+        embedding: [1],
+      };
+      papersRef.current = [{ ...paper, embedding: undefined }];
+      mockSavePaperEmbeddings
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("Embedding source changed"));
+      mockRunBackfillEmbeddings.mockImplementationOnce(async (_papers, deps) => {
+        await deps.addPaper(paper);
+        await deps.addPapers([paper]);
+      });
+      const { result } = renderHook(() => useSyncPapers({ categories: ["cs.AI"], period: "30" }), {
+        wrapper,
+      });
+      await act(async () => {
+        await result.current.runEmbeddingBackfill();
+      });
+      const expected = [
+        { id: paper.id, title: paper.title, abstract: paper.abstract, embedding: [1] },
+      ];
+      expect(mockSavePaperEmbeddings).toHaveBeenNthCalledWith(1, expected);
+      expect(mockSavePaperEmbeddings).toHaveBeenNthCalledWith(2, expected);
+      expect(mockAddPapers).not.toHaveBeenCalled();
+      expect(useSyncStore.getState().embeddingBackfillOutcome).toMatchObject({
+        status: "failed",
+        completed: 0,
+      });
+    });
   });
 
   describe("同期とEmbeddingバックフィルの切り離し", () => {
@@ -576,7 +753,9 @@ describe("useSyncPapers", () => {
         (newPapers: Array<{ id: string; embedding?: number[] }>) =>
           new Promise<void>((resolve) => {
             resolveAddPapers = () => {
-              papersRef.current = [...papersRef.current, ...newPapers];
+              const merged = new Map(papersRef.current.map((paper) => [paper.id, paper]));
+              for (const paper of newPapers) merged.set(paper.id, paper);
+              papersRef.current = [...merged.values()];
               resolve();
             };
           })
@@ -674,7 +853,9 @@ describe("useSyncPapers", () => {
         (newPapers: Array<{ id: string; embedding?: number[] }>) =>
           new Promise<void>((resolve) => {
             resolveAddPapers = () => {
-              papersRef.current = [...papersRef.current, ...newPapers];
+              const merged = new Map(papersRef.current.map((paper) => [paper.id, paper]));
+              for (const paper of newPapers) merged.set(paper.id, paper);
+              papersRef.current = [...merged.values()];
               resolve();
             };
           })
