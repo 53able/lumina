@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { Paper } from "../../shared/schemas/index";
+import { isValidAuthorAffiliations } from "../../shared/utils/authorAffiliations";
 import type { LuminaDB } from "../db/db";
 import { notifyDbChange, reloadUnlessChanged, subscribeDbChanges } from "../lib/dbChangeChannel";
 import {
@@ -51,11 +52,20 @@ interface PaperState {
 /**
  * paperStore のアクション型
  */
+export interface PaperEmbeddingUpdate {
+  id: string;
+  title: string;
+  abstract: string;
+  embedding: number[];
+}
+
 interface PaperActions {
   /** 論文を追加する（既存の場合は更新）。全件の準備完了を待ってから保存する */
   addPaper: (paper: Paper) => Promise<void>;
   /** 複数の論文を一括追加する。全件の準備完了を待ってから保存する */
-  addPapers: (papers: Paper[]) => Promise<void>;
+  addPapers: (papers: Paper[], options?: { source: "cache" }) => Promise<void>;
+  /** 生成元を照合し、現在のメタデータを保ってEmbeddingだけを保存する */
+  savePaperEmbeddings: (updates: PaperEmbeddingUpdate[]) => Promise<void>;
   /** IDで論文を取得する */
   getPaperById: (id: string) => PaperListItem | undefined;
   /** 全件の準備完了を待ってから検索用索引を検索する（signal で中止すると索引での計算も打ち切る） */
@@ -119,25 +129,41 @@ export const whenPapersReady = (): Promise<void> =>
  * 保存する論文を組み立てる。
  * Embedding を持たない論文（一覧用の論文を元にした更新など）で、保存済みの Embedding を消さない。
  */
-const withStoredEmbeddings = async (db: LuminaDB, papers: Paper[]): Promise<Paper[]> => {
-  const stored = papers.map(toStoredPaper);
-  const missingIds = stored
-    .filter((p) => !p.embedding || p.embedding.length === 0)
-    .map((p) => p.id);
-  if (missingIds.length === 0) return stored;
+const sameAuthors = (left: string[], right: string[]): boolean =>
+  left.length === right.length && left.every((author, index) => author === right[index]);
 
-  const existing = await db.papers.bulkGet(missingIds);
-  const existingEmbeddings = new Map<string, number[]>();
-  for (const paper of existing) {
-    if (paper?.embedding && paper.embedding.length > 0) {
-      existingEmbeddings.set(paper.id, paper.embedding);
+const mergeStoredPapers = async (
+  db: LuminaDB,
+  papers: Paper[],
+  source?: "cache"
+): Promise<Paper[]> => {
+  const existing = await db.papers.bulkGet(papers.map((paper) => paper.id));
+  return papers.map((incoming, index) => {
+    const paper = toStoredPaper(incoming);
+    const current = existing[index];
+    const validIncoming = isValidAuthorAffiliations(paper.authors, paper.authorAffiliations);
+    if (source === "cache" && current) {
+      return current.authorAffiliations === undefined &&
+        sameAuthors(current.authors, paper.authors) &&
+        validIncoming
+        ? { ...current, authorAffiliations: paper.authorAffiliations }
+        : current;
     }
-  }
-  return stored.map((paper) => {
-    const embedding = existingEmbeddings.get(paper.id);
-    return embedding && (!paper.embedding || paper.embedding.length === 0)
-      ? { ...paper, embedding }
-      : paper;
+    if (!validIncoming) {
+      delete paper.authorAffiliations;
+      if (
+        incoming.authorAffiliations === undefined &&
+        current &&
+        sameAuthors(current.authors, paper.authors) &&
+        isValidAuthorAffiliations(current.authors, current.authorAffiliations)
+      ) {
+        paper.authorAffiliations = current.authorAffiliations;
+      }
+    }
+    if ((!paper.embedding || paper.embedding.length === 0) && current?.embedding?.length) {
+      paper.embedding = current.embedding;
+    }
+    return paper;
   });
 };
 
@@ -155,7 +181,13 @@ export const usePaperStore = create<PaperStore>()(
        * 不変条件: 索引への反映（upsert の送信）は一覧の更新より前に行う
        * （一覧の更新で再計算した検索が、更新後の索引を参照するため）。
        */
-      const savePapers = async (papers: Paper[]): Promise<void> => {
+      const publishPapers = (db: LuminaDB, stored: Paper[]) => {
+        get()._index?.upsert(stored);
+        set((state) => ({ papers: mergePapersDesc(state.papers, stored.map(toPaperListItem)) }));
+        notifyDbChange(db, { table: "papers", paperIds: stored.map((p) => p.id) });
+      };
+
+      const savePapers = async (papers: Paper[], source?: "cache"): Promise<void> => {
         const db = get()._db;
         if (!db) throw new Error("DB not initialized");
         // 読み込み中の書き込みで既存論文を新規と取り違えないよう、全件の準備完了を待つ
@@ -164,13 +196,11 @@ export const usePaperStore = create<PaperStore>()(
 
         // 保存済み Embedding の読み取りと保存を1つのトランザクションで行う（間に入った補完を上書きしない）
         const stored = await db.transaction("rw", db.papers, async () => {
-          const merged = await withStoredEmbeddings(db, papers);
+          const merged = await mergeStoredPapers(db, papers, source);
           await db.papers.bulkPut(merged);
           return merged;
         });
-        get()._index?.upsert(stored);
-        set((state) => ({ papers: mergePapersDesc(state.papers, stored.map(toPaperListItem)) }));
-        notifyDbChange(db, { table: "papers", paperIds: stored.map((p) => p.id) });
+        publishPapers(db, stored);
       };
 
       return {
@@ -187,7 +217,27 @@ export const usePaperStore = create<PaperStore>()(
         // Actions
         addPaper: (paper) => savePapers([paper]),
 
-        addPapers: (papers) => savePapers(papers),
+        addPapers: (papers, options) => savePapers(papers, options?.source),
+
+        savePaperEmbeddings: async (updates) => {
+          const db = get()._db;
+          if (!db) throw new Error("DB not initialized");
+          await whenPapersReady();
+          if (updates.length === 0) return;
+          const stored = await db.transaction("rw", db.papers, async () => {
+            const current = await db.papers.bulkGet(updates.map((update) => update.id));
+            const merged = updates.map((update, index) => {
+              const paper = current[index];
+              if (!paper || paper.title !== update.title || paper.abstract !== update.abstract) {
+                throw new Error(`Embedding source changed or paper deleted: ${update.id}`);
+              }
+              return { ...paper, embedding: update.embedding };
+            });
+            await db.papers.bulkPut(merged);
+            return merged;
+          });
+          publishPapers(db, stored);
+        },
 
         getPaperById: (id) => {
           return get().papers.find((p) => p.id === id);

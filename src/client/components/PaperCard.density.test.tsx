@@ -85,3 +85,54 @@ describe("PaperCard の選別に必要な情報（#68）", () => {
     expect(screen.queryByTestId("abstract-excerpt")).not.toBeInTheDocument();
   });
 });
+
+describe("PaperCard author affiliations", () => {
+  afterEach(cleanup);
+
+  it("shows every unique organization, including authors omitted from the name preview", () => {
+    const affiliated = {
+      ...paper,
+      authors: ["One", "Two", "Three", "Four"],
+      authorAffiliations: [["OpenAI"], ["OpenAI", "University"], [], ["Google"]],
+    };
+    render(
+      <MemoryRouter>
+        <PaperCard paper={affiliated} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText("One, Two, Three et al.")).toBeInTheDocument();
+    const affiliations = screen.getByTestId("author-affiliations");
+    expect(affiliations).toHaveTextContent("OpenAI · University · Google");
+    expect(affiliations.className).toContain("break-words");
+    expect(affiliations.className).not.toMatch(/line-clamp|truncate/);
+  });
+
+  it.each([
+    undefined,
+    [[]],
+    [["Wrong author"], []],
+  ])("shows unknown for absent or invalid affiliations: %j", (authorAffiliations) => {
+    render(
+      <MemoryRouter>
+        <PaperCard paper={{ ...paper, authorAffiliations }} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId("author-affiliations")).toHaveTextContent("所属不明");
+  });
+
+  it("updates same-ID metadata without changing callbacks or other props", () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <PaperCard paper={paper} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId("author-affiliations")).toHaveTextContent("所属不明");
+    rerender(
+      <MemoryRouter>
+        <PaperCard paper={{ ...paper, title: "Updated title", authorAffiliations: [["Google"]] }} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId("author-affiliations")).toHaveTextContent("Google");
+    expect(screen.getByText("Updated title")).toBeInTheDocument();
+  });
+});

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Paper, PaperSummary } from "../../shared/schemas/index";
@@ -390,5 +390,50 @@ describe("PaperDetail", () => {
       // 類似度・一致率を正確性の確率のように見せない
       expect(container).not.toHaveTextContent(/%|％|確率|信頼度|一致率|類似度/);
     });
+  });
+});
+
+describe("PaperDetail author affiliations", () => {
+  afterEach(cleanup);
+
+  it("keeps duplicate names and multiple affiliations matched in author order", () => {
+    render(
+      <PaperDetail
+        paper={{
+          ...mockPaper,
+          authors: ["Same Name", "Same Name", "Third"],
+          authorAffiliations: [["OpenAI", "University"], ["Google"], []],
+        }}
+      />
+    );
+    const rows = within(screen.getByRole("list", { name: "著者と所属" })).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("Same Name");
+    expect(rows[0]).toHaveTextContent("OpenAI · University");
+    expect(rows[0]).not.toHaveTextContent("Google");
+    expect(rows[1]).toHaveTextContent("Same Name");
+    expect(rows[1]).toHaveTextContent("Google");
+    expect(rows[2]).toHaveTextContent("Third");
+    expect(rows[2]).toHaveTextContent("所属不明");
+  });
+
+  it.each([
+    undefined,
+    [["Wrong author"]],
+  ])("does not map absent or mismatched metadata onto other authors: %j", (authorAffiliations) => {
+    render(<PaperDetail paper={{ ...mockPaper, authorAffiliations }} />);
+    expect(screen.getAllByText("所属不明")).toHaveLength(mockPaper.authors.length);
+    expect(screen.queryByText("Wrong author")).not.toBeInTheDocument();
+  });
+
+  it("renders organization metadata as text", () => {
+    const organization = "<img src=x onerror=alert(1)>";
+    const { container } = render(
+      <PaperDetail
+        paper={{ ...mockPaper, authors: ["Author"], authorAffiliations: [[organization]] }}
+      />
+    );
+    expect(screen.getByText(organization)).toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
   });
 });

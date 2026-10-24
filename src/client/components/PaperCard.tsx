@@ -3,6 +3,7 @@ import { Bookmark, ExternalLink, Heart, SearchX } from "lucide-react";
 import { type FC, memo, useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Paper } from "../../shared/schemas/index";
+import { isValidAuthorAffiliations } from "../../shared/utils/authorAffiliations";
 import { useInteraction } from "../contexts/InteractionContext";
 import { getCategoryDescription } from "../lib/categoryDescriptions";
 import { hasPaperEmbedding } from "../lib/paperIndex/core";
@@ -54,6 +55,19 @@ const PaperCardComponent: FC<PaperCardProps> = ({
       ? `${paper.authors.slice(0, 3).join(", ")} et al.`
       : paper.authors.join(", ");
   }, [paper.authors]);
+
+  const affiliationsDisplay = useMemo(() => {
+    if (!isValidAuthorAffiliations(paper.authors, paper.authorAffiliations)) return "所属不明";
+    const organizations = [
+      ...new Set(
+        paper.authorAffiliations
+          .flat()
+          .map((value) => value.trim())
+          .filter(Boolean)
+      ),
+    ];
+    return organizations.length > 0 ? organizations.join(" · ") : "所属不明";
+  }, [paper.authors, paper.authorAffiliations]);
 
   // カテゴリバッジのJSXをメモ化
   const categoryBadges = useMemo(() => {
@@ -186,6 +200,12 @@ const PaperCardComponent: FC<PaperCardProps> = ({
           <p className="card-text-hover text-sm text-foreground" style={{ opacity: 0.8 }}>
             {authorsDisplay}
           </p>
+          <p
+            data-testid="author-affiliations"
+            className="min-w-0 break-words text-xs text-muted-foreground"
+          >
+            {affiliationsDisplay}
+          </p>
           {/* Abstract の抜粋（原文）。AI が生成した文と区別できるようラベルを付ける */}
           {paper.abstract ? (
             <p
@@ -298,13 +318,12 @@ const PaperCardComponent: FC<PaperCardProps> = ({
  * React.memoでラップし、propsが変更された場合のみ再レンダリング
  */
 export const PaperCard = memo(PaperCardComponent, (prevProps, nextProps) => {
-  // カスタム比較関数: 必要なpropsのみを比較（embeddingの有無でバッジ表示が変わるため含める）
+  // 同じIDでも、同期による所属やタイトルの更新を反映する
   return (
-    prevProps.paper.id === nextProps.paper.id &&
+    prevProps.paper === nextProps.paper &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.whyRead === nextProps.whyRead &&
     prevProps.index === nextProps.index &&
-    prevProps.onClick === nextProps.onClick &&
-    hasPaperEmbedding(prevProps.paper) === hasPaperEmbedding(nextProps.paper)
+    prevProps.onClick === nextProps.onClick
   );
 });

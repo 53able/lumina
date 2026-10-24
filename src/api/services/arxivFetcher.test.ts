@@ -41,6 +41,62 @@ describe("arXivFetcher", () => {
       expect(paper.arxivUrl).toBe("http://arxiv.org/abs/2401.12345v1");
     });
 
+    it("全著者の所属を欠損・複数所属・同名でも順序どおり対応づける", () => {
+      const authors = [
+        "<author><name>Missing</name></author>",
+        "<author><name>Same Name</name><arxiv:affiliation>OpenAI</arxiv:affiliation></author>",
+        "<author><name>Same Name</name><arxiv:affiliation>Google</arxiv:affiliation><arxiv:affiliation>University</arxiv:affiliation></author>",
+        "<author><name>Fourth</name><arxiv:affiliation>Google</arxiv:affiliation></author>",
+      ];
+      const paper = parseArxivEntry(authors.join(""));
+      expect(paper.authors).toEqual(["Missing", "Same Name", "Same Name", "Fourth"]);
+      expect(paper.authorAffiliations).toEqual([
+        [],
+        ["OpenAI"],
+        ["Google", "University"],
+        ["Google"],
+      ]);
+
+      const reordered = parseArxivEntry([...authors].reverse().join(""));
+      expect(reordered.authors).toEqual([...paper.authors].reverse());
+      expect(reordered.authorAffiliations).toEqual([...(paper.authorAffiliations ?? [])].reverse());
+    });
+
+    it("著者と所属のXMLテキストを復号し空白を整形、空所属と重複を除去する", () => {
+      const paper = parseArxivEntry(`
+        <author>
+          <name> A &amp; B &#x43; &#68; </name>
+          <arxiv:affiliation> Research &amp; Development &lt;Lab&gt; &quot;AI&quot; &apos;X&apos; </arxiv:affiliation>
+          <arxiv:affiliation />
+          <arxiv:affiliation>Open&#65;I &#x1F52C;</arxiv:affiliation>
+          <arxiv:affiliation><![CDATA[ Google &amp; <Lab> ]]></arxiv:affiliation>
+          <arxiv:affiliation>  OpenAI
+            Research </arxiv:affiliation>
+          <arxiv:affiliation>OpenAI Research</arxiv:affiliation>
+          <arxiv:affiliation>  </arxiv:affiliation>
+          <arxiv:affiliation />
+        </author>
+      `);
+      expect(paper.authors).toEqual(["A & B C D"]);
+      expect(paper.authorAffiliations).toEqual([
+        [
+          "Research & Development <Lab> \"AI\" 'X'",
+          "OpenAI 🔬",
+          "Google &amp; <Lab>",
+          "OpenAI Research",
+        ],
+      ]);
+    });
+
+    it("所属なしと著者なしも全長の配列で返し、author以外のnameを含めない", () => {
+      expect(
+        parseArxivEntry("<author><name>Only Author</name></author>").authorAffiliations
+      ).toEqual([[]]);
+      const paper = parseArxivEntry("<contributor><name>Editor</name></contributor>");
+      expect(paper.authors).toEqual([]);
+      expect(paper.authorAffiliations).toEqual([]);
+    });
+
     it("バージョン番号なしのIDを正しく抽出できる", () => {
       // Arrange
       const mockEntry = `

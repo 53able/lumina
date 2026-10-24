@@ -46,7 +46,7 @@ describe("同期API", () => {
         <id>http://arxiv.org/abs/2401.00001v1</id>
         <title>Paper 1</title>
         <summary>Abstract for paper 1</summary>
-        <author><name>Author 1</name></author>
+        <author><name>Author 1</name><arxiv:affiliation>OpenAI</arxiv:affiliation></author>
         <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
         <published>${isoDate}</published>
         <updated>${isoDate}</updated>
@@ -57,7 +57,7 @@ describe("同期API", () => {
         <id>http://arxiv.org/abs/2401.00002v1</id>
         <title>Paper 2</title>
         <summary>Abstract for paper 2</summary>
-        <author><name>Author 2</name></author>
+        <author><name>Author 2</name><arxiv:affiliation>Google</arxiv:affiliation></author>
         <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
         <published>${isoDate}</published>
         <updated>${isoDate}</updated>
@@ -209,6 +209,44 @@ describe("同期API", () => {
       expect(body.fetchedCount).toBe(2);
       expect(body.papers[0].embedding).toBeUndefined();
       expect(createEmbeddingsBatch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { label: "normal", extra: {}, failEmbedding: false, expectEmbeddingCall: true },
+      {
+        label: "existing IDs",
+        extra: { existingPaperIds: ["2401.00001", "2401.00002"] },
+        failEmbedding: false,
+        expectEmbeddingCall: false,
+      },
+      {
+        label: "skipEmbedding",
+        extra: { skipEmbedding: true },
+        failEmbedding: false,
+        expectEmbeddingCall: false,
+      },
+      { label: "embedding failure", extra: {}, failEmbedding: true, expectEmbeddingCall: true },
+    ])("preserves author affiliations for $label", async ({
+      extra,
+      failEmbedding,
+      expectEmbeddingCall,
+    }) => {
+      if (failEmbedding)
+        vi.mocked(createEmbeddingsBatch).mockRejectedValue(new Error("upstream unavailable"));
+      const response = await app.request(
+        syncRequest({ categories: ["cs.AI"], period: "7", ...extra }, true)
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(
+        body.papers.map((paper: { authorAffiliations?: string[][] }) => paper.authorAffiliations)
+      ).toEqual([[["OpenAI"]], [["Google"]]]);
+      expect(createEmbeddingsBatch).toHaveBeenCalledTimes(expectEmbeddingCall ? 1 : 0);
+      if (failEmbedding || !expectEmbeddingCall) {
+        expect(
+          body.papers.every((paper: { embedding?: number[] }) => paper.embedding === undefined)
+        ).toBe(true);
+      }
     });
 
     it("正常系: 複数カテゴリでの同期", async () => {

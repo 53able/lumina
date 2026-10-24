@@ -178,6 +178,9 @@ const HomePage: FC = () => {
 
   // 論文詳細の状態（デスクトップ: 詳細パネル、モバイル: Sheet）
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
+  const liveSelectedPaper = selectedPaper
+    ? (papers.find((paper) => paper.id === selectedPaper.id) ?? selectedPaper)
+    : null;
 
   // サマリー管理（カスタムフックに責務を委譲）
   const {
@@ -194,8 +197,8 @@ const HomePage: FC = () => {
     generatingTarget: summaryGeneratingTarget,
     generateSummary,
   } = usePaperSummary({
-    paperId: selectedPaper?.id ?? "",
-    abstract: selectedPaper?.abstract ?? "",
+    paperId: liveSelectedPaper?.id ?? "",
+    abstract: liveSelectedPaper?.abstract ?? "",
     onError: (err, paperId, target) => {
       console.error("Summary generation error:", err);
       // 生成中に別の論文へ切り替えている場合があるため、どの論文の失敗かを示す
@@ -467,7 +470,7 @@ const HomePage: FC = () => {
         searchResultCounts={searchResultCounts}
         isLoading={isLoading}
         isWaitingForPapers={isWaitingForPapers}
-        selectedPaper={selectedPaper}
+        selectedPaper={liveSelectedPaper}
         onCloseDetail={handleCloseDetail}
         currentSummary={currentSummary}
         onGenerateSummary={handleGenerateSummary}

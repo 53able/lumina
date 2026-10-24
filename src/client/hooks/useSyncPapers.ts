@@ -35,6 +35,7 @@ const normalizePaper = (paper: {
   title: string;
   abstract: string;
   authors: string[];
+  authorAffiliations?: string[][];
   categories: string[];
   publishedAt: string | Date;
   updatedAt: string | Date;
@@ -56,6 +57,7 @@ const normalizeSyncResponse = (response: {
     title: string;
     abstract: string;
     authors: string[];
+    authorAffiliations?: string[][];
     categories: string[];
     publishedAt: string | Date;
     updatedAt: string | Date;
@@ -238,7 +240,7 @@ export const useSyncPapers = (
   }
 ) => {
   // 論文配列は購読しない（同期処理は getStorePapers で最新を読む。一覧更新のたびに再描画しない）
-  const addPaper = usePaperStore((s) => s.addPaper);
+  const savePaperEmbeddings = usePaperStore((s) => s.savePaperEmbeddings);
   const addPapers = usePaperStore((s) => s.addPapers);
   const { setLastSyncedAt } = useSettingsStore();
   const queryClient = useQueryClient();
@@ -358,15 +360,15 @@ export const useSyncPapers = (
    * 保存に失敗したら取得済みとして記録せず、同期エラーとして残して reject する。
    */
   const applyInitialSyncData = useCallback(
-    async (response: SyncResponse): Promise<void> => {
+    async (response: SyncResponse, source?: "cache"): Promise<void> => {
       const currentStorePapers = getStorePapers();
       const newPapers = filterNewPapers(response.papers, currentStorePapers);
 
-      if (newPapers.length > 0) {
+      if (response.papers.length > 0) {
         // 保存が終わるまで一覧の0件表示を「取得中」にする（「論文がありません」を一瞬出さない）
         useSyncStore.getState().beginSavingSyncedPapers();
         try {
-          await addPapers(newPapers);
+          await addPapers(response.papers, source ? { source } : undefined);
         } catch (err) {
           const e = toError(err);
           useSyncStore.getState().setLastSyncError(e, { kind: "initial" });
@@ -427,8 +429,8 @@ export const useSyncPapers = (
         !queryState?.dataUpdatedAt || timestamp() - queryState.dataUpdatedAt > SYNC_STALE_TIME;
 
       if (!ignoreCache && cachedData && !isStale) {
-        // キャッシュが有効 → 再利用（APIを叩かない）。既存を除いた分だけストアに追加
-        await applyInitialSyncData(cachedData);
+        // キャッシュが有効 → 現在のメタデータを保つ保存モードで再利用
+        await applyInitialSyncData(cachedData, "cache");
         return;
       }
 
@@ -531,11 +533,11 @@ export const useSyncPapers = (
         // 日付文字列を Date オブジェクトに正規化
         const response = normalizeSyncResponse(rawResponse);
 
-        // DBに既に存在する論文をスキップ
+        // 更新対象と新規件数を分ける
         const newPapers = filterNewPapers(response.papers, getStorePapers());
         // 保存に失敗したら取得済みの範囲として記録しない（下の catch で同期エラーとして残す）
-        if (newPapers.length > 0) {
-          await addPapers(newPapers);
+        if (response.papers.length > 0) {
+          await addPapers(response.papers);
         }
         commitSyncResult(response, effectiveStart, newPapers, false);
       } catch (err) {
@@ -678,8 +680,24 @@ export const useSyncPapers = (
         fetchEmbedding: (text) => embeddingApi({ text }, { apiKey }).then((r) => r.embedding),
         fetchEmbeddingBatch: (texts) =>
           embeddingBatchApi({ texts }, { apiKey }).then((r) => r.embeddings),
-        addPaper,
-        addPapers,
+        addPaper: (paper) =>
+          savePaperEmbeddings([
+            {
+              id: paper.id,
+              title: paper.title,
+              abstract: paper.abstract,
+              embedding: paper.embedding ?? [],
+            },
+          ]),
+        addPapers: (papers) =>
+          savePaperEmbeddings(
+            papers.map((paper) => ({
+              id: paper.id,
+              title: paper.title,
+              abstract: paper.abstract,
+              embedding: paper.embedding ?? [],
+            }))
+          ),
         onProgress: (done, progressTotal) => {
           completed = done;
           useSyncStore
@@ -699,7 +717,7 @@ export const useSyncPapers = (
       useSyncStore.getState().setEmbeddingBackfillProgress(null);
       useSyncStore.getState().setEmbeddingBackfillOutcome(outcome);
     }
-  }, [addPaper, addPapers, getStorePapers]);
+  }, [savePaperEmbeddings, getStorePapers]);
 
   /**
    * 指定した日を終了日として「最大365日前 〜 その日」の論文を、ページングで連続取得しストアに追加する。
@@ -765,8 +783,10 @@ export const useSyncPapers = (
             );
             const response = normalizeSyncResponse(rawResponse);
             const newPapers = filterNewPapers(response.papers, getStorePapers());
+            if (response.papers.length > 0) {
+              await addPapers(response.papers);
+            }
             if (newPapers.length > 0) {
-              await addPapers(newPapers);
               onSyncFromDatePageCachedRef.current?.(newPapers.length, {
                 pageStart: start,
                 totalAddedSoFar: totalAdded + newPapers.length,
