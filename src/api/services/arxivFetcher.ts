@@ -1,5 +1,12 @@
 import { parseISO, subDays } from "date-fns";
 import type { Paper, SyncPeriod } from "../../shared/schemas/index.js";
+import {
+  ArxivHttpError,
+  ArxivRateLimitError,
+  ArxivServiceUnavailableError,
+} from "../lib/errors.js";
+
+export { ArxivHttpError, ArxivRateLimitError, ArxivServiceUnavailableError };
 
 /**
  * arXiv API クエリオプション
@@ -27,32 +34,6 @@ export interface ArxivFetchResult {
   papers: Paper[];
   /** クエリ（カテゴリ・期間）に一致する総件数（opensearch:totalResults） */
   totalResults: number;
-}
-
-/**
- * arXiv API が 429 (Too Many Requests) を返したときに投げるエラー。
- * sync ルートで 429 としてクライアントに返し、クライアントのリトライを促す。
- */
-export class ArxivRateLimitError extends Error {
-  constructor(
-    message: string,
-    /** Retry-After 秒数（arXiv のヘッダーから。無い場合は undefined） */
-    public readonly retryAfterSec?: number
-  ) {
-    super(message);
-    this.name = "ArxivRateLimitError";
-  }
-}
-
-/**
- * arXiv API が 502/503/504 を返したとき、またはタイムアウト・ネットワーク失敗のときに投げるエラー。
- * sync ルートで 503 として返し、クライアントがリトライできるようにする。
- */
-export class ArxivServiceUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ArxivServiceUnavailableError";
-  }
 }
 
 /**
@@ -366,7 +347,9 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
     }));
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new ArxivServiceUnavailableError(`arXiv API request failed: ${error.message}`);
+      throw new ArxivServiceUnavailableError(`arXiv API request failed: ${error.message}`, {
+        cause: error,
+      });
     }
     throw error;
   }
@@ -387,7 +370,7 @@ export const fetchArxivPapers = async (options: ArxivQueryOptions): Promise<Arxi
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       throw new ArxivServiceUnavailableError(message);
     }
-    throw new Error(message);
+    throw new ArxivHttpError(message, response.status);
   }
 
   // totalResultsを抽出

@@ -2,6 +2,7 @@ import { APICallError, RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import { createApp } from "../app";
+import { createLogger } from "../lib/logger";
 
 // OpenAIサービスをモック
 vi.mock("../services/openai", async (importOriginal) => {
@@ -35,11 +36,21 @@ const quotaError = () => {
 };
 
 describe("Embedding API", () => {
-  const app = createApp();
+  /** ルートが出したログ（メモリの sink に書かせて JSON で読む） */
+  const logLines: Record<string, unknown>[] = [];
+  const app = createApp({
+    logger: createLogger({
+      level: "trace",
+      sink: { write: (line) => logLines.push(JSON.parse(line)) },
+    }),
+  });
+  /** アクセスログ以外の行 */
+  const routeLogs = () => logLines.filter((line) => line.msg !== "request");
   const openAIKeyHeader = "test-openai-api-key";
 
   beforeEach(() => {
     vi.clearAllMocks();
+    logLines.length = 0;
 
     // createEmbeddingのモック
     vi.mocked(createEmbedding).mockResolvedValue({
@@ -353,6 +364,100 @@ describe("Embedding API", () => {
       const response = await app.request(request);
 
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe("ログ", () => {
+    const postEmbedding = (withApiKey = true) =>
+      app.request(
+        new Request("http://localhost/api/v1/embedding", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(withApiKey ? { "X-OpenAI-API-Key": openAIKeyHeader } : {}),
+          },
+          body: JSON.stringify({ text: "test" }),
+        })
+      );
+
+    it.each([
+      [401, "auth", "warn"],
+      [429, "rate_limit", "warn"],
+      [502, "upstream", "error"],
+    ] as const)("上流 %i の失敗は code=%s の行を %s で1行だけ出し、上流のエラー文は出さない", async (upstreamStatus, code, level) => {
+      vi.mocked(createEmbedding).mockRejectedValueOnce(
+        Object.assign(new Error("Incorrect API key provided: sk-proj-abcd...wxyz"), {
+          statusCode: upstreamStatus,
+        })
+      );
+
+      await postEmbedding();
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level, code, msg: "embedding failed" }),
+      ]);
+      expect(JSON.stringify(logLines)).not.toContain("sk-");
+    });
+
+    it("本物の APICallError を RetryError で包んで投げても、本文とキー断片をログに出さない", async () => {
+      const lastError = new APICallError({
+        message: "Incorrect API key provided: sk-test-SECRETabcd",
+        url: "https://api.openai.com/v1/embeddings",
+        requestBodyValues: { input: "ABSTRACT_SECRET" },
+        statusCode: 401,
+        responseBody: JSON.stringify({
+          error: { message: "key sk-test-SECRETabcd", input: "ABSTRACT_SECRET" },
+        }),
+        isRetryable: false,
+        data: { error: { code: "invalid_api_key", type: "invalid_request_error" } },
+      });
+      vi.mocked(createEmbedding).mockRejectedValueOnce(
+        new RetryError({
+          message: `Failed after 3 attempts. Last error: ${lastError.message}`,
+          reason: "maxRetriesExceeded",
+          errors: [lastError, lastError, lastError],
+        })
+      );
+
+      const response = await postEmbedding();
+
+      expect(response.status).toBe(401);
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({
+          level: "warn",
+          code: "auth",
+          msg: "embedding failed",
+          err: expect.objectContaining({
+            name: "AI_RetryError",
+            lastError: expect.objectContaining({ statusCode: 401, errorCode: "invalid_api_key" }),
+          }),
+        }),
+      ]);
+      expect(JSON.stringify(logLines)).not.toContain("SECRET");
+    });
+
+    it("一括生成の残高不足は code=quota の行を warn で1行だけ出す", async () => {
+      vi.mocked(createEmbeddingsBatch).mockRejectedValueOnce(quotaError());
+
+      await app.request(
+        new Request("http://localhost/api/v1/embedding/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenAI-API-Key": openAIKeyHeader },
+          body: JSON.stringify({ texts: ["a"] }),
+        })
+      );
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "warn", code: "quota", msg: "embedding batch failed" }),
+      ]);
+    });
+
+    it("キー未設定は code=auth の行を debug で1行だけ出す", async () => {
+      await postEmbedding(false);
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "debug", code: "auth", msg: "embedding failed" }),
+      ]);
     });
   });
 });

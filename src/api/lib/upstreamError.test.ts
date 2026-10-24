@@ -1,7 +1,8 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { APICallError, embed, RetryError } from "ai";
 import { describe, expect, it } from "vitest";
-import { toStageError } from "./upstreamError";
+import { OpenAIApiKeyNotConfiguredError } from "./errors";
+import { getStageErrorLogLevel, getUpstreamStatusCode, toStageError } from "./upstreamError";
 
 const quotaBody = {
   error: {
@@ -93,5 +94,29 @@ describe("toStageError", () => {
 
     expect(APICallError.isInstance(error)).toBe(true);
     expect(toStageError(error)).toEqual({ code: "quota", retryable: false });
+  });
+});
+
+describe("getStageErrorLogLevel と getUpstreamStatusCode", () => {
+  const retryError = (lastError: unknown) =>
+    new RetryError({
+      message: "Failed after 3 attempts",
+      reason: "maxRetriesExceeded",
+      errors: [lastError],
+    });
+
+  it.each([
+    ["RetryError に包まれた 401", retryError(apiCallError(401, {})), "warn", 401],
+    ["残高不足の 429", apiCallError(429, quotaBody), "warn", 429],
+    ["キー未設定", new OpenAIApiKeyNotConfiguredError("not configured"), "debug", undefined],
+    ["SyntaxError", new SyntaxError("Unexpected token"), "error", undefined],
+  ] as const)("%s は level %s、statusCode %s", (_label, error, level, statusCode) => {
+    expect(getStageErrorLogLevel(error)).toBe(level);
+    expect(getStageErrorLogLevel(error, toStageError(error))).toBe(level);
+    expect(getUpstreamStatusCode(error)).toBe(statusCode);
+  });
+
+  it("渡した stageError で level を決める（toStageError を呼び直さない）", () => {
+    expect(getStageErrorLogLevel(new Error("x"), { code: "rate_limit" })).toBe("warn");
   });
 });

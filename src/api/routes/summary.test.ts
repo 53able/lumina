@@ -1,6 +1,7 @@
 import { APICallError, RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
+import { createLogger } from "../lib/logger";
 
 // OpenAIサービスをモック
 vi.mock("../services/openai", async (importOriginal) => {
@@ -34,11 +35,21 @@ const quotaError = () => {
 };
 
 describe("要約API", () => {
-  const app = createApp();
+  /** ルートが出したログ（メモリの sink に書かせて JSON で読む） */
+  const logLines: Record<string, unknown>[] = [];
+  const app = createApp({
+    logger: createLogger({
+      level: "trace",
+      sink: { write: (line) => logLines.push(JSON.parse(line)) },
+    }),
+  });
+  /** アクセスログ以外の行 */
+  const routeLogs = () => logLines.filter((line) => line.msg !== "request");
   const openAIKeyHeader = "test-openai-api-key";
 
   beforeEach(() => {
     vi.clearAllMocks();
+    logLines.length = 0;
 
     // generateSummaryのモック
     vi.mocked(generateSummary).mockResolvedValue({
@@ -466,6 +477,76 @@ describe("要約API", () => {
       expect(response.status).toBe(401);
       const body = await response.json();
       expect(body).toEqual({ error: "要約の生成に失敗しました", code: "auth", retryable: false });
+    });
+  });
+
+  describe("ログ", () => {
+    const postSummary = (generateTarget: "both" | "explanation", withApiKey = true) =>
+      app.request(
+        new Request("http://localhost/api/v1/summary/2401.12345", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(withApiKey ? { "X-OpenAI-API-Key": openAIKeyHeader } : {}),
+          },
+          body: JSON.stringify({
+            language: "ja",
+            abstract: "This paper presents a new deep learning method...",
+            generateTarget,
+          }),
+        })
+      );
+
+    it.each([
+      [
+        "429",
+        Object.assign(new Error("rate limited sk-proj-abcd"), { statusCode: 429 }),
+        "rate_limit",
+      ],
+      [
+        "JSONの解析失敗",
+        new SyntaxError("Unexpected token 'A', \"sk-proj-abcd\""),
+        "invalid_output",
+      ],
+    ] as const)("説明文だけの失敗（%s、部分成功）は code=%s の行を warn で1行だけ出す", async (_label, error, code) => {
+      vi.mocked(generateExplanation).mockRejectedValueOnce(error);
+
+      await postSummary("both");
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "warn", code, msg: "summary explanation failed" }),
+      ]);
+      expect(JSON.stringify(logLines)).not.toContain("sk-");
+    });
+
+    it("要約の失敗は code=upstream の行を error で1行だけ出す", async () => {
+      vi.mocked(generateSummary).mockRejectedValueOnce(new Error("upstream timeout"));
+
+      await postSummary("both");
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "error", code: "upstream", msg: "summary failed" }),
+      ]);
+    });
+
+    it("説明文のみの生成の失敗は外側でだけ記録し、1行だけ出す", async () => {
+      vi.mocked(generateExplanation).mockRejectedValueOnce(
+        Object.assign(new Error("invalid key"), { statusCode: 401 })
+      );
+
+      await postSummary("explanation");
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "warn", code: "auth", msg: "summary failed" }),
+      ]);
+    });
+
+    it("キー未設定は code=auth の行を debug で1行だけ出す", async () => {
+      await postSummary("both", false);
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "debug", code: "auth", msg: "summary failed" }),
+      ]);
     });
   });
 });

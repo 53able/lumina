@@ -2,14 +2,19 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { EmbeddingBatchRequestSchema, EmbeddingRequestSchema } from "../../shared/schemas/index.js";
 import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
-import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError.js";
+import { getLogger } from "../lib/logger.js";
+import {
+  getStageErrorLogLevel,
+  toStageError,
+  UPSTREAM_ERROR_STATUS,
+} from "../lib/upstreamError.js";
 import {
   createEmbedding,
   createEmbeddingsBatch,
   EMBEDDING_MODEL,
   getOpenAIConfig,
 } from "../services/openai.js";
-import type { Env } from "../types/env.js";
+import type { AppEnv } from "../types/env.js";
 
 /** 失敗時に error として返す固定文言（上流のエラー文の代わり） */
 const EMBEDDING_FAILED_MESSAGE = "Embeddingの生成に失敗しました";
@@ -21,6 +26,7 @@ const EMBEDDING_FAILED_MESSAGE = "Embeddingの生成に失敗しました";
 const toEmbeddingErrorResponse = (error: unknown) => {
   const stageError = toStageError(error);
   return {
+    stageError,
     body: { error: EMBEDDING_FAILED_MESSAGE, ...stageError },
     status: UPSTREAM_ERROR_STATUS[stageError.code],
   };
@@ -29,7 +35,7 @@ const toEmbeddingErrorResponse = (error: unknown) => {
 /**
  * Embedding API アプリケーション
  */
-export const embeddingApp = new Hono<{ Bindings: Env }>()
+export const embeddingApp = new Hono<AppEnv>()
   .post("/embedding", zValidator("json", EmbeddingRequestSchema), async (c) => {
     const startTime = timestamp();
     const body = c.req.valid("json");
@@ -47,7 +53,11 @@ export const embeddingApp = new Hono<{ Bindings: Env }>()
         200
       );
     } catch (error) {
-      const { body: errorBody, status } = toEmbeddingErrorResponse(error);
+      const { stageError, body: errorBody, status } = toEmbeddingErrorResponse(error);
+      getLogger(c)[getStageErrorLogLevel(error, stageError)](
+        { ...stageError, err: error },
+        "embedding failed"
+      );
       return c.json(errorBody, status);
     }
   })
@@ -68,7 +78,11 @@ export const embeddingApp = new Hono<{ Bindings: Env }>()
         200
       );
     } catch (error) {
-      const { body: errorBody, status } = toEmbeddingErrorResponse(error);
+      const { stageError, body: errorBody, status } = toEmbeddingErrorResponse(error);
+      getLogger(c)[getStageErrorLogLevel(error, stageError)](
+        { ...stageError, err: error },
+        "embedding batch failed"
+      );
       return c.json(errorBody, status);
     }
   });

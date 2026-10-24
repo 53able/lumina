@@ -310,6 +310,9 @@ vercel deploy
 
 Embedding モデル（`text-embedding-3-small`）は保存済みベクトルとの互換性のため固定です。
 
+**ログの環境変数**（任意）:
+- `LOG_LEVEL` - サーバーのログは pino の JSON（1行1件）で出る。`trace` / `debug` / `info`（既定） / `warn` / `error` / `fatal` / `silent` で絞れる。開発時は `pnpm dev:api | pnpm dlx pino-pretty` で読みやすく表示できる
+
 **デプロイメント保護**:
 - Vercel Password Protection を使用してデプロイメント全体を保護することを推奨します（Enterprise プラン、または Pro プラン + Advanced Deployment Protection アドオン）
 - Vercel Dashboard > Settings > Deployment Protection から設定可能

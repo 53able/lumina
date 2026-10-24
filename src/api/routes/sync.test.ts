@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_BATCH_MAX_SIZE, EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import { createApp } from "../app";
+import { createLogger } from "../lib/logger";
 
 // OpenAIサービスをモック
 vi.mock("../services/openai", async (importOriginal) => {
@@ -9,14 +10,24 @@ vi.mock("../services/openai", async (importOriginal) => {
     ...original,
     createEmbedding: vi.fn(),
     createEmbeddingsBatch: vi.fn(),
+    getOpenAIConfig: vi.fn(original.getOpenAIConfig),
   };
 });
 
 import { ArxivRateLimitError, resetArxivGateForTest } from "../services/arxivFetcher";
-import { createEmbeddingsBatch } from "../services/openai";
+import { createEmbeddingsBatch, getOpenAIConfig } from "../services/openai";
 
 describe("同期API", () => {
-  const app = createApp();
+  /** ルートが出したログ（メモリの sink に書かせて JSON で読む） */
+  const logLines: Record<string, unknown>[] = [];
+  const app = createApp({
+    logger: createLogger({
+      level: "trace",
+      sink: { write: (line) => logLines.push(JSON.parse(line)) },
+    }),
+  });
+  /** アクセスログ以外の行 */
+  const routeLogs = () => logLines.filter((line) => line.msg !== "request");
   const openAIKeyHeader = "test-openai-api-key";
 
   /** period: "7" の範囲内になるよう、3日前の日付を生成する */
@@ -94,6 +105,7 @@ describe("同期API", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    logLines.length = 0;
     // 前のテストの arXiv 送信予約が残っていると送信間隔の待ちが発生するため初期化する
     resetArxivGateForTest();
 
@@ -381,10 +393,12 @@ describe("同期API", () => {
         code: "upstream",
         retryable: true,
       });
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "warn", code: "upstream", msg: "sync failed" }),
+      ]);
     });
 
     it("異常系: arXiv が 429 のときは上流の本文を返さず固定の文言と Retry-After を返す", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
       vi.mocked(global.fetch).mockResolvedValue({
         ok: false,
         status: 429,
@@ -404,10 +418,12 @@ describe("同期API", () => {
         code: "rate_limit",
         retryable: true,
       });
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "warn", code: "rate_limit", msg: "sync failed" }),
+      ]);
     });
 
     it("異常系: 想定外のエラーは例外の message を返さず 500 の固定文言を返す", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
       vi.mocked(global.fetch).mockResolvedValue({
         ok: false,
         status: 400,
@@ -426,10 +442,18 @@ describe("同期API", () => {
         code: "internal",
         retryable: false,
       });
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({
+          level: "error",
+          code: "internal",
+          msg: "sync failed",
+          bodyStart: 0,
+          err: expect.objectContaining({ name: "ArxivHttpError", status: 400 }),
+        }),
+      ]);
     });
 
     it("異常系: arXiv 待ち行列の上限超過（ArxivRateLimitError）は待ち時間を本文に含めない", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
       vi.mocked(global.fetch).mockRejectedValue(
         new ArxivRateLimitError("arXiv request queue is full (estimated wait 18000ms)", 6)
       );
@@ -473,7 +497,6 @@ describe("同期API", () => {
     });
 
     it("Embedding は締め切り付きの signal と再試行なしで生成し、途中のチャンクが失敗したら生成済みの分を残して返す", async () => {
-      vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.mocked(createEmbeddingsBatch)
         .mockImplementationOnce(async (texts: string[]) => ({
           embeddings: texts.map(() => Array(EMBEDDING_DIMENSION).fill(0.1)),
@@ -498,6 +521,51 @@ describe("同期API", () => {
       expect(body.papers).toHaveLength(paperCount);
       const withEmbedding = body.papers.filter((p: { embedding?: number[] }) => p.embedding);
       expect(withEmbedding).toHaveLength(EMBEDDING_BATCH_MAX_SIZE);
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({
+          level: "warn",
+          msg: "sync embedding stopped",
+          chunkStart: EMBEDDING_BATCH_MAX_SIZE,
+          code: "upstream",
+          err: expect.objectContaining({ name: "TimeoutError" }),
+        }),
+      ]);
+    });
+
+    it("API キーがなければ Embedding を生成せず、debug の sync embedding skipped を1行出す", async () => {
+      const response = await app.request(syncRequest({ categories: ["cs.AI"], period: "7" }));
+
+      expect(response.status).toBe(200);
+      expect(createEmbeddingsBatch).not.toHaveBeenCalled();
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({
+          level: "debug",
+          msg: "sync embedding skipped",
+          code: "auth",
+          err: expect.objectContaining({ name: "OpenAIApiKeyNotConfiguredError" }),
+        }),
+      ]);
+    });
+
+    it("getOpenAIConfig がキー未設定以外の例外を投げたら、Embedding なしで返し warn を1行出す", async () => {
+      vi.mocked(getOpenAIConfig).mockImplementationOnce(() => {
+        throw new TypeError("unexpected");
+      });
+
+      const response = await app.request(syncRequest({ categories: ["cs.AI"], period: "7" }, true));
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.papers.every((p: { embedding?: number[] }) => !p.embedding)).toBe(true);
+      expect(createEmbeddingsBatch).not.toHaveBeenCalled();
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({
+          level: "warn",
+          msg: "sync embedding skipped",
+          code: "upstream",
+          err: expect.objectContaining({ name: "TypeError" }),
+        }),
+      ]);
     });
 
     it("40 秒以内なら全チャンクの Embedding を生成する", async () => {

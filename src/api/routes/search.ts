@@ -2,14 +2,19 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { type ExpandedQuery, SearchRequestSchema } from "../../shared/schemas/index.js";
 import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
-import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError.js";
+import { getLogger } from "../lib/logger.js";
+import {
+  getStageErrorLogLevel,
+  toStageError,
+  UPSTREAM_ERROR_STATUS,
+} from "../lib/upstreamError.js";
 import {
   createEmbedding,
   expandQuery,
   getOpenAIConfig,
   OpenAIApiKeyNotConfiguredError,
 } from "../services/openai.js";
-import type { Env } from "../types/env.js";
+import type { AppEnv } from "../types/env.js";
 
 /** 失敗時に error として返す固定文言（上流のエラー文の代わり） */
 const SEARCH_FAILED_MESSAGE = "検索に失敗しました";
@@ -44,7 +49,7 @@ const toDirectExpandedQuery = (query: string, embeddingText: string): ExpandedQu
  *
  * embeddingText が指定された場合はクエリ拡張を省き、その文を Embedding に渡す。
  */
-export const searchApp = new Hono<{ Bindings: Env }>().post(
+export const searchApp = new Hono<AppEnv>().post(
   "/search",
   zValidator("json", SearchRequestSchema),
   async (c) => {
@@ -76,6 +81,7 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
       // APIキーがない場合はスタブを返す（queryEmbeddingは空配列で統一）。
       // 検索文を指定した再検索はスタブにせずエラーを返す（実際に Embedding できなかったことを隠さない）
       if (body.embeddingText === undefined && error instanceof OpenAIApiKeyNotConfiguredError) {
+        getLogger(c).debug({ code: "auth", err: error }, "search stub returned");
         const expandedQuery = generateStubExpandedQuery(body.query);
         return c.json(
           {
@@ -90,6 +96,10 @@ export const searchApp = new Hono<{ Bindings: Env }>().post(
 
       // 上流のエラー文（キーの一部を含みうる）は返さず、分類とステータスで返す
       const stageError = toStageError(error);
+      getLogger(c)[getStageErrorLogLevel(error, stageError)](
+        { ...stageError, err: error },
+        "search failed"
+      );
       return c.json(
         { error: SEARCH_FAILED_MESSAGE, ...stageError },
         UPSTREAM_ERROR_STATUS[stageError.code]
