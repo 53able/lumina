@@ -3,6 +3,7 @@ import { Bookmark, ExternalLink, FileText, Heart } from "lucide-react";
 import { type FC, Fragment, useEffect, useMemo, useState } from "react";
 import type { Paper, PaperSummary as PaperSummaryType } from "../../shared/schemas/index";
 import { splitAbstractSentences } from "../../shared/utils/abstractSentences";
+import { isValidAuthorAffiliations } from "../../shared/utils/authorAffiliations";
 import { useInteraction } from "../contexts/InteractionContext";
 import type { SummaryVersion } from "../stores/summaryStore";
 import { type GenerateTarget, PaperSummary } from "./PaperSummary";
@@ -72,6 +73,10 @@ export const PaperDetail: FC<PaperDetailProps> = ({
   // Context経由でいいね/ブックマーク状態を取得
   const { isLiked, isBookmarked, toggleLike, toggleBookmark } = useInteraction(paper.id);
 
+  const authorAffiliations = isValidAuthorAffiliations(paper.authors, paper.authorAffiliations)
+    ? paper.authorAffiliations.map((row) => row.map((value) => value.trim()).filter(Boolean))
+    : undefined;
+
   /** AI要約の参照範囲注記からリンクするAbstract要素のID */
   const abstractId = `paper-abstract-${paper.id}`;
   /** 根拠として強調するAbstractの文の要素ID */
@@ -133,7 +138,19 @@ export const PaperDetail: FC<PaperDetailProps> = ({
         <h2 className="text-xl font-bold leading-tight text-tight-bold">{paper.title}</h2>
 
         {/* 著者（全員表示） */}
-        <p className="mt-2 text-sm text-muted-foreground">{paper.authors.join(", ")}</p>
+        <ul aria-label="著者と所属" className="mt-2 space-y-1 text-sm text-muted-foreground">
+          {paper.authors.map((author, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 所属は著者の順序に対応し、同名著者も別々に表示する
+            <li key={index} className="min-w-0 break-words">
+              <span className="text-foreground">{author}</span>
+              <span className="ml-2 text-xs">
+                {authorAffiliations?.[index]?.length
+                  ? authorAffiliations[index].join(" · ")
+                  : "所属不明"}
+              </span>
+            </li>
+          ))}
+        </ul>
 
         {/* カテゴリバッジ */}
         <div className="flex flex-wrap gap-1 mt-3">
