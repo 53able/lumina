@@ -27,7 +27,7 @@ export interface BackfillEmbeddingsDeps {
   addPaper: (paper: Paper) => Promise<void>;
   /** 複数論文をストアに一括保存する関数。指定時はバッチ補完で再レンダー回数を抑える。 */
   addPapers?: (papers: Paper[]) => Promise<void>;
-  /** 推奨並列数（1〜10）。省略時は api の getRecommendedConcurrency を使用。1 で逐次実行（少しずつ UX） */
+  /** 推奨並列数（1〜4）。省略時は api の getRecommendedConcurrency を使用。1 で逐次実行（少しずつ UX） */
   getRecommendedConcurrency?: () => number;
   /** 1件完了するたびに呼ばれる（進捗表示用） */
   onProgress?: (completed: number, total: number) => void;

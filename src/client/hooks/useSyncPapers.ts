@@ -9,6 +9,7 @@ import {
   embeddingBatchApi,
   getDecryptedApiKey,
   SyncRateLimitError,
+  type SyncRetryReason,
   syncApi,
 } from "../lib/api";
 import { runBackfillEmbeddings } from "../lib/backfillEmbeddings";
@@ -226,8 +227,8 @@ export const useSyncPapers = (
     /** syncAll 終了時に呼ぶ。合計で追加した件数と、ユーザー停止かどうか。停止時は「完了」と誤解しない文言でトーストする想定。 */
     onSyncAllComplete?: (totalAddedCount: number, context?: { wasAborted: boolean }) => void;
     onError?: (error: Error) => void;
-    /** 429 を検出したときに1回だけ呼ぶ（リトライ前。トーストで「再試行中」を出したい場合） */
-    onRateLimited?: () => void;
+    /** 同期の再試行の前に1回だけ呼ぶ（トーストで理由ごとの「再試行中」を出したい場合） */
+    onRateLimited?: (reason: SyncRetryReason) => void;
     /** syncFromDate 成功時。addedCount は実際に追加した件数、totalFetched は API が返した件数（0 の場合は範囲に論文なし） */
     onSyncFromDateSuccess?: (addedCount: number, totalFetched?: number) => void;
     /** syncFromDate の各ページで新規論文を保存した直後に呼ぶ */
@@ -272,8 +273,6 @@ export const useSyncPapers = (
 
   // 同期フラグ（レースコンディション防止用）。useState は非同期バッチ更新のため連続呼び出しを防げない
   const isLoadingMoreRef = useRef(false);
-  /** syncMore 用のレートリミット待機（現状は no-op） */
-  const waitForRateLimitRef = useRef<() => Promise<void>>(async () => {});
 
   /** syncAll 停止用。abort すると syncMore のリクエストとループが止まる */
   const syncAllAbortRef = useRef<AbortController | null>(null);
@@ -343,7 +342,7 @@ export const useSyncPapers = (
           maxResults: 200,
           ...(existingPaperIds != null && existingPaperIds.length > 0 ? { existingPaperIds } : {}),
         },
-        { apiKey, signal, onRateLimited: () => onRateLimitedRef.current?.() }
+        { apiKey, signal, onRateLimited: (reason) => onRateLimitedRef.current?.(reason) }
       );
       // 日付文字列を Date オブジェクトに正規化
       return normalizeSyncResponse(response);
@@ -503,9 +502,6 @@ export const useSyncPapers = (
       useSyncStore.getState().setIsLoadingMore(true);
 
       try {
-        // レートリミットを考慮して待機
-        await waitForRateLimitRef.current();
-
         // API key を復号化して取得（早期開始パターン）
         const apiKeyPromise = getDecryptedApiKey();
         const apiKey = await apiKeyPromise;
@@ -526,7 +522,11 @@ export const useSyncPapers = (
               ? { existingPaperIds }
               : {}),
           },
-          { apiKey, signal: abortSignal, onRateLimited: () => onRateLimitedRef.current?.() }
+          {
+            apiKey,
+            signal: abortSignal,
+            onRateLimited: (reason) => onRateLimitedRef.current?.(reason),
+          }
         );
         // 日付文字列を Date オブジェクトに正規化
         const response = normalizeSyncResponse(rawResponse);
@@ -609,7 +609,7 @@ export const useSyncPapers = (
           if (!alreadyReported) onErrorRef.current?.(e);
           break;
         }
-        await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ
+        await new Promise<void>((r) => setTimeout(r, 0)); // state 更新を待つ（送信間隔は syncApi が保つ）
       }
     } catch (err) {
       const isAbort = err instanceof DOMException && err.name === "AbortError";
@@ -730,7 +730,6 @@ export const useSyncPapers = (
         try {
           // 既存論文と照合するため、保存済み論文の全件準備完了を待つ（失敗は同期エラーとして記録する）
           await whenPapersReady();
-          await waitForRateLimitRef.current();
           const apiKey = await getDecryptedApiKey();
           let start = 0;
           let pageCount = 0;
@@ -758,7 +757,11 @@ export const useSyncPapers = (
                   ? { existingPaperIds }
                   : {}),
               },
-              { apiKey, signal: ac.signal, onRateLimited: () => onRateLimitedRef.current?.() }
+              {
+                apiKey,
+                signal: ac.signal,
+                onRateLimited: (reason) => onRateLimitedRef.current?.(reason),
+              }
             );
             const response = normalizeSyncResponse(rawResponse);
             const newPapers = filterNewPapers(response.papers, getStorePapers());

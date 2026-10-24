@@ -304,8 +304,14 @@ const HomePage: FC = () => {
           });
         }
       },
-      onRateLimited: () => {
-        toast.info("レート制限（429）のため再試行しています");
+      onRateLimited: (reason) => {
+        if (reason === "rate_limit") {
+          toast.info("レート制限（429）のため再試行しています");
+        } else if (reason === "unavailable") {
+          toast.info("サーバーが一時的に利用できないため再試行しています");
+        } else {
+          toast.info("ネットワークに接続できないため再試行しています");
+        }
       },
     }
   );

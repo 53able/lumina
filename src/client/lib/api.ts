@@ -37,10 +37,13 @@ interface ApiOptions {
   signal?: AbortSignal;
 }
 
-/** syncApi 専用オプション（429 検出時の通知用） */
+/** sync を再試行する理由。rate_limit: 429、unavailable: 502/503、network: fetch のネットワーク失敗 */
+export type SyncRetryReason = "rate_limit" | "unavailable" | "network";
+
+/** syncApi 専用オプション（再試行の通知用） */
 export interface SyncApiOptions extends ApiOptions {
-  /** 429 を受信したときに1回だけ呼ぶ（リトライ前に UI でトースト等を出したい場合） */
-  onRateLimited?: () => void;
+  /** 最初の再試行の前に1回だけ呼ぶ（UI でトースト等を出したい場合）。reason は最初の失敗の理由 */
+  onRateLimited?: (reason: SyncRetryReason) => void;
 }
 
 /**
@@ -220,7 +223,7 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
   );
 
   if (!res.ok) {
-    // 応答の error（旧形式では上流のエラー文）は使わない。hono-rate-limiter の 429 はプレーンテキストのため、
+    // 応答の error（旧形式では上流のエラー文）は使わない。ゲートウェイの応答は JSON とは限らないため、
     // 本文ではなく status で失敗を分類する
     // RPC の型はサーバーが返すステータスだけに絞られるため、ミドルウェア・ゲートウェイの値も扱えるよう number で受ける
     const status: number = res.status;
@@ -236,7 +239,7 @@ export const searchApi = async (request: SearchRequest, options?: ApiOptions) =>
 /** 未取得時は 1 req/秒で開始（保守的だった 2秒から短縮）。429 時は EmbeddingRateLimitError で停止し次回再開。 */
 const FALLBACK_MIN_INTERVAL_MS = 1_000;
 
-/** レスポンスの RateLimit-* から更新する共有状態（sync / embedding 同一バケット） */
+/** Embedding 応答の RateLimit-* から更新する共有状態（sync はサーバーで別バケットのため使わない） */
 let rateLimitRemaining: number | null = null;
 /** ウィンドウリセット時刻（Unix ms）。draft-6 の RateLimit-Reset は秒で返る想定 */
 let rateLimitResetAtMs: number | null = null;
@@ -249,8 +252,8 @@ const RATE_LIMIT_RESET_THRESHOLD_SEC = 1e9;
 const RATE_LIMIT_RESET_ALREADY_MS = 1e10;
 
 /**
- * レスポンスヘッダーから RateLimit-* をパースし共有状態を更新する。
- * sync / embedding は同一レートリミットバケットのため、どちらのレスポンスでも更新する。
+ * Embedding 応答のヘッダーから RateLimit-* をパースし共有状態を更新する。
+ * sync は別バケット（IP ごとに 12件/60秒）のため、sync 応答では呼ばない。
  */
 const updateRateLimitFromResponse = (res: Response): void => {
   if (!res?.headers) return;
@@ -270,12 +273,15 @@ const updateRateLimitFromResponse = (res: Response): void => {
   }
 };
 
+/** 推奨並列数の上限。残り枠が多くても OpenAI 側の負荷と 429 を避けるため抑える */
+const MAX_RECOMMENDED_CONCURRENCY = 4;
+
 /**
- * レートリミット残り枠に応じた推奨並列数（1〜10）。
+ * レートリミット残り枠に応じた推奨並列数（1〜4）。
  * backfill の並列オートスケール用。未取得時は 3 で開始（従来の 1 より速く、429 を避けやすい）。
  */
 export const getRecommendedConcurrency = (): number =>
-  Math.min(10, Math.max(1, rateLimitRemaining ?? 3));
+  Math.min(MAX_RECOMMENDED_CONCURRENCY, Math.max(1, rateLimitRemaining ?? 3));
 
 /**
  * 次の embedding 送信までに待つべき ms。
@@ -364,6 +370,34 @@ export class SyncRateLimitError extends Error {
   }
 }
 
+/** Embedding 429 で 1 回だけ待って再送する Retry-After の上限（秒）。超える場合は待たずに中断する */
+const EMBEDDING_RETRY_AFTER_MAX_SEC = 30;
+
+/** Retry-After ヘッダー（秒）を読む。無い・数値でない・0 以下なら undefined */
+const parseRetryAfterSec = (header: string | null): number | undefined => {
+  const sec = header ? parseInt(header, 10) : NaN;
+  return Number.isNaN(sec) || sec <= 0 ? undefined : sec;
+};
+
+/**
+ * Embedding リクエストを送り、429 で Retry-After が 1〜30 秒なら 1 回だけ待って再送する。
+ * Retry-After が無い・30 秒を超える場合は再送せず 429 をそのまま返す（handleEmbeddingResponse で EmbeddingRateLimitError）。
+ * 待機中に API 利用を OFF にされた場合は再送しない。signal で中断されたら AbortError を投げる。
+ */
+const postEmbeddingWithRetry = async <R extends Response>(
+  post: () => Promise<R>,
+  signal?: AbortSignal
+): Promise<R> => {
+  const res = await post();
+  if ((res.status as number) !== 429) return res;
+  const retryAfterSec = parseRetryAfterSec(res.headers.get("retry-after"));
+  if (retryAfterSec === undefined || retryAfterSec > EMBEDDING_RETRY_AFTER_MAX_SEC) return res;
+  updateRateLimitFromResponse(res);
+  await waitForSyncRetryDelay(retryAfterSec * 1000, signal);
+  assertApiEnabled();
+  return post();
+};
+
 /**
  * Embedding API レスポンスの共通処理
  *
@@ -395,12 +429,13 @@ const handleEmbeddingResponse = async <T>(res: Response): Promise<T> => {
  * Embedding API
  *
  * テキストから Embedding ベクトルを生成する。
- * 429 のときはリトライせず EmbeddingRateLimitError を投げる。呼び出し元（バックフィル）で停止し、次回再開する。
+ * 429 のときは Retry-After が 30 秒以内なら 1 回だけ待って再送し、それでも 429 なら EmbeddingRateLimitError を投げる。
+ * 呼び出し元（バックフィル）はこのエラーで停止し、次回再開する。
  *
  * @param request { text: string } 対象テキスト（1〜8000文字）
  * @param options APIオプション
  * @returns embedding 配列（1536次元）
- * @throws EmbeddingRateLimitError 429 時
+ * @throws EmbeddingRateLimitError 429 が続いた・Retry-After が無いか 30 秒を超える時
  * @throws Error その他の API エラー時
  */
 export const embeddingApi = async (
@@ -412,19 +447,22 @@ export const embeddingApi = async (
   await waitForEmbeddingInterval();
   // 送信間隔の待機中に OFF にされた場合も送らない
   assertApiEnabled();
-  const res = await client.api.v1.embedding.$post({ json: request }, opts);
+  const res = await postEmbeddingWithRetry(
+    () => client.api.v1.embedding.$post({ json: request }, opts),
+    options?.signal
+  );
   return handleEmbeddingResponse<{ embedding: number[] }>(res);
 };
 
 /**
  * バッチ Embedding API
  *
- * 複数テキストを1リクエストで Embedding に変換する。429 のときはリトライせず EmbeddingRateLimitError を投げる。
+ * 複数テキストを1リクエストで Embedding に変換する。429 の扱いは embeddingApi と同じ（Retry-After 30 秒以内なら 1 回だけ再送）。
  *
  * @param request { texts: string[] } 対象テキスト配列（1〜EMBEDDING_BATCH_MAX_SIZE 件）
  * @param options APIオプション
  * @returns embeddings 配列（入力順、各要素は 1536 次元）
- * @throws EmbeddingRateLimitError 429 時
+ * @throws EmbeddingRateLimitError 429 が続いた・Retry-After が無いか 30 秒を超える時
  * @throws Error その他の API エラー時
  */
 export const embeddingBatchApi = async (
@@ -437,7 +475,10 @@ export const embeddingBatchApi = async (
   await waitForEmbeddingInterval(1);
   // 送信間隔の待機中に OFF にされた場合も送らない
   assertApiEnabled();
-  const res = await client.api.v1.embedding.batch.$post({ json: request }, opts);
+  const res = await postEmbeddingWithRetry(
+    () => client.api.v1.embedding.batch.$post({ json: request }, opts),
+    options?.signal
+  );
   return handleEmbeddingResponse<{ embeddings: number[][] }>(res);
 };
 
@@ -458,10 +499,24 @@ type SyncApiInput = {
   existingPaperIds?: string[];
 };
 
-/** sync 429 リトライ: 最大回数（embedding と同一バケットのため 429 になりうる） */
-const SYNC_RATE_LIMIT_MAX_RETRIES = 3;
-/** sync 429 リトライ: Retry-After が無い／無効なときの最小待機（ms） */
-const EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS = 2_000;
+/** sync リトライ: 最大回数（429/502/503 とネットワーク失敗が対象。504 は関数タイムアウトで再送すると OpenAI の費用が重複するため除く） */
+const SYNC_MAX_RETRIES = 3;
+/** sync 送信の最小間隔（ms）。サーバーの上限（IP ごとに 12 件/60 秒）に対し、リトライ分の余裕を残す */
+const SYNC_MIN_INTERVAL_MS = 6_000;
+/** sync リトライ: 指数バックオフの基準（ms）。n 回目の待ちは 3000 × 2^n 以上 */
+const SYNC_RETRY_BASE_DELAY_MS = 3_000;
+/** sync リトライ: 待ちの上限（ms） */
+const SYNC_RETRY_MAX_DELAY_MS = 60_000;
+/** sync リトライ: ジッターの最大比率（待ちに 0〜20% を加える） */
+const SYNC_RETRY_JITTER_RATIO = 0.2;
+
+/** 直近で sync を送った（または送る予定の）時刻（ms）。未送信時は null。全 sync 呼び出しで共有する */
+let lastSyncSentAtMs: number | null = null;
+
+/** テスト用: sync の送信間隔の状態を初期化する */
+export const resetSyncIntervalForTest = (): void => {
+  lastSyncSentAtMs = null;
+};
 
 /** 429 時のユーザー向けメッセージを組み立てる（Retry-After があれば秒数を含める） */
 const formatSyncRateLimitMessage = (retryAfterSec: number | undefined): string =>
@@ -469,13 +524,14 @@ const formatSyncRateLimitMessage = (retryAfterSec: number | undefined): string =
     ? `リクエストが集中しています。${retryAfterSec}秒ほど待ってから再度お試しください。`
     : "リクエストが集中しています。しばらく待ってから再度お試しください。";
 
-/** 429/503 リトライ前に待機する ms。Retry-After が無効な場合は最小バックオフを使用 */
-const computeSyncRetryDelayMs = (retryAfterHeader: string | null): number => {
-  const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN;
-  if (Number.isNaN(retryAfterSec) || retryAfterSec <= 0) {
-    return EMBEDDING_RATE_LIMIT_MIN_BACKOFF_MS;
-  }
-  return Math.max(1000, retryAfterSec * 1000);
+/**
+ * リトライ前に待機する ms。
+ * max(Retry-After, 3 秒 × 2^retryCount) にジッター 0〜20% を加え、60 秒で打ち切る。
+ */
+const computeSyncRetryDelayMs = (retryAfterSec: number | undefined, retryCount: number): number => {
+  const baseMs = Math.max((retryAfterSec ?? 0) * 1000, SYNC_RETRY_BASE_DELAY_MS * 2 ** retryCount);
+  const jitter = 1 + Math.random() * SYNC_RETRY_JITTER_RATIO;
+  return Math.min(SYNC_RETRY_MAX_DELAY_MS, baseMs * jitter);
 };
 
 /** AbortSignal に対応した待機。停止時は即座に AbortError を投げる。 */
@@ -501,16 +557,43 @@ const waitForSyncRetryDelay = (delayMs: number, signal?: AbortSignal): Promise<v
   });
 
 /**
+ * 前回の sync 送信から最小間隔（6 秒）が空くまで待つ。初回は待たない。
+ * 送信枠は待つ前に予約するため、並行して呼ばれても 6 秒ずつずれて送られる。
+ * 待機中に中断されたら予約を取り消す（後続の予約がすでに入っていれば、その間隔を崩さないよう何もしない）。
+ */
+const waitForSyncInterval = async (signal?: AbortSignal): Promise<void> => {
+  const now = Date.now();
+  const previousSentAtMs = lastSyncSentAtMs;
+  const sendAtMs =
+    lastSyncSentAtMs === null ? now : Math.max(now, lastSyncSentAtMs + SYNC_MIN_INTERVAL_MS);
+  lastSyncSentAtMs = sendAtMs;
+  if (sendAtMs > now) {
+    try {
+      await waitForSyncRetryDelay(sendAtMs - now, signal);
+    } catch (e) {
+      if (lastSyncSentAtMs === sendAtMs) lastSyncSentAtMs = previousSentAtMs;
+      throw e;
+    }
+    // 背面タブでタイマーが遅れた場合は、次の間隔を実際の送信時刻から数える
+    if (lastSyncSentAtMs === sendAtMs) lastSyncSentAtMs = Math.max(sendAtMs, Date.now());
+  }
+};
+
+/**
  * 同期API
  *
  * arXiv論文を取得し、Embeddingを生成する。
  * API 利用が OFF のときは skipEmbedding を送り、arXiv 取得のみ行う（Embedding は生成しない）。
- * 429（Too Many Requests）のときは Retry-After に従ってリトライする（embedding と同一レートリミットバケットのため）。
+ * 送信間隔は全呼び出しで最小 6 秒に保つ（サーバーの上限は IP ごとに 12 件/60 秒）。
+ * 429/502/503 とネットワーク失敗は指数バックオフ（Retry-After が長ければそちら）で最大 3 回リトライする。
+ * 504（関数タイムアウト）はサーバー側で OpenAI を呼んだ後の可能性があるため再送しない。
+ * Retry-After が 60 秒を超える 429 は待たずに SyncRateLimitError を投げる。
  *
  * @param request 同期リクエスト
  * @param options APIオプション
  * @returns 同期レスポンス（RPC型推論）
- * @throws Error APIエラー時
+ * @throws SyncRateLimitError 429 が続いた・Retry-After が 60 秒を超える時
+ * @throws Error APIエラー時・最後の試行もネットワーク失敗だった時（元の例外は cause）
  */
 export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) => {
   const opts = { ...withApiKey(options), signal: options?.signal };
@@ -526,30 +609,48 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
       : {}),
   };
   // arXiv 取得は AI 呼び出しではないため継続し、Embedding 生成だけを止める。
-  // 429/503 の再送時にも OFF を再評価する
+  // リトライの再送時にも OFF を再評価する
   const withEmbeddingFlag = () => (isApiDisabled() ? { ...body, skipEmbedding: true } : body);
+  const send = async () => {
+    await waitForSyncInterval(opts.signal);
+    return client.api.v1.sync.$post({ json: withEmbeddingFlag() }, opts);
+  };
 
-  let lastRes = await client.api.v1.sync.$post({ json: withEmbeddingFlag() }, opts);
-  updateRateLimitFromResponse(lastRes);
-  let retryCount = 0;
-
-  const isRetryableStatus = (s: number) => s === 429 || s === 503;
-  while (
-    !lastRes.ok &&
-    isRetryableStatus(lastRes.status) &&
-    retryCount < SYNC_RATE_LIMIT_MAX_RETRIES
-  ) {
+  const isRetryableStatus = (s: number) => s === 429 || s === 502 || s === 503;
+  let lastRes: Awaited<ReturnType<typeof send>>;
+  for (let retryCount = 0; ; retryCount++) {
+    let res: Awaited<ReturnType<typeof send>> | null = null;
+    try {
+      res = await send();
+    } catch (e) {
+      // fetch のネットワーク失敗（TypeError）だけリトライする。AbortError などはそのまま投げる
+      if (!(e instanceof TypeError)) throw e;
+      if (retryCount >= SYNC_MAX_RETRIES) {
+        throw new Error(
+          "ネットワークに接続できませんでした。接続を確認してから再度お試しください。",
+          { cause: e }
+        );
+      }
+    }
+    const retryAfterSec = res ? parseRetryAfterSec(res.headers.get("retry-after")) : undefined;
+    if (res) {
+      lastRes = res;
+      if (res.ok || !isRetryableStatus(res.status) || retryCount >= SYNC_MAX_RETRIES) break;
+      // 長い Retry-After の 429 は待たずに打ち切る（下で SyncRateLimitError にする）
+      if (
+        res.status === 429 &&
+        retryAfterSec !== undefined &&
+        retryAfterSec * 1000 > SYNC_RETRY_MAX_DELAY_MS
+      ) {
+        break;
+      }
+    }
     if (retryCount === 0) {
-      options?.onRateLimited?.();
+      options?.onRateLimited?.(
+        !res ? "network" : res.status === 429 ? "rate_limit" : "unavailable"
+      );
     }
-    if (opts.signal?.aborted) {
-      throw new DOMException("Sync aborted", "AbortError");
-    }
-    const delayMs = computeSyncRetryDelayMs(lastRes.headers.get("retry-after"));
-    await waitForSyncRetryDelay(delayMs, opts.signal);
-    retryCount += 1;
-    lastRes = await client.api.v1.sync.$post({ json: withEmbeddingFlag() }, opts);
-    updateRateLimitFromResponse(lastRes);
+    await waitForSyncRetryDelay(computeSyncRetryDelayMs(retryAfterSec, retryCount), opts.signal);
   }
 
   if (!lastRes.ok) {
@@ -562,8 +663,7 @@ export const syncApi = async (request: SyncApiInput, options?: SyncApiOptions) =
       detail = bodyText.slice(0, 200);
     }
     if (lastRes.status === 429) {
-      const retryAfterRaw = lastRes.headers.get("retry-after");
-      const retryAfterSec = retryAfterRaw ? parseInt(retryAfterRaw, 10) : undefined;
+      const retryAfterSec = parseRetryAfterSec(lastRes.headers.get("retry-after"));
       throw new SyncRateLimitError(formatSyncRateLimitMessage(retryAfterSec), retryAfterSec);
     }
     throw new Error(
@@ -624,7 +724,7 @@ export const summaryApi = async (
 
   if (!res.ok) {
     // 応答の error（旧形式では上流のエラー文）は表示に使わず、code から案内文を作る
-    // code がない応答（hono-rate-limiter のプレーンテキストの 429、旧形式、ゲートウェイのエラーページ）はステータスから補う
+    // code がない応答（旧形式、ゲートウェイのエラーページ）はステータスから補う
     const body: { code?: unknown; retryable?: unknown } | null = await res.json().catch(() => null);
     // RPC の型はサーバーが返すステータスだけに絞られるため、ミドルウェア・ゲートウェイの値も扱えるよう number で受ける
     const status: number = res.status;
