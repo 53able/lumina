@@ -160,7 +160,7 @@ const isNetworkFailure = (error: unknown): error is Error =>
  * XMLからテキストを抽出するヘルパー
  */
 const extractText = (xml: string, tag: string): string => {
-  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
+  const regex = new RegExp(`<${tag}(?=\\s|>)(?![^>]*\\/>)[^>]*>([\\s\\S]*?)</${tag}>`, "i");
   const match = xml.match(regex);
   return match?.[1]?.trim() ?? "";
 };
@@ -169,8 +169,32 @@ const extractText = (xml: string, tag: string): string => {
  * XMLから複数のタグ値を抽出するヘルパー
  */
 const extractAllText = (xml: string, tag: string): string[] => {
-  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
+  const regex = new RegExp(`<${tag}(?=\\s|>)(?![^>]*\\/>)[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
   return Array.from(xml.matchAll(regex), (m) => (m[1] ?? "").trim());
+};
+
+/** Decode XML character data once; CDATA contents remain literal. */
+const decodeXmlText = (xml: string): string => {
+  const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+  return xml
+    .split(/(<!\[CDATA\[[\s\S]*?\]\]>)/g)
+    .map((part) => {
+      if (part.startsWith("<![CDATA[")) return part.slice(9, -3);
+      return part.replace(/&(amp|lt|gt|quot|apos|#x[\da-fA-F]+|#\d+);/g, (entity, name: string) => {
+        if (!name.startsWith("#")) return entities[name] ?? entity;
+        const codePoint = name.startsWith("#x")
+          ? Number.parseInt(name.slice(2), 16)
+          : Number.parseInt(name.slice(1), 10);
+        return codePoint > 0 &&
+          codePoint <= 0x10ffff &&
+          !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+          ? String.fromCodePoint(codePoint)
+          : entity;
+      });
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 /**
@@ -220,7 +244,16 @@ export const parseArxivEntry = (entryXml: string): Paper => {
 
   const title = extractText(entryXml, "title").replace(/\s+/g, " ");
   const abstract = extractText(entryXml, "summary").replace(/\s+/g, " ");
-  const authors = extractAllText(entryXml, "name");
+  const authorBlocks = extractAllText(entryXml, "author");
+  const authors: string[] = [];
+  const authorAffiliations: string[][] = [];
+  for (const author of authorBlocks) {
+    authors.push(decodeXmlText(extractText(author, "name")));
+    const affiliations = extractAllText(author, "arxiv:affiliation")
+      .map(decodeXmlText)
+      .filter(Boolean);
+    authorAffiliations.push([...new Set(affiliations)]);
+  }
   const categories = extractCategories(entryXml);
 
   const publishedAt = parseISO(extractText(entryXml, "published"));
@@ -234,6 +267,7 @@ export const parseArxivEntry = (entryXml: string): Paper => {
     title,
     abstract,
     authors,
+    authorAffiliations,
     categories,
     publishedAt,
     updatedAt,
