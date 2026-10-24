@@ -7,6 +7,7 @@ import { isValidAuthorAffiliations } from "../../shared/utils/authorAffiliations
 import { useInteraction } from "../contexts/InteractionContext";
 import { getCategoryDescription } from "../lib/categoryDescriptions";
 import { hasPaperEmbedding } from "../lib/paperIndex/core";
+import { PaperAffiliationEvidence } from "./PaperAffiliationEvidence";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -204,8 +205,12 @@ const PaperCardComponent: FC<PaperCardProps> = ({
             data-testid="author-affiliations"
             className="min-w-0 break-words text-xs text-muted-foreground"
           >
-            {affiliationsDisplay}
+            {affiliationsDisplay === "所属不明" &&
+            paper.paperAffiliationEvidence?.organizations.length
+              ? "著者別の所属は未確認"
+              : affiliationsDisplay}
           </p>
+          <PaperAffiliationEvidence paper={paper} />
           {/* Abstract の抜粋（原文）。AI が生成した文と区別できるようラベルを付ける */}
           {paper.abstract ? (
             <p

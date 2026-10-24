@@ -419,6 +419,115 @@ describe("paperStore", () => {
     });
   });
 
+  describe("本文の所属出典の保存", () => {
+    const evidence: NonNullable<Paper["paperAffiliationEvidence"]> = {
+      organizations: ["OpenAI", "University"],
+      sourceUrl: "https://arxiv.org/html/2401.00001v1",
+      checkedAt: new Date("2024-01-03T12:00:00.000Z"),
+    };
+
+    it("現在のメタデータとEmbeddingを保ち、DB・索引・一覧と再読み込みへ反映する", async () => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const current = createSamplePaper({
+        title: "Latest title",
+        authorAffiliations: [["Known author organization"], []],
+      });
+      await mockDb.papers.add(current);
+      const onUpsert = vi.fn();
+      const fake = createFakeIndexClient({ onUpsert });
+      const load = initializePaperStore(mockDb, { createIndexClient: () => fake.client });
+      fake.handlers().onLoaded(1);
+      await load;
+
+      await usePaperStore
+        .getState()
+        .savePaperAffiliationEvidence(current.id, current.authors, current.updatedAt, evidence);
+
+      const expected = { ...current, paperAffiliationEvidence: evidence };
+      expect(await mockDb.papers.get(current.id)).toEqual(expected);
+      expect(onUpsert).toHaveBeenCalledWith([expected]);
+      expect(usePaperStore.getState().getPaperById(current.id)?.paperAffiliationEvidence).toEqual(
+        evidence
+      );
+      await initializePaperStore(mockDb);
+      expect(usePaperStore.getState().getPaperById(current.id)?.paperAffiliationEvidence).toEqual(
+        evidence
+      );
+    });
+
+    it.each([
+      { authors: ["Author B", "Author A"] },
+      { updatedAt: new Date("2024-01-04") },
+    ])("古い取得元 $authors $updatedAt の結果は現在の論文を変更しない", async (changes) => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const source = createSamplePaper();
+      const current = createSamplePaper({ ...changes, paperAffiliationEvidence: evidence });
+      await mockDb.papers.add(current);
+      await initializePaperStore(mockDb);
+
+      await expect(
+        usePaperStore
+          .getState()
+          .savePaperAffiliationEvidence(source.id, source.authors, source.updatedAt, {
+            ...evidence,
+            organizations: ["Stale"],
+          })
+      ).rejects.toThrow("Affiliation source changed");
+      expect(await mockDb.papers.get(current.id)).toEqual(current);
+      expect(usePaperStore.getState().getPaperById(current.id)?.paperAffiliationEvidence).toEqual(
+        evidence
+      );
+    });
+
+    it("削除済み論文を再作成しない", async () => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      await initializePaperStore(mockDb);
+      const source = createSamplePaper();
+      await expect(
+        usePaperStore
+          .getState()
+          .savePaperAffiliationEvidence(source.id, source.authors, source.updatedAt, evidence)
+      ).rejects.toThrow("paper deleted");
+      expect(await mockDb.papers.count()).toBe(0);
+    });
+
+    it("同じ著者・更新日の同期では所属出典を保持し、キャッシュで巻き戻さない", async () => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const current = createSamplePaper({ paperAffiliationEvidence: evidence });
+      await mockDb.papers.add(current);
+      await initializePaperStore(mockDb);
+      await usePaperStore.getState().addPaper(createSamplePaper({ embedding: undefined }));
+      expect((await mockDb.papers.get(current.id))?.paperAffiliationEvidence).toEqual(evidence);
+      await usePaperStore.getState().addPapers(
+        [
+          createSamplePaper({
+            updatedAt: new Date("2024-01-01"),
+            paperAffiliationEvidence: { ...evidence, organizations: ["Old"] },
+          }),
+        ],
+        { source: "cache" }
+      );
+      expect((await mockDb.papers.get(current.id))?.paperAffiliationEvidence).toEqual(evidence);
+    });
+
+    it.each([
+      { authors: ["Author B", "Author A"] },
+      { updatedAt: new Date("2024-01-04") },
+    ])("同期で著者か更新日が変わった場合は古い所属出典を破棄する: %j", async (changes) => {
+      const { usePaperStore, initializePaperStore } = await import("./paperStore");
+      const current = createSamplePaper({ paperAffiliationEvidence: evidence });
+      await mockDb.papers.add(current);
+      await initializePaperStore(mockDb);
+      await usePaperStore
+        .getState()
+        .addPaper(createSamplePaper({ ...changes, paperAffiliationEvidence: evidence }));
+      expect((await mockDb.papers.get(current.id))?.paperAffiliationEvidence).toBeUndefined();
+      expect(
+        usePaperStore.getState().getPaperById(current.id)?.paperAffiliationEvidence
+      ).toBeUndefined();
+    });
+  });
+
   describe("所属とEmbeddingの保存競合", () => {
     it("ネットワークは同一著者の所属とEmbeddingを保持し、明示空と著者順変更を反映する", async () => {
       const { usePaperStore, initializePaperStore } = await import("./paperStore");

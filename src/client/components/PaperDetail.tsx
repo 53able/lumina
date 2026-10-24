@@ -6,6 +6,7 @@ import { splitAbstractSentences } from "../../shared/utils/abstractSentences";
 import { isValidAuthorAffiliations } from "../../shared/utils/authorAffiliations";
 import { useInteraction } from "../contexts/InteractionContext";
 import type { SummaryVersion } from "../stores/summaryStore";
+import { PaperAffiliationEvidence } from "./PaperAffiliationEvidence";
 import { type GenerateTarget, PaperSummary } from "./PaperSummary";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -151,6 +152,8 @@ export const PaperDetail: FC<PaperDetailProps> = ({
             </li>
           ))}
         </ul>
+
+        <PaperAffiliationEvidence paper={paper} />
 
         {/* カテゴリバッジ */}
         <div className="flex flex-wrap gap-1 mt-3">
