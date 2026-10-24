@@ -1,30 +1,40 @@
 import { z } from "zod";
+import { isValidAuthorAffiliations } from "../utils/authorAffiliations.js";
 
 /**
  * arXiv論文のスキーマ
  */
-export const PaperSchema = z.object({
-  /** arXiv ID */
-  id: z.string().min(1),
-  /** 論文タイトル */
-  title: z.string().min(1),
-  /** アブストラクト */
-  abstract: z.string(),
-  /** 著者リスト */
-  authors: z.array(z.string()),
-  /** arXivカテゴリ */
-  categories: z.array(z.string()),
-  /** 公開日 */
-  publishedAt: z.coerce.date(),
-  /** 更新日 */
-  updatedAt: z.coerce.date(),
-  /** PDF URL */
-  pdfUrl: z.string().url(),
-  /** arXivページURL */
-  arxivUrl: z.string().url(),
-  /** Embeddingベクトル（1536次元） */
-  embedding: z.array(z.number()).optional(),
-});
+export const PaperSchema = z
+  .object({
+    /** arXiv ID */
+    id: z.string().min(1),
+    /** 論文タイトル */
+    title: z.string().min(1),
+    /** アブストラクト */
+    abstract: z.string(),
+    /** 著者リスト */
+    authors: z.array(z.string()),
+    /** 著者と同じ順序の所属。未取得は省略、所属不明は空配列 */
+    authorAffiliations: z.array(z.array(z.string())).optional(),
+    /** arXivカテゴリ */
+    categories: z.array(z.string()),
+    /** 公開日 */
+    publishedAt: z.coerce.date(),
+    /** 更新日 */
+    updatedAt: z.coerce.date(),
+    /** PDF URL */
+    pdfUrl: z.string().url(),
+    /** arXivページURL */
+    arxivUrl: z.string().url(),
+    /** Embeddingベクトル（1536次元） */
+    embedding: z.array(z.number()).optional(),
+  })
+  .refine(
+    (paper) =>
+      paper.authorAffiliations === undefined ||
+      isValidAuthorAffiliations(paper.authors, paper.authorAffiliations),
+    { message: "Affiliations must have one row per author", path: ["authorAffiliations"] }
+  );
 
 export type Paper = z.infer<typeof PaperSchema>;
 
