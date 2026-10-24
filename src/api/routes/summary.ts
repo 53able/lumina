@@ -2,9 +2,14 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import { now } from "../../shared/utils/dateTime.js";
-import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError.js";
+import { getLogger } from "../lib/logger.js";
+import {
+  getStageErrorLogLevel,
+  toStageError,
+  UPSTREAM_ERROR_STATUS,
+} from "../lib/upstreamError.js";
 import { generateExplanation, generateSummary, getOpenAIConfig } from "../services/openai.js";
-import type { Env } from "../types/env.js";
+import type { AppEnv } from "../types/env.js";
 
 /**
  * 生成対象の種類
@@ -59,7 +64,7 @@ const generateStubKeyPoints = (language: "ja" | "en"): string[] => {
 /**
  * 要約 API アプリケーション
  */
-export const summaryApp = new Hono<{ Bindings: Env }>().post(
+export const summaryApp = new Hono<AppEnv>().post(
   "/summary/:id",
   // 要求の検証の失敗（Abstract の上限超過など）は再試行で解決しないため、retryable: false の分類で返す
   zValidator("json", SummaryRequestSchema, (result, c) => {
@@ -112,8 +117,10 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
         try {
           explanationResult = await generateExplanation(abstract, language, config);
         } catch (error) {
+          // 外側へ再送出する場合はここで記録しない（同じ失敗が2行になるのを防ぐ）
           if (!summaryResult) throw error;
           explanationError = toStageError(error);
+          getLogger(c).warn({ ...explanationError, err: error }, "summary explanation failed");
         }
       }
 
@@ -141,6 +148,10 @@ export const summaryApp = new Hono<{ Bindings: Env }>().post(
       // 全体の失敗も工程別の失敗と同じ分類で返し、上流のエラー文（キーの一部を含みうる）は返さない。
       // error は古いクライアント向けの固定文言。ステータスは Embedding API（#44）に揃える
       const stageError = toStageError(error);
+      getLogger(c)[getStageErrorLogLevel(error, stageError)](
+        { ...stageError, err: error },
+        "summary failed"
+      );
       return c.json(
         { error: SUMMARY_FAILED_MESSAGE, ...stageError },
         UPSTREAM_ERROR_STATUS[stageError.code]

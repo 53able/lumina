@@ -8,7 +8,10 @@ import {
   resolveKeyPointEvidence,
   splitAbstractSentences,
 } from "../../shared/utils/abstractSentences.js";
+import { OpenAIApiKeyNotConfiguredError } from "../lib/errors.js";
 import type { Env } from "../types/env.js";
+
+export { OpenAIApiKeyNotConfiguredError };
 
 /**
  * 生成タスクごとの使用モデル
@@ -118,16 +121,6 @@ export interface ExplanationResult {
 }
 
 /**
- * OpenAI APIキーが設定されていないときに getOpenAIConfig が投げるエラー
- */
-export class OpenAIApiKeyNotConfiguredError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "OpenAIApiKeyNotConfiguredError";
-  }
-}
-
-/**
  * リクエストからOpenAI APIキーを取得する
  *
  * 優先順位: 1. リクエストヘッダー (X-OpenAI-API-Key) 2. 環境変数 (OPENAI_API_KEY)
@@ -140,7 +133,7 @@ export class OpenAIApiKeyNotConfiguredError extends Error {
  * @returns OpenAI設定オブジェクト
  * @throws APIキーが設定されていない場合
  */
-export const getOpenAIConfig = (c: Context<{ Bindings: Env }>): OpenAIConfig => {
+export const getOpenAIConfig = <E extends { Bindings: Env }>(c: Context<E>): OpenAIConfig => {
   const headerKey = c.req.header("X-OpenAI-API-Key");
   const envKey = c.env?.OPENAI_API_KEY;
 

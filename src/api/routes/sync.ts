@@ -3,13 +3,20 @@ import { Hono } from "hono";
 import type { Paper } from "../../shared/schemas/index.js";
 import { EMBEDDING_BATCH_MAX_SIZE, SyncRequestSchema } from "../../shared/schemas/index.js";
 import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
+import { getLogger } from "../lib/logger.js";
+import { toStageError } from "../lib/upstreamError.js";
 import {
   ArxivRateLimitError,
   ArxivServiceUnavailableError,
   fetchArxivPapers,
 } from "../services/arxivFetcher.js";
-import { createEmbeddingsBatch, getOpenAIConfig, type OpenAIConfig } from "../services/openai.js";
-import type { Env } from "../types/env.js";
+import {
+  createEmbeddingsBatch,
+  getOpenAIConfig,
+  OpenAIApiKeyNotConfiguredError,
+  type OpenAIConfig,
+} from "../services/openai.js";
+import type { AppEnv } from "../types/env.js";
 
 /**
  * Embedding 生成に使える時間（リクエスト開始から）。maxDuration 60 秒に対し、超えたら残りは Embedding なしで返す。
@@ -40,7 +47,7 @@ const generatePapersEmbeddingsBatch = async (
 /**
  * 同期 API アプリケーション
  */
-export const syncApp = new Hono<{ Bindings: Env }>().post(
+export const syncApp = new Hono<AppEnv>().post(
   "/sync",
   zValidator("json", SyncRequestSchema),
   async (c) => {
@@ -90,10 +97,14 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
                   ? await generatePapersEmbeddingsBatch(newInChunk, config, abortSignal)
                   : [];
             } catch (error) {
-              console.warn(
-                "[sync] embedding stopped",
-                { chunkStart: i, elapsedMs: measureTime(startTime) },
-                error
+              getLogger(c).warn(
+                {
+                  chunkStart: i,
+                  elapsedMs: measureTime(startTime),
+                  code: toStageError(error).code,
+                  err: error,
+                },
+                "sync embedding stopped"
               );
               // 締め切り・上流の失敗では、生成済みの分を残して残りを Embedding なしで返す
               results.push(...arxivResult.papers.slice(i).map((paper) => ({ ...paper })));
@@ -108,7 +119,19 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
             results.push(...ordered);
           }
           return results;
-        } catch {
+        } catch (error) {
+          // キー未設定は利用者の設定の問題なので debug。それ以外の失敗は warn
+          if (error instanceof OpenAIApiKeyNotConfiguredError) {
+            getLogger(c).debug(
+              { code: toStageError(error).code, err: error },
+              "sync embedding skipped"
+            );
+          } else {
+            getLogger(c).warn(
+              { code: toStageError(error).code, err: error },
+              "sync embedding skipped"
+            );
+          }
           return arxivResult.papers;
         }
       })();
@@ -124,8 +147,9 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
       );
     } catch (error) {
       // 上流の本文・待ち時間・例外の詳細はログにだけ出し、応答は固定の文言にする
-      console.error("[sync] error", { bodyStart: body.start }, error);
+      const logger = getLogger(c);
       if (error instanceof ArxivRateLimitError) {
+        logger.warn({ code: "rate_limit", bodyStart: body.start, err: error }, "sync failed");
         const headers: Record<string, string> = {};
         if (error.retryAfterSec != null && Number.isFinite(error.retryAfterSec)) {
           headers["Retry-After"] = String(Math.max(1, Math.floor(error.retryAfterSec)));
@@ -137,6 +161,7 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
         );
       }
       if (error instanceof ArxivServiceUnavailableError) {
+        logger.warn({ code: "upstream", bodyStart: body.start, err: error }, "sync failed");
         // arXiv の一時的な障害・タイムアウト。クライアントには短い間隔での再試行を促す
         return c.json(
           { error: "arXiv is temporarily unavailable.", code: "upstream", retryable: true },
@@ -144,6 +169,7 @@ export const syncApp = new Hono<{ Bindings: Env }>().post(
           { "Retry-After": "5" }
         );
       }
+      logger.error({ code: "internal", bodyStart: body.start, err: error }, "sync failed");
       return c.json({ error: "Sync failed.", code: "internal", retryable: false }, 500);
     }
   }

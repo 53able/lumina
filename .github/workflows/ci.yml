@@ -4,8 +4,8 @@ name: CI
 on:
   push:
     branches: [main]
+  # スタックPR（main 以外が base）でも CI を動かすため、branches を指定しない
   pull_request:
-    branches: [main]
 
 jobs:
   test:
@@ -33,6 +33,17 @@ jobs:
 
       - name: Lint
         run: pnpm run lint:check
+
+      # ロガー呼び出しの引数でエラーを文字列にしていないか検査する（rg を使う）
+      - name: Install ripgrep
+        run: command -v rg || (sudo apt-get update && sudo apt-get install -y ripgrep)
+
+      - name: Lint logs
+        run: pnpm lint:logs
+
+      # lint:logs の正規表現が違反のサンプル（tests/fixtures/logLint）を検出できることを確かめる
+      - name: Lint logs selftest
+        run: pnpm lint:logs:selftest
 
       - name: Test
         run: pnpm test

@@ -2,6 +2,7 @@ import { APICallError, RetryError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMBEDDING_DIMENSION } from "../../shared/schemas/index";
 import { createApp } from "../app";
+import { createLogger } from "../lib/logger";
 
 // OpenAIサービスをモック
 vi.mock("../services/openai", async (importOriginal) => {
@@ -35,11 +36,21 @@ const quotaError = () => {
 };
 
 describe("検索API", () => {
-  const app = createApp();
+  /** ルートが出したログ（メモリの sink に書かせて JSON で読む） */
+  const logLines: Record<string, unknown>[] = [];
+  const app = createApp({
+    logger: createLogger({
+      level: "trace",
+      sink: { write: (line) => logLines.push(JSON.parse(line)) },
+    }),
+  });
+  /** アクセスログ以外の行 */
+  const routeLogs = () => logLines.filter((line) => line.msg !== "request");
   const openAIKeyHeader = "test-openai-api-key";
 
   beforeEach(() => {
     vi.clearAllMocks();
+    logLines.length = 0;
 
     // expandQueryのモック
     vi.mocked(expandQuery).mockResolvedValue({
@@ -360,6 +371,65 @@ describe("検索API", () => {
 
       // Assert
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe("ログ", () => {
+    const postSearch = (body: Record<string, unknown>, withApiKey = true) =>
+      app.request(
+        new Request("http://localhost/api/v1/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(withApiKey ? { "X-OpenAI-API-Key": openAIKeyHeader } : {}),
+          },
+          body: JSON.stringify(body),
+        })
+      );
+
+    it.each([
+      [
+        "上流 401",
+        Object.assign(new Error("key sk-proj-abcd"), { statusCode: 401 }),
+        "auth",
+        "warn",
+      ],
+      ["残高不足", quotaError(), "quota", "warn"],
+      [
+        "上流 500",
+        Object.assign(new Error("key sk-proj-abcd"), { statusCode: 500 }),
+        "upstream",
+        "error",
+      ],
+      [
+        "JSONの解析失敗",
+        new SyntaxError("Unexpected token 'A', \"sk-proj-abcd\""),
+        "invalid_output",
+        "error",
+      ],
+    ] as const)("%s は code=%s の行を %s で1行だけ出し、上流のエラー文は出さない", async (_label, error, code, level) => {
+      vi.mocked(expandQuery).mockRejectedValueOnce(error);
+
+      await postSearch({ query: "深層学習" });
+
+      expect(routeLogs()).toEqual([expect.objectContaining({ level, code, msg: "search failed" })]);
+      expect(JSON.stringify(logLines)).not.toContain("sk-");
+    });
+
+    it("キー未設定でスタブを返すときは debug で1行だけ出す", async () => {
+      await postSearch({ query: "深層学習" }, false);
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "debug", code: "auth", msg: "search stub returned" }),
+      ]);
+    });
+
+    it("検索文を指定した再検索でキー未設定のときは debug で1行だけ出す", async () => {
+      await postSearch({ query: "深層学習", embeddingText: "deep learning" }, false);
+
+      expect(routeLogs()).toEqual([
+        expect.objectContaining({ level: "debug", code: "auth", msg: "search failed" }),
+      ]);
     });
   });
 });

@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
+import { rootLogger } from "./lib/logger.js";
 
 /**
  * 開発用APIサーバーのエントリーポイント
@@ -17,6 +18,6 @@ serve(
     port,
   },
   (info) => {
-    console.log(`🚀 API Server is running on http://localhost:${info.port}`);
+    rootLogger.info({ port: info.port }, "API server started");
   }
 );

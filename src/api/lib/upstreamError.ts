@@ -1,6 +1,6 @@
 import { RetryError } from "ai";
 import { z } from "zod";
-import { OpenAIApiKeyNotConfiguredError } from "../services/openai.js";
+import { OpenAIApiKeyNotConfiguredError } from "./errors.js";
 
 /** 失敗の分類（上流のエラー文を含まない） */
 export type UpstreamErrorCode = "rate_limit" | "quota" | "auth" | "invalid_output" | "upstream";
@@ -31,6 +31,19 @@ const isInsufficientQuota = (source: unknown): boolean => {
 };
 
 /**
+ * 上流（OpenAI）の失敗から HTTP ステータスを取り出す（数値でなければ undefined）
+ * AI SDK は 429 などを再試行し、上限到達時は RetryError に包んで投げる（statusCode は lastError 側）
+ */
+export const getUpstreamStatusCode = (error: unknown): number | undefined => {
+  const source = RetryError.isInstance(error) ? error.lastError : error;
+  const statusCode =
+    source && typeof source === "object" && "statusCode" in source
+      ? (source as { statusCode: unknown }).statusCode
+      : undefined;
+  return typeof statusCode === "number" ? statusCode : undefined;
+};
+
+/**
  * 上流（OpenAI）の失敗を、上流のエラー文を含まない安全な分類へ変換する
  * クライアントは code から案内文を作る（rate_limit: 待つ / quota: 残高・請求設定を確認する / auth: 設定を直す / それ以外: 再試行）
  */
@@ -40,17 +53,29 @@ export const toStageError = (error: unknown): { code: UpstreamErrorCode; retryab
   if (error instanceof SyntaxError || error instanceof z.ZodError) {
     return { code: "invalid_output", retryable: true };
   }
-  // AI SDK は 429 などを再試行し、上限到達時は RetryError に包んで投げる（statusCode は lastError 側）
+  const statusCode = getUpstreamStatusCode(error);
+  // 残高不足の判定は本文を見るため、RetryError なら lastError 側を渡す
   const source = RetryError.isInstance(error) ? error.lastError : error;
-  const statusCode =
-    source && typeof source === "object" && "statusCode" in source
-      ? (source as { statusCode: unknown }).statusCode
-      : undefined;
   if (statusCode === 401 || statusCode === 403) return { code: "auth", retryable: false };
   // 残高不足も 429 で返るが、待っても直らないため rate_limit とは分ける
   if (statusCode === 429 && isInsufficientQuota(source)) return { code: "quota", retryable: false };
   if (statusCode === 429) return { code: "rate_limit", retryable: true };
   return { code: "upstream", retryable: true };
+};
+
+/**
+ * toStageError で分類した失敗をログに出すときの level
+ * キー未設定は利用者の設定の問題なので debug。一時的な上流の失敗（auth / quota / rate_limit）は warn、
+ * 想定外の 500（upstream / invalid_output）は error
+ * stageError は呼び出し側で計算済みなら渡す（toStageError を二重に呼ばないため）
+ */
+export const getStageErrorLogLevel = (
+  error: unknown,
+  stageError: { code: UpstreamErrorCode } = toStageError(error)
+): "debug" | "warn" | "error" => {
+  if (error instanceof OpenAIApiKeyNotConfiguredError) return "debug";
+  const { code } = stageError;
+  return code === "upstream" || code === "invalid_output" ? "error" : "warn";
 };
 
 /** 分類ごとの HTTP ステータス（キー未設定・401/403 → 401、429 → 429、残高不足 → 402、それ以外 → 500） */
