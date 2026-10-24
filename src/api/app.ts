@@ -8,6 +8,7 @@ import {
 } from "./middleware/rateLimit.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { createSecurityHeadersMiddleware } from "./middleware/securityHeaders.js";
+import { affiliationsApp } from "./routes/affiliations.js";
 import { categoriesApp } from "./routes/categories.js";
 import { embeddingApp } from "./routes/embedding.js";
 import { healthApp } from "./routes/health.js";
@@ -36,6 +37,7 @@ export const createApp = ({ logger = rootLogger }: { logger?: Logger } = {}) => 
     .use(SYNC_PATH, syncRateLimitMiddleware)
     .use("/api/v1/*", apiRateLimitMiddleware)
     .route("/", healthApp)
+    .route("/api/v1", affiliationsApp)
     .route("/api/v1", categoriesApp)
     .route("/api/v1", embeddingApp)
     .route("/api/v1", searchApp)

@@ -16,6 +16,14 @@ export const PaperSchema = z
     authors: z.array(z.string()),
     /** 著者と同じ順序の所属。未取得は省略、所属不明は空配列 */
     authorAffiliations: z.array(z.array(z.string())).optional(),
+    /** 本文HTMLで確認した論文単位の所属。著者ごとの対応は保証しない */
+    paperAffiliationEvidence: z
+      .object({
+        organizations: z.array(z.string()),
+        sourceUrl: z.string().url(),
+        checkedAt: z.coerce.date(),
+      })
+      .optional(),
     /** arXivカテゴリ */
     categories: z.array(z.string()),
     /** 公開日 */

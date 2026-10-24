@@ -715,6 +715,8 @@ describe("PaperExplorer", () => {
       expect(panel.contains(document.activeElement)).toBe(false);
       expect(toggle).not.toHaveFocus();
       // 次のフォーカス先は一覧の論文カード内の操作
+      expect(document.activeElement).toHaveAccessibleName("本文から所属を取得");
+      await user.tab();
       expect(document.activeElement).toHaveAccessibleName("いいね");
     });
   });
@@ -936,6 +938,8 @@ describe("PaperExplorer", () => {
       expect(screen.getByRole("button", { name: "検索" })).toHaveFocus();
       await user.tab();
       expect(getCategoryDisclosure().toggle).toHaveFocus();
+      await user.tab();
+      expect(document.activeElement).toHaveAccessibleName("本文から所属を取得");
       await user.tab();
       expect(document.activeElement).toHaveAccessibleName("いいね");
     });

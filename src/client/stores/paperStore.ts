@@ -66,6 +66,13 @@ interface PaperActions {
   addPapers: (papers: Paper[], options?: { source: "cache" }) => Promise<void>;
   /** 生成元を照合し、現在のメタデータを保ってEmbeddingだけを保存する */
   savePaperEmbeddings: (updates: PaperEmbeddingUpdate[]) => Promise<void>;
+  /** 取得元の著者・更新日を照合し、本文で確認した論文単位の所属だけを保存する */
+  savePaperAffiliationEvidence: (
+    id: string,
+    authors: string[],
+    updatedAt: Date,
+    evidence: NonNullable<Paper["paperAffiliationEvidence"]>
+  ) => Promise<void>;
   /** IDで論文を取得する */
   getPaperById: (id: string) => PaperListItem | undefined;
   /** 全件の準備完了を待ってから検索用索引を検索する（signal で中止すると索引での計算も打ち切る） */
@@ -160,6 +167,19 @@ const mergeStoredPapers = async (
         paper.authorAffiliations = current.authorAffiliations;
       }
     }
+    if (current) {
+      if (
+        !sameAuthors(current.authors, paper.authors) ||
+        current.updatedAt.getTime() !== paper.updatedAt.getTime()
+      ) {
+        delete paper.paperAffiliationEvidence;
+      } else if (
+        paper.paperAffiliationEvidence === undefined &&
+        current.paperAffiliationEvidence !== undefined
+      ) {
+        paper.paperAffiliationEvidence = current.paperAffiliationEvidence;
+      }
+    }
     if ((!paper.embedding || paper.embedding.length === 0) && current?.embedding?.length) {
       paper.embedding = current.embedding;
     }
@@ -235,6 +255,26 @@ export const usePaperStore = create<PaperStore>()(
             });
             await db.papers.bulkPut(merged);
             return merged;
+          });
+          publishPapers(db, stored);
+        },
+
+        savePaperAffiliationEvidence: async (id, authors, updatedAt, evidence) => {
+          const db = get()._db;
+          if (!db) throw new Error("DB not initialized");
+          await whenPapersReady();
+          const stored = await db.transaction("rw", db.papers, async () => {
+            const current = await db.papers.get(id);
+            if (
+              !current ||
+              !sameAuthors(current.authors, authors) ||
+              current.updatedAt.getTime() !== updatedAt.getTime()
+            ) {
+              throw new Error(`Affiliation source changed or paper deleted: ${id}`);
+            }
+            const paper = { ...current, paperAffiliationEvidence: evidence };
+            await db.papers.put(paper);
+            return [paper];
           });
           publishPapers(db, stored);
         },
