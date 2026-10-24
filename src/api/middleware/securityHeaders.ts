@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import type { Env } from "../types/env";
+import type { Env } from "../types/env.js";
 
 /**
  * セキュリティヘッダーの設定値
@@ -19,7 +19,7 @@ const getSecurityHeaders = (isProd: boolean): Readonly<Record<string, string>> =
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https:",
-      "connect-src 'self' https://api.openai.com https://export.arxiv.org",
+      "connect-src 'self'",
     ].join("; ");
   }
 

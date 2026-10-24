@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ArxivQueryOptions, fetchArxivPapers, parseArxivEntry } from "./arxivFetcher";
+import {
+  type ArxivQueryOptions,
+  ArxivRateLimitError,
+  ArxivServiceUnavailableError,
+  fetchArxivPapers,
+  parseArxivEntry,
+  resetArxivGateForTest,
+} from "./arxivFetcher";
 
 describe("arXivFetcher", () => {
   describe("parseArxivEntry", () => {
@@ -83,6 +90,8 @@ describe("arXivFetcher", () => {
 
   describe("fetchArxivPapers", () => {
     beforeEach(() => {
+      // 前のテストの送信予約が残っていると送信間隔の待ちが発生するため初期化する
+      resetArxivGateForTest();
       // fetchをモック
       global.fetch = vi.fn();
     });
@@ -258,6 +267,155 @@ describe("arXivFetcher", () => {
       expect(url).toContain("20240615");
       expect(url).toContain("20240516");
       expect(url).toContain("TO");
+    });
+  });
+
+  describe("送信間隔とエラー分類", () => {
+    const emptyFeed = `<?xml version="1.0" encoding="UTF-8"?>
+      <feed xmlns="http://www.w3.org/2005/Atom">
+        <opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">0</opensearch:totalResults>
+      </feed>`;
+    const options: ArxivQueryOptions = { categories: ["cs.AI"], maxResults: 10 };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      resetArxivGateForTest();
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve(emptyFeed),
+      } as Response);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it("https の arXiv API に 25 秒のタイムアウト付きで送信する", async () => {
+      await fetchArxivPapers(options);
+
+      const [url, init] = vi.mocked(global.fetch).mock.calls[0];
+      expect(url as string).toMatch(/^https:\/\/export\.arxiv\.org\/api\/query\?/);
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it("連続して呼ぶと 2 回目の送信は 1 回目から 3 秒後になる", async () => {
+      await fetchArxivPapers(options);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      const second = fetchArxivPapers(options);
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await second;
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("実行中の fetch が終わるまで 2 本目を送らない", async () => {
+      let finishFirst = (): void => {};
+      vi.mocked(global.fetch).mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishFirst = () =>
+              resolve({ ok: true, text: () => Promise.resolve(emptyFeed) } as Response);
+          })
+      );
+
+      const first = fetchArxivPapers(options);
+      const second = fetchArxivPapers(options);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      finishFirst();
+      await first;
+      await vi.advanceTimersByTimeAsync(0);
+      await second;
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("並んだ後に前のリクエストが 15 秒を超えて終わらなければ、送信せずに ArxivRateLimitError を投げる", async () => {
+      let finishFirst = (): void => {};
+      vi.mocked(global.fetch).mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishFirst = () =>
+              resolve({ ok: true, text: () => Promise.resolve(emptyFeed) } as Response);
+          })
+      );
+
+      const first = fetchArxivPapers(options);
+      const second = fetchArxivPapers(options).catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(15_000);
+      const error = await second;
+      expect(error).toBeInstanceOf(ArxivRateLimitError);
+      expect((error as ArxivRateLimitError).retryAfterSec).toBe(3);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      // 抜けた後も直列は保たれ、次のリクエストは実行中の fetch の完了まで送らない
+      const third = fetchArxivPapers(options);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+      finishFirst();
+      await first;
+      await vi.advanceTimersByTimeAsync(0);
+      await third;
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("前のリクエストが失敗しても後続は 3 秒後に送信される", async () => {
+      vi.mocked(global.fetch).mockRejectedValueOnce(new TypeError("fetch failed"));
+
+      const first = fetchArxivPapers(options).catch((error: unknown) => error);
+      const second = fetchArxivPapers(options);
+      expect(await first).toBeInstanceOf(ArxivServiceUnavailableError);
+
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await second;
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("見積もり待ち時間が 15 秒を超える場合は並ばずに ArxivRateLimitError を投げる", async () => {
+      // 前にいる件数 × 3 秒 が 0, 3, 6, 9, 12, 15 秒の 6 件は受け付ける
+      const accepted = Array.from({ length: 6 }, () => fetchArxivPapers(options));
+
+      // 7 件目は 18 秒待ちの見積もりになるため即時に拒否される（超過 3 秒 + 3 秒）
+      const rejected = await fetchArxivPapers(options).catch((error: unknown) => error);
+      expect(rejected).toBeInstanceOf(ArxivRateLimitError);
+      expect((rejected as ArxivRateLimitError).retryAfterSec).toBe(6);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await Promise.all(accepted);
+      expect(global.fetch).toHaveBeenCalledTimes(6);
+    });
+
+    it("タイムアウトは ArxivServiceUnavailableError になる", async () => {
+      vi.mocked(global.fetch).mockRejectedValue(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      );
+
+      await expect(fetchArxivPapers(options)).rejects.toBeInstanceOf(ArxivServiceUnavailableError);
+    });
+
+    it("ネットワーク失敗（fetch の TypeError）は ArxivServiceUnavailableError になる", async () => {
+      vi.mocked(global.fetch).mockRejectedValue(new TypeError("fetch failed"));
+
+      await expect(fetchArxivPapers(options)).rejects.toBeInstanceOf(ArxivServiceUnavailableError);
+    });
+
+    it.each([502, 503, 504])("%i は ArxivServiceUnavailableError になる", async (status) => {
+      vi.mocked(global.fetch).mockResolvedValue({
+        ok: false,
+        status,
+        statusText: "Bad Gateway",
+        headers: new Headers(),
+        text: () => Promise.resolve(""),
+      } as Response);
+
+      await expect(fetchArxivPapers(options)).rejects.toBeInstanceOf(ArxivServiceUnavailableError);
     });
   });
 });

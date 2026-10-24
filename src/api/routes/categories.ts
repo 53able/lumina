@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { Category } from "../../shared/schemas/index";
-import type { Env } from "../types/env";
+import type { Category } from "../../shared/schemas/index.js";
+import type { Env } from "../types/env.js";
 
 /**
  * デフォルトで選択されるカテゴリID

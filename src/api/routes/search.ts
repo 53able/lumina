@@ -1,15 +1,15 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { type ExpandedQuery, SearchRequestSchema } from "../../shared/schemas/index";
-import { measureTime, timestamp } from "../../shared/utils/dateTime";
-import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError";
+import { type ExpandedQuery, SearchRequestSchema } from "../../shared/schemas/index.js";
+import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
+import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError.js";
 import {
   createEmbedding,
   expandQuery,
   getOpenAIConfig,
   OpenAIApiKeyNotConfiguredError,
-} from "../services/openai";
-import type { Env } from "../types/env";
+} from "../services/openai.js";
+import type { Env } from "../types/env.js";
 
 /** 失敗時に error として返す固定文言（上流のエラー文の代わり） */
 const SEARCH_FAILED_MESSAGE = "検索に失敗しました";

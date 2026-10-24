@@ -1,15 +1,15 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { EmbeddingBatchRequestSchema, EmbeddingRequestSchema } from "../../shared/schemas/index";
-import { measureTime, timestamp } from "../../shared/utils/dateTime";
-import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError";
+import { EmbeddingBatchRequestSchema, EmbeddingRequestSchema } from "../../shared/schemas/index.js";
+import { measureTime, timestamp } from "../../shared/utils/dateTime.js";
+import { toStageError, UPSTREAM_ERROR_STATUS } from "../lib/upstreamError.js";
 import {
   createEmbedding,
   createEmbeddingsBatch,
   EMBEDDING_MODEL,
   getOpenAIConfig,
-} from "../services/openai";
-import type { Env } from "../types/env";
+} from "../services/openai.js";
+import type { Env } from "../types/env.js";
 
 /** 失敗時に error として返す固定文言（上流のエラー文の代わり） */
 const EMBEDDING_FAILED_MESSAGE = "Embeddingの生成に失敗しました";
