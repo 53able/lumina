@@ -69,6 +69,14 @@ export const ApiSettings: FC = () => {
           onChange={(e) => setInputValue(e.target.value)}
           placeholder={hasApiKey() ? "••••••••（設定済み - 新しいキーで上書き）" : "sk-..."}
         />
+        <a
+          href="https://platform.openai.com/api-keys"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block text-xs text-primary underline underline-offset-4 hover:text-primary-light"
+        >
+          OpenAIでAPIキーを取得（新しいタブで開きます）
+        </a>
         {hasApiKey() && (
           <p className="text-xs text-muted-foreground">API key は暗号化されて保存されています</p>
         )}
